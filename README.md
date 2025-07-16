@@ -1,36 +1,121 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Ecast Academy 🎓
 
-## Getting Started
+Ecast Academy is a modern, AI-powered e-learning platform built with Next.js 15, Drizzle, and Google Gemini. It transforms any YouTube video or playlist into a fully interactive course, complete with detailed notes and quizzes, all generated automatically by AI.
 
-First, run the development server:
+## 🚀 Tech Stack
+
+-   **Framework**: [Next.js](https://nextjs.org/) 15 (App Router & Turbopack)
+-   **Database**: [PostgreSQL](https://www.postgresql.org/) (via [Neon](https://neon.tech/))
+-   **ORM**: [Drizzle ORM](https://orm.drizzle.team/)
+-   **AI**: [Google Gemini](https://ai.google.dev/)
+-   **Styling**: [Tailwind CSS v4](https://tailwindcss.com/)
+-   **UI Components**: [Shadcn/ui](https://ui.shadcn.com/)
+-   **Forms**: [React Hook Form](https://react-hook-form.com/) & [Zod](https://zod.dev/)
+-   **Language**: [TypeScript](https://www.typescriptlang.org/)
+
+## ⚙️ Getting Started: Quick Setup
+
+Follow these instructions to get a copy of the project up and running on your local machine for development and testing purposes.
+
+### 1. Prerequisites
+
+Make sure you have the following installed on your machine:
+-   [Node.js](https://nodejs.org/) (v20.x or higher recommended)
+-   [npm](https://www.npmjs.com/), [yarn](https://yarnpkg.com/), or [pnpm](https://pnpm.io/)
+-   [Git](https://git-scm.com/)
+
+### 2. Clone the Repository
+
+```bash
+git clone https://github.com/your-username/ecast-academy.git
+cd ecastacademy
+```
+
+### 3. Install Dependencies
+
+Install the project dependencies using your preferred package manager.
+
+```bash
+npm install
+```
+
+### 4. Set Up Environment Variables
+
+Create a `.env` file in the root of your project by copying the example file:
+
+```bash
+cp .env.example .env
+```
+
+Now, fill in the `.env` file with your credentials:
+
+```ini
+# .env
+
+# Database Connection String (from Neon)
+DATABASE_URL="postgres://..."
+
+# Google Gemini API Key (from Google AI Studio)
+GEMINI_API_KEY="your_gemini_api_key"
+
+# YouTube Data API v3 Key (from Google Cloud Console)
+NEXT_PUBLIC_YOUTUBE_API_KEY="your_youtube_api_key"
+```
+
+-   **`DATABASE_URL`**: Get this from your [Neon](https://neon.tech/) project dashboard.
+-   **`GEMINI_API_KEY`**: Obtain this from the [Google AI Studio](https://aistudio.google.com/app/apikey).
+-   **`NEXT_PUBLIC_YOUTUBE_API_KEY`**: Get this from the [Google Cloud Console](https://console.cloud.google.com/apis/library/youtube.googleapis.com). You need to enable the "YouTube Data API v3".
+
+### 5. Database Setup
+
+This project uses Drizzle ORM to manage the database schema. Once your `DATABASE_URL` is set, you can push the schema to your Neon database.
+
+Run the following command to sync your database with the schema defined in `src/db/schema.ts`:
+
+```bash
+npx drizzle-kit push
+```
+
+This will create the necessary tables (`courses`, `videos`, `chapters`) in your database.
+
+### 6. Run the Development Server
+
+You are now ready to start the development server.
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The application will be available at [http://localhost:3000](http://localhost:3000). The development server uses **Turbopack** for maximum speed.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 📂 Project Structure
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+The project follows a feature-colocated structure within the Next.js App Router paradigm.
 
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```
+src
+├── app/                # Next.js App Router (Pages & API Routes)
+│   ├── api/            # API endpoints for courses, transcripts, etc.
+│   ├── dashboard/      # Dashboard pages (explore, create, etc.)
+│   └── learnspace/     # The interactive learning interface
+│
+├── components/         # React components
+│   ├── create/         # Components for the course creation page
+│   ├── dashboard/      # Components for the main dashboard
+│   ├── learnspace/     # Components for the learning interface
+│   └── ui/             # Re-usable UI components (from Shadcn/ui)
+│
+├── context/            # React Context providers
+│
+├── db/                 # Drizzle ORM setup
+│   ├── queries/        # Encapsulated database queries
+│   └── schema.ts       # Database schema definition
+│
+├── hooks/              # Custom React hooks
+│
+└── lib/                # Core libraries, utilities, and services
+    ├── services/       # Business logic (AI, YouTube API, Course service)
+    ├── validators/     # Zod schemas for data validation
+    ├── prompts.ts      # Prompts for the Google Gemini API
+    └── utils.ts        # Shared utility functions
+```
