@@ -94,7 +94,8 @@ export async function deleteCourse(courseId: string): Promise<void> {
   }
 }
 
-export async function getAllCoursesWithThumbnails(): Promise<CourseWithThumbnail[]> {
-  const courses = await courseQueries.findAllCoursesWithFirstChapterThumbnail();
+export async function getAllCoursesWithThumbnails(page: number, limit: number): Promise<CourseWithThumbnail[]> {
+  const offset = (page - 1) * limit;
+  const courses = await courseQueries.findAllCoursesWithFirstChapterThumbnail(limit, offset);
   return courses;
 }

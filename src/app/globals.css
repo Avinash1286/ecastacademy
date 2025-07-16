@@ -129,4 +129,17 @@
   body {
     @apply bg-background text-foreground;
   }
+  
+  /* Add these new rules */
+  button,
+  a,
+  [role="button"] {
+    @apply cursor-pointer;
+  }
+
+  button:disabled,
+  a[aria-disabled="true"],
+  [role="button"][aria-disabled="true"] {
+    @apply cursor-not-allowed;
+  }
 }

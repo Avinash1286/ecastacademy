@@ -144,7 +144,7 @@ export function QuizQuestion({ question, questionIndex }: QuizQuestionProps) {
             )}
             
             {/* Fill-in-the-Blank Questions */}
-            {question.type === 'fill-blank' || question.type === 'fill-in-the-blank' && (
+            {(question.type === 'fill-blank' || question.type === 'fill-in-the-blank') && (
               <div className="space-y-2">
                 <Input
                   type="text"

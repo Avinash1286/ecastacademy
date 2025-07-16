@@ -5,13 +5,14 @@ import type { ChapterWithVideo } from '@/lib/types';
 
 type VideoPlayerProps = {
   video: ChapterWithVideo['video'];
+  isPlayerVisible: boolean;
 };
 
-export function VideoPlayer({ video }: VideoPlayerProps) {
+export function VideoPlayer({ video, isPlayerVisible }: VideoPlayerProps) {
 
   const opts: YouTubeProps['opts'] = {
     playerVars: {
-      autoplay: 1,
+      autoplay: isPlayerVisible ? 1 : 0, 
       controls: 1,
       rel: 0,
       showinfo: 0,
@@ -20,17 +21,22 @@ export function VideoPlayer({ video }: VideoPlayerProps) {
   };
 
   if (!video.videoId) {
-    return <div className="aspect-video w-full rounded-lg bg-zinc-800 flex items-center justify-center text-zinc-400">Invalid YouTube URL</div>;
+    return (
+      <div className="flex aspect-video w-full items-center justify-center rounded-lg bg-muted text-center text-muted-foreground">
+        Invalid YouTube URL
+      </div>
+    );
   }
 
   return (
-    <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-black">
+    // Use bg-muted as a theme-aware letterbox/loading background
+    <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-muted">
       <YouTube
         key={video.videoId}
         videoId={video.videoId}
         opts={opts}
-        className="absolute inset-0 w-full h-full"
-        iframeClassName="w-full h-full"
+        className="absolute inset-0 h-full w-full"
+        iframeClassName="h-full w-full"
       />
     </div>
   );

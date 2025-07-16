@@ -27,11 +27,12 @@ export function VideoChapters({
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between">
-        <h2 className="flex items-center gap-2 text-lg font-semibold text-zinc-200">
+        <h2 className="flex items-center gap-2 text-lg font-semibold text-foreground">
           <BookOpen size={20} />
           Chapters
         </h2>
         <div className="flex items-center">
+          {/* These buttons are already using variants correctly, no changes needed */}
           <Button 
             type="button" 
             variant="ghost" 
@@ -39,7 +40,7 @@ export function VideoChapters({
             aria-label="Toggle player visibility" 
             onClick={onHide}
           >
-            {isPlayerVisible ?<ChevronUp className="h-5 w-5" />:  <ChevronDown className="h-5 w-5" />  }
+            {isPlayerVisible ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
           </Button>
 
           {isMobile && (
@@ -63,12 +64,14 @@ export function VideoChapters({
               key={chapter.id}
               onClick={() => onChapterSelect(chapter)}
               className={cn(
-                "p-3 rounded-md bg-zinc-800/50 cursor-pointer hover:bg-zinc-700 transition-colors border border-transparent",
-                chapter.id === activeChapterId && "bg-zinc-700/80 border-teal-500/50"
+                "cursor-pointer rounded-lg border p-3 transition-colors",
+                "border-transparent bg-muted/50 text-foreground hover:bg-accent hover:text-accent-foreground",
+                chapter.id === activeChapterId && "border-secondary bg-accent text-accent-foreground"
               )}
             >
-              <p className="text-xs text-zinc-400">Chapter {chapter.order}</p>
-              <h3 className="font-semibold text-white">{chapter.name}</h3>
+              <p className="text-xs text-muted-foreground">Chapter {chapter.order}</p>
+              {/* Text color is now inherited from the parent div */}
+              <h3 className="font-semibold">{chapter.name}</h3>
             </div>
           ))}
         </div>

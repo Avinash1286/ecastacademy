@@ -1,6 +1,6 @@
 'use client';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft,FileQuestion, Library, MessageCircle, StickyNote } from 'lucide-react';
+import { FileQuestion, Library, MessageCircle, StickyNote, ArrowLeft } from 'lucide-react';
 
 const NAV_ITEMS = [
   { id: 'chat', label: 'Chat', icon: MessageCircle },
@@ -23,18 +23,21 @@ export function TutorHeader({
   onTabChange 
 }: TutorHeaderProps) {
   return (
-    <div className="flex shrink-0 items-center gap-2 border-b border-zinc-800 p-2 sm:gap-4">
+    <div className="flex shrink-0 items-center gap-2 border-b border-border p-2 sm:gap-4">
+      {/* This button is already correctly using a variant */}
       <Button type="button" variant="ghost" size="icon" aria-label="Toggle panel" onClick={onToggleLeftPanel}>
         <ArrowLeft className={`h-5 w-5 transform transition-transform ${isLeftPanelVisible ? '' : 'rotate-180'}`} />
       </Button>
-      <div className="flex justify-between gap-2 w-full">
+
+      <div className="flex w-full justify-between gap-2">
       {NAV_ITEMS.map((item) => (
         <Button
           key={item.id}
           type="button"
+          // This variant logic is the single source of truth for the button's style
           variant={activeTab === item.id ? 'secondary' : 'ghost'}
           onClick={() => onTabChange(item.id)}
-          className={`flex items-center gap-2 ${activeTab === item.id ? 'bg-zinc-700 text-white' : 'text-zinc-400'}`}
+          className="flex-1 justify-center gap-2 sm:flex-initial" // Use flex-1 for better mobile distribution
           aria-current={activeTab === item.id ? 'page' : undefined}
         >
           <item.icon className="h-4 w-4" />

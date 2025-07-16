@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
   ResizableHandle,
@@ -29,6 +29,7 @@ export default function Learnspace({ initialChapters }: LearnspaceProps) {
   const searchParams = useSearchParams();
   const chapterIdFromUrl = searchParams.get('chapter');
   
+  const [chapters, setChapters] = useState(initialChapters);
   const [activeChapter, setActiveChapter] = useState<ChapterWithVideo>(
     () => getInitialChapter(initialChapters, chapterIdFromUrl)
   );
@@ -36,13 +37,42 @@ export default function Learnspace({ initialChapters }: LearnspaceProps) {
   const isMobile = useIsMobile();
   const [isLeftPanelVisible, setIsLeftPanelVisible] = useState(true);
   const [isRightPanelVisible, setIsRightPanelVisible] = useState(!isMobile);
+  const [isContentLoading, setIsContentLoading] = useState(true);
 
   useEffect(() => {
-    setIsRightPanelVisible(!isMobile);
+    setIsRightPanelVisible(!isMobile); 
     if (!isMobile) {
       setIsLeftPanelVisible(true);
     }
-  }, [isMobile]);
+  }, [isMobile]); 
+
+
+  const fetchChapterDetails = useCallback(async (chapterId: string) => {
+    setIsContentLoading(true);
+    try {
+      const response = await fetch(`/api/courses/${activeChapter.course.id}/chapters/${chapterId}`);
+      if (!response.ok) throw new Error("Failed to fetch chapter details");
+      const details: { notes: any; quiz: any; transcript: string | null } = await response.json();
+      
+      setActiveChapter(prev => ({
+        ...prev,
+        video: {
+          ...prev.video,
+          notes: details.notes,
+          quiz: details.quiz,
+          transcript: details.transcript,
+        }
+      }));
+    } catch (error) {
+      console.error("Error fetching chapter details:", error);
+    } finally {
+      setIsContentLoading(false);
+    }
+  }, [activeChapter.course.id]);
+
+  useEffect(() => {
+    fetchChapterDetails(activeChapter.id);
+  }, []); 
 
   const toggleLeftPanel = () => {
     setIsLeftPanelVisible(prevState => !prevState);
@@ -51,16 +81,9 @@ export default function Learnspace({ initialChapters }: LearnspaceProps) {
     setIsRightPanelVisible(prevState => !prevState);
   };
 
-  useEffect(() => {
-    const chapterId = searchParams.get('chapter');
-    if (chapterId && chapterId !== activeChapter.id) {
-        const newChapter = initialChapters.find(c => c.id === chapterId);
-        if (newChapter) setActiveChapter(newChapter);
-    }
-  }, [searchParams, activeChapter.id, initialChapters]);
-
   const handleChapterSelect = (chapter: ChapterWithVideo) => {
     setActiveChapter(chapter);
+    fetchChapterDetails(chapter.id);
     window.history.pushState(null, '', `?chapter=${chapter.id}`);
   };
 
@@ -77,7 +100,7 @@ export default function Learnspace({ initialChapters }: LearnspaceProps) {
               className={!isLeftPanelVisible ? "hidden" : ""}
             >
               <VideoPlayerPanel
-                chapters={initialChapters}
+                chapters={chapters}
                 activeChapter={activeChapter}
                 onChapterSelect={handleChapterSelect}
                 isMobile={isMobile}
@@ -91,11 +114,17 @@ export default function Learnspace({ initialChapters }: LearnspaceProps) {
           
           {isRightPanelVisible && (
             <ResizablePanel defaultSize={isLeftPanelVisible ? 42 : 100} minSize={33}>
-              <AiTutorPanel 
-                activeChapter={activeChapter}
-                isLeftPanelVisible={isLeftPanelVisible} 
-                onToggleLeftPanel={toggleLeftPanel}
-              />
+              {isContentLoading ? (
+                <div className="flex h-full items-center justify-center bg-[#1C1C1C]">
+                  <p className="text-zinc-400">Loading notes...</p>
+                </div>
+              ) : (
+                <AiTutorPanel 
+                  activeChapter={activeChapter}
+                  isLeftPanelVisible={isLeftPanelVisible} 
+                  onToggleLeftPanel={toggleLeftPanel}
+                />
+              )}
             </ResizablePanel>
           )}
         </ResizablePanelGroup>

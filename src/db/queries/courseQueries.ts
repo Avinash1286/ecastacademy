@@ -43,7 +43,8 @@ export async function createChapter(tx: Transaction, chapterData: NewChapter): P
 }
 
 
-export async function getChaptersWithVideosByCourseId(courseId: string): Promise<ChapterWithVideo[]> {
+// This is the OLD function, renamed to be specific
+export async function getFullCourseChapters(courseId: string): Promise<ChapterWithVideo[]> {
   const courseChapters = await db
     .select({
       id: chapters.id,
@@ -71,8 +72,42 @@ export async function getChaptersWithVideosByCourseId(courseId: string): Promise
     .innerJoin(courses, eq(chapters.courseId, courses.id)) 
     .orderBy(chapters.order);
 
-  return courseChapters;
+  return courseChapters as ChapterWithVideo[];
 }
+
+// THIS IS THE NEW, LIGHTWEIGHT FUNCTION for the initial page load
+export async function getChaptersWithVideosByCourseId(courseId: string): Promise<ChapterWithVideo[]> {
+  const courseChapters = await db
+    .select({
+      id: chapters.id,
+      name: chapters.name,
+      order: chapters.order,
+      course: { 
+        id: courses.id,
+        name: courses.name,
+        description: courses.description,
+      },
+      video: { // Notice we are NOT selecting notes, quiz, or transcript here
+        videoId: videos.youtubeVideoId,
+        title: videos.title,
+        url: videos.url,
+        thumbnailUrl: videos.thumbnailUrl,
+        durationInSeconds: videos.durationInSeconds,
+        // We set notes, quiz, and transcript to default values to match the type
+        notes: sql`'{}'::json`, // Default to empty JSON object
+        quiz: sql`'{}'::json`,   // Default to empty JSON object
+        transcript: sql`''`      // Default to empty string
+      },
+    })
+    .from(chapters)
+    .where(eq(chapters.courseId, courseId))
+    .innerJoin(videos, eq(chapters.videoId, videos.id))
+    .innerJoin(courses, eq(chapters.courseId, courses.id)) 
+    .orderBy(chapters.order);
+
+  return courseChapters as ChapterWithVideo[];
+}
+
 
 
 
@@ -103,7 +138,10 @@ export type CourseWithThumbnail = InferSelectModel<typeof courses> & {
   thumbnailUrl: string | null;
 };
 
-export async function findAllCoursesWithFirstChapterThumbnail(): Promise<CourseWithThumbnail[]> {
+export async function findAllCoursesWithFirstChapterThumbnail(
+  limit: number,
+  offset: number
+): Promise<CourseWithThumbnail[]> {
   const rankedChaptersSq = db
     .select({
       courseId: chapters.courseId,
@@ -124,7 +162,9 @@ export async function findAllCoursesWithFirstChapterThumbnail(): Promise<CourseW
       rankedChaptersSq,
       and(eq(courses.id, rankedChaptersSq.courseId), eq(rankedChaptersSq.rowNumber, 1)),
     )
-    .orderBy(desc(courses.createdAt)); 
+    .orderBy(desc(courses.createdAt))
+    .limit(limit)       // Add limit
+    .offset(offset);    // Add offset
 
   return coursesWithThumbnails;
 }

@@ -22,14 +22,14 @@ export function AiTutorPanel({ activeChapter, isLeftPanelVisible, onToggleLeftPa
       case 'notes':
         return <NotesPanel notes={activeChapter.video.notes}/>;
       case 'quizzes':
-        return <QuizzesPanel />;
+        return <QuizzesPanel questions={activeChapter.video.quiz} />;
       default:
         return null;
     }
   };
 
   return (
-    <div className="flex h-full flex-col bg-[#1C1C1C] text-zinc-300">
+    <div className="flex h-full flex-col bg-card text-card-foreground">
       <TutorHeader 
         isLeftPanelVisible={isLeftPanelVisible} 
         onToggleLeftPanel={onToggleLeftPanel} 

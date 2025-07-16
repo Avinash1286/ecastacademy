@@ -1,10 +1,9 @@
-// UPDATED: Imported CircleDot and removed Info
-import { Lightbulb, CircleDot, FileText, AlertTriangle } from 'lucide-react'; 
+import { Lightbulb, CircleDot, FileText, AlertTriangle, Zap, Sparkles } from 'lucide-react'; 
 import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 
 interface CalloutSectionProps {
-  type: 'tip' | 'example' | 'note' | 'common-mistake';
+  type: 'tip' | 'example' | 'note' | 'common-mistake' | 'insight' | 'important' | 'warning';
   title?: string;
   content: string;
   bullets?: string[];
@@ -19,7 +18,6 @@ const calloutConfig = {
     contentClassName: 'text-purple-800 dark:text-purple-200',
   },
   example: {
-    // --- UPDATED: Icon is now CircleDot to look like a radio button ---
     icon: CircleDot, 
     title: 'Example',
     className: 'bg-green-50 border-green-200 dark:bg-green-950/30 dark:border-green-800',
@@ -29,9 +27,9 @@ const calloutConfig = {
   note: {
     icon: FileText,
     title: 'Note',
-    className: 'bg-green-50 border-green-200 dark:bg-green-950/30 dark:border-green-800',
-    headerClassName: 'text-green-700 dark:text-green-300',
-    contentClassName: 'text-green-800 dark:text-green-200',
+    className: 'bg-blue-50 border-blue-200 dark:bg-blue-950/30 dark:border-blue-800',
+    headerClassName: 'text-blue-700 dark:text-blue-300',
+    contentClassName: 'text-blue-800 dark:text-blue-200',
   },
   'common-mistake': {
     icon: AlertTriangle,
@@ -40,10 +38,39 @@ const calloutConfig = {
     headerClassName: 'text-red-700 dark:text-red-300',
     contentClassName: 'text-red-800 dark:text-red-200',
   },
+  // --- NEWLY ADDED CALLOUTS ---
+  insight: {
+    icon: Sparkles,
+    title: 'Insight',
+    className: 'bg-cyan-50 border-cyan-200 dark:bg-cyan-950/30 dark:border-cyan-800',
+    headerClassName: 'text-cyan-700 dark:text-cyan-300',
+    contentClassName: 'text-cyan-800 dark:text-cyan-200',
+  },
+  important: {
+    icon: Zap,
+    title: 'Important',
+    className: 'bg-yellow-50 border-yellow-200 dark:bg-yellow-950/30 dark:border-yellow-800',
+    headerClassName: 'text-yellow-700 dark:text-yellow-300',
+    contentClassName: 'text-yellow-800 dark:text-yellow-200',
+  },
+  warning: {
+    icon: AlertTriangle,
+    title: 'Warning',
+    className: 'bg-orange-50 border-orange-200 dark:bg-orange-950/30 dark:border-orange-800',
+    headerClassName: 'text-orange-700 dark:text-orange-300',
+    contentClassName: 'text-orange-800 dark:text-orange-200',
+  },
 };
 
 export function CalloutSection({ type, title, content, bullets }: CalloutSectionProps) {
   const config = calloutConfig[type];
+
+  // This check prevents crashes if the AI generates an unexpected type.
+  if (!config) {
+    console.warn(`Invalid callout type received: "${type}". Skipping render.`);
+    return null;
+  }
+
   const Icon = config.icon;
   const displayTitle = title || config.title;
 

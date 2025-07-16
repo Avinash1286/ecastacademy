@@ -126,3 +126,29 @@ export interface DefinitionCardProps {
   definition: string;
   example?: string;
 }
+
+
+export interface Question {
+  question: string;
+  options: string[];
+  correct: number;
+  explanation?: string;
+}
+
+export interface Quiz {
+  topic: string;
+  questions: Question[];
+}
+
+export interface QuizInterfaceProps {
+  quiz: Quiz;
+  onQuizComplete: (answers: number[], score: number) => void;
+}
+
+
+export interface QuizResultsProps {
+  quiz: Quiz;
+  userAnswers: number[];
+  score: number;
+  onRestart: () => void;
+}
