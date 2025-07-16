@@ -1,7 +1,7 @@
 import { db } from "@/db";
 import { courses, videos, chapters, NewVideo, NewChapter } from "@/db/schema";
 import { ChapterWithVideo } from "@/lib/types";
-import { sql, eq, and, desc } from 'drizzle-orm';
+import { sql, eq, and, desc, asc } from 'drizzle-orm';
 import { getTableColumns, type InferSelectModel } from 'drizzle-orm';
 
 
@@ -164,4 +164,49 @@ export async function findAllCoursesWithFirstChapterThumbnail(
     .offset(offset);    
 
   return coursesWithThumbnails;
+}
+
+// Add this new function to find a single course with its thumbnail
+export async function findCourseWithThumbnail(courseId: string) {
+  const firstChapterSq = db
+    .select({
+      courseId: chapters.courseId,
+      thumbnailUrl: videos.thumbnailUrl,
+    })
+    .from(chapters)
+    .innerJoin(videos, eq(chapters.videoId, videos.id))
+    .where(eq(chapters.courseId, courseId))
+    .orderBy(asc(chapters.order))
+    .limit(1)
+    .as('firstChapterSq');
+
+  const courseDetails = await db
+    .select({
+      id: courses.id,
+      name: courses.name,
+      description: courses.description,
+      thumbnailUrl: firstChapterSq.thumbnailUrl,
+    })
+    .from(courses)
+    .where(eq(courses.id, courseId))
+    .leftJoin(firstChapterSq, eq(courses.id, firstChapterSq.courseId));
+    
+  return courseDetails[0] || null;
+}
+
+// Add this new function to get a list of chapters for a course
+export async function findChaptersForCourse(courseId: string) {
+  const chapterList = await db
+    .select({
+      id: chapters.id,
+      name: chapters.name,
+      order: chapters.order,
+      durationInSeconds: videos.durationInSeconds,
+    })
+    .from(chapters)
+    .innerJoin(videos, eq(chapters.videoId, videos.id))
+    .where(eq(chapters.courseId, courseId))
+    .orderBy(asc(chapters.order));
+    
+  return chapterList;
 }

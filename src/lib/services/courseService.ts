@@ -7,6 +7,7 @@ import type { ChapterWithVideo } from "@/lib/types";
 import type { TUpdateCourseSchema } from "@/lib/validators/courseValidator";
 import type { Course } from "@/db/queries/courseQueries";
 import type { CourseWithThumbnail } from "@/db/queries/courseQueries";
+import { formatDuration } from "@/lib/youtube";
 
 type ProgressCallback = (data: { message: string; progress: number; }) => void;
 
@@ -98,4 +99,49 @@ export async function getAllCoursesWithThumbnails(page: number, limit: number): 
   const offset = (page - 1) * limit;
   const courses = await courseQueries.findAllCoursesWithFirstChapterThumbnail(limit, offset);
   return courses;
+}
+
+// Define the shape of the detailed chapter list for the response
+interface CourseChapterDetails {
+  id: string;
+  name: string;
+  order: number;
+  duration: string;
+}
+
+// Add the new service function
+export async function getCourseDetails(courseId: string) {
+  // Fetch the main course details and the list of chapters in parallel
+  const [course, chapterList] = await Promise.all([
+    courseQueries.findCourseWithThumbnail(courseId),
+    courseQueries.findChaptersForCourse(courseId),
+  ]);
+
+  if (!course) {
+    return null; // Course not found
+  }
+
+  // Format the duration for each chapter
+  const formattedChapters: CourseChapterDetails[] = chapterList.map(ch => {
+    // A little helper to convert seconds back to ISO duration string for formatDuration
+    const toIsoDuration = (seconds: number | null) => {
+      if (seconds === null) return 'PT0S';
+      const h = Math.floor(seconds / 3600);
+      const m = Math.floor((seconds % 3600) / 60);
+      const s = Math.floor(seconds % 60);
+      return `PT${h > 0 ? h + 'H' : ''}${m > 0 ? m + 'M' : ''}${s}S`;
+    }
+
+    return {
+      id: ch.id,
+      name: ch.name,
+      order: ch.order,
+      duration: formatDuration(toIsoDuration(ch.durationInSeconds)),
+    }
+  });
+
+  return {
+    ...course,
+    chapters: formattedChapters,
+  };
 }
