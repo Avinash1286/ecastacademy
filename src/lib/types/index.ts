@@ -25,24 +25,6 @@ export interface VideoInfo {
   transcript?: string;
 }
 
-export interface Chapter {
-  id: string;
-  timestamp: string;
-  title: string;
-  description: string;
-}
-
-export interface VideoData {
-  id: string;
-  title: string;
-  youtubeUrl: string;
-  thumbnailUrl: string;
-  channel: {
-    name: string;
-    logoUrl: string;
-  };
-  chapters: Chapter[];
-}
 
 export interface Course {
   id: string;

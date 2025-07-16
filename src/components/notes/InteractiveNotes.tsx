@@ -77,7 +77,6 @@ export function InteractiveNotes({ topic, sections }: InteractiveNotesProps) {
 
 {section.examples && section.examples.length > 0 && (
   <div className="my-8">
-    {/* 1. Improved Section Header */}
     <div className="flex items-center gap-2 mb-4">
       <FlaskConical className="h-5 w-5 text-green-600 dark:text-green-400" />
       <h3 className="text-lg font-bold text-foreground">
@@ -85,21 +84,18 @@ export function InteractiveNotes({ topic, sections }: InteractiveNotesProps) {
       </h3>
     </div>
 
-    {/* 2. A structured list of example cards */}
     <div className="space-y-4">
       {section.examples.map((example, exampleIndex) => (
         <div 
           key={exampleIndex} 
           className="bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 rounded-lg p-4"
         >
-          {/* Card-like header for each example */}
           <div className="flex items-center gap-2 mb-2">
             <FlaskConical className="h-4 w-4 text-green-700 dark:text-green-300" />
             <span className="text-sm font-semibold text-green-700 dark:text-green-300">
               Example {exampleIndex + 1}
             </span>
           </div>
-          {/* Indented content */}
           <p className="pl-6 text-sm text-green-800 dark:text-green-200">
             {example}
           </p>

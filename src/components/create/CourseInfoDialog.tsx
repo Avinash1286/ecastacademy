@@ -1,9 +1,7 @@
 "use client"
-
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import * as z from "zod"
-
 import {
   Dialog,
   DialogClose,
@@ -18,18 +16,18 @@ import { Textarea } from '@/components/ui/textarea'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { VideoInfo } from "@/lib/types"
-import { 
+import {
   Form,
   FormControl,
-  FormDescription,
   FormField,
   FormItem,
   FormLabel,
   FormMessage
- } from "@/components/ui/form"
+} from "@/components/ui/form"
 import { useState } from 'react';
+import { ScrollArea } from "@/components/ui/scroll-area"
 
- const formSchema = z.object({
+const formSchema = z.object({
   title: z.string().min(1, { message: "Course title is required." }),
   description: z.string().min(1, { message: "Description is required." }),
 });
@@ -52,7 +50,7 @@ const CourseInfoDialog = ({ videos, onFormSubmit }: CourseInfoDialogProps) => {
 
   function onSubmit(values: z.infer<typeof formSchema>) {
     onFormSubmit(values);
-    setOpen(false); 
+    setOpen(false);
     form.reset();
   }
 
@@ -93,7 +91,9 @@ const CourseInfoDialog = ({ videos, onFormSubmit }: CourseInfoDialogProps) => {
                   <FormItem>
                     <FormLabel>Description</FormLabel>
                     <FormControl>
+                      <ScrollArea>
                       <Textarea placeholder="Tell us a little bit about the course" {...field} />
+                      </ScrollArea>
                     </FormControl>
                     <FormMessage />
                   </FormItem>

@@ -1,9 +1,8 @@
 import { useState, useCallback } from 'react';
 import { Copy, Check } from 'lucide-react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'; // Or any other theme
+import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
-import { cn } from '@/lib/utils'; // Your utility for merging class names
 import { Button } from '@/components/ui/button';
 import {
   Tooltip,
@@ -38,13 +37,12 @@ export function CodeBlock({ code, language = 'javascript', title }: CodeBlockPro
   return (
     <TooltipProvider delayDuration={100}>
       <div className="relative my-6 rounded-xl border bg-[#0d1117]">
-        {/* Header */}
         <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/10">
           <div className="flex items-center gap-2">
             {title ? (
               <span className="text-sm text-gray-300">{title}</span>
             ) : (
-              <div /> /* Placeholder for alignment */
+              <div />
             )}
           </div>
           <div className="flex items-center gap-3">
@@ -74,15 +72,14 @@ export function CodeBlock({ code, language = 'javascript', title }: CodeBlockPro
           </div>
         </div>
         
-        {/* Syntax Highlighter */}
         <SyntaxHighlighter
           language={language}
           style={oneDark}
           customStyle={{
             margin: 0,
             padding: '1rem',
-            backgroundColor: 'transparent', // Let the parent div handle the background
-            fontSize: '0.875rem', // text-sm
+            backgroundColor: 'transparent',
+            fontSize: '0.875rem',
           }}
           codeTagProps={{
             className: 'font-mono',

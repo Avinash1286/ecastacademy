@@ -43,7 +43,6 @@ export async function createChapter(tx: Transaction, chapterData: NewChapter): P
 }
 
 
-// This is the OLD function, renamed to be specific
 export async function getFullCourseChapters(courseId: string): Promise<ChapterWithVideo[]> {
   const courseChapters = await db
     .select({
@@ -75,7 +74,6 @@ export async function getFullCourseChapters(courseId: string): Promise<ChapterWi
   return courseChapters as ChapterWithVideo[];
 }
 
-// THIS IS THE NEW, LIGHTWEIGHT FUNCTION for the initial page load
 export async function getChaptersWithVideosByCourseId(courseId: string): Promise<ChapterWithVideo[]> {
   const courseChapters = await db
     .select({
@@ -87,16 +85,15 @@ export async function getChaptersWithVideosByCourseId(courseId: string): Promise
         name: courses.name,
         description: courses.description,
       },
-      video: { // Notice we are NOT selecting notes, quiz, or transcript here
+      video: { 
         videoId: videos.youtubeVideoId,
         title: videos.title,
         url: videos.url,
         thumbnailUrl: videos.thumbnailUrl,
         durationInSeconds: videos.durationInSeconds,
-        // We set notes, quiz, and transcript to default values to match the type
-        notes: sql`'{}'::json`, // Default to empty JSON object
-        quiz: sql`'{}'::json`,   // Default to empty JSON object
-        transcript: sql`''`      // Default to empty string
+        notes: sql`'{}'::json`, 
+        quiz: sql`'{}'::json`,   
+        transcript: sql`''`      
       },
     })
     .from(chapters)
@@ -163,8 +160,8 @@ export async function findAllCoursesWithFirstChapterThumbnail(
       and(eq(courses.id, rankedChaptersSq.courseId), eq(rankedChaptersSq.rowNumber, 1)),
     )
     .orderBy(desc(courses.createdAt))
-    .limit(limit)       // Add limit
-    .offset(offset);    // Add offset
+    .limit(limit)       
+    .offset(offset);    
 
   return coursesWithThumbnails;
 }

@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { QuizInterface } from '../quiz/QuizInterface';
 import { QuizResults } from '../quiz/QuizResults';
 import { Quiz } from '@/lib/types';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 
 export function QuizzesPanel({ questions }: { questions: any}) {
@@ -34,6 +35,7 @@ export function QuizzesPanel({ questions }: { questions: any}) {
 
 
   return (
+    <ScrollArea className="h-full">
     <div className="p-4"> 
       {currentView === 'quiz' && quiz && (
         <QuizInterface
@@ -53,5 +55,6 @@ export function QuizzesPanel({ questions }: { questions: any}) {
         <div className="text-center text-muted-foreground p-8">Loading quiz...</div>
       )}
     </div>
+    </ScrollArea>
   );
 };

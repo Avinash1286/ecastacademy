@@ -1,5 +1,5 @@
 import { Lightbulb, Zap, AlertTriangle } from 'lucide-react';
-import { cn } from '@/lib/utils'; // Make sure to import your 'cn' utility
+import { cn } from '@/lib/utils';
 
 interface HighlightBoxProps {
   type: 'insight' | 'important' | 'warning';
@@ -7,7 +7,6 @@ interface HighlightBoxProps {
   content: string;
 }
 
-// Centralized configuration for styles makes it easy to maintain and extend
 const highlightStyles = {
   insight: {
     icon: Lightbulb,

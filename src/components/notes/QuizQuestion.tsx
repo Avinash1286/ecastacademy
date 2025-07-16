@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { cn } from '@/lib/utils'; // Make sure to import your 'cn' utility
+import { cn } from '@/lib/utils';
 import { CheckCircle, XCircle, HelpCircle } from 'lucide-react';
 
 interface QuizQuestion {
@@ -18,7 +18,6 @@ interface QuizQuestionProps {
   questionIndex: number;
 }
 
-// Helper function for case-insensitive string comparison
 const compareStrings = (a: string, b: string) => {
   return a.trim().toLowerCase() === b.trim().toLowerCase();
 };
@@ -42,25 +41,20 @@ export function QuizQuestion({ question, questionIndex }: QuizQuestionProps) {
     setShowExplanation(false);
   };
 
-  // Centralized logic for styling options to keep JSX clean
   const getOptionClassName = (option: string) => {
     const isSelected = compareStrings(selectedAnswer, option);
     const isCorrectAnswer = compareStrings(option, question.correctAnswer);
 
     if (showResult) {
       if (isCorrectAnswer) {
-        // Style for the correct answer (always green after result)
         return 'border-green-500 bg-green-500/10 text-green-700 dark:text-green-400';
       }
       if (isSelected && !isCorrectAnswer) {
-        // Style for a selected, but incorrect answer (red)
         return 'border-destructive bg-destructive/10 text-destructive';
       }
-      // Style for unselected, incorrect options (muted)
       return 'border-transparent bg-muted/50 text-muted-foreground';
     }
 
-    // Default styling before results are shown
     return cn(
       'border-border hover:border-primary/50 hover:bg-secondary/50',
       isSelected && 'border-primary bg-primary/5'
@@ -79,7 +73,6 @@ export function QuizQuestion({ question, questionIndex }: QuizQuestionProps) {
               {question.question}
             </h4>
 
-            {/* MCQ Questions */}
             {question.type === 'mcq' && (
               <div className="space-y-3">
                 {question.options?.map((option, index) => (
@@ -111,7 +104,6 @@ export function QuizQuestion({ question, questionIndex }: QuizQuestionProps) {
               </div>
             )}
             
-            {/* True/False Questions */}
             {question.type === 'true-false' && (
               <div className="space-y-3">
                 {['True', 'False'].map((option) => (
@@ -143,7 +135,6 @@ export function QuizQuestion({ question, questionIndex }: QuizQuestionProps) {
               </div>
             )}
             
-            {/* Fill-in-the-Blank Questions */}
             {(question.type === 'fill-blank' || question.type === 'fill-in-the-blank') && (
               <div className="space-y-2">
                 <Input

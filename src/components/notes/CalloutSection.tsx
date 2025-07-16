@@ -38,7 +38,6 @@ const calloutConfig = {
     headerClassName: 'text-red-700 dark:text-red-300',
     contentClassName: 'text-red-800 dark:text-red-200',
   },
-  // --- NEWLY ADDED CALLOUTS ---
   insight: {
     icon: Sparkles,
     title: 'Insight',
@@ -65,7 +64,6 @@ const calloutConfig = {
 export function CalloutSection({ type, title, content, bullets }: CalloutSectionProps) {
   const config = calloutConfig[type];
 
-  // This check prevents crashes if the AI generates an unexpected type.
   if (!config) {
     console.warn(`Invalid callout type received: "${type}". Skipping render.`);
     return null;
@@ -76,7 +74,6 @@ export function CalloutSection({ type, title, content, bullets }: CalloutSection
 
   return (
     <Card className={cn("my-6 p-4 border-l-4", config.className)}>
-      {/* Header */}
       <div className="flex items-center gap-3">
         <Icon className={cn("w-5 h-5", config.headerClassName)} />
         <h4 className={cn("font-semibold", config.headerClassName)}>
@@ -84,7 +81,6 @@ export function CalloutSection({ type, title, content, bullets }: CalloutSection
         </h4>
       </div>
       
-      {/* Content and Bullets Container */}
       <div className="pl-[32px] pt-2"> 
         <p className={cn("leading-relaxed", config.contentClassName)}>
           {content}

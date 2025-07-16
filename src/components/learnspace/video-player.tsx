@@ -29,7 +29,6 @@ export function VideoPlayer({ video, isPlayerVisible }: VideoPlayerProps) {
   }
 
   return (
-    // Use bg-muted as a theme-aware letterbox/loading background
     <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-muted">
       <YouTube
         key={video.videoId}

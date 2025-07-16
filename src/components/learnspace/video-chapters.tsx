@@ -32,7 +32,6 @@ export function VideoChapters({
           Chapters
         </h2>
         <div className="flex items-center">
-          {/* These buttons are already using variants correctly, no changes needed */}
           <Button 
             type="button" 
             variant="ghost" 
@@ -70,7 +69,6 @@ export function VideoChapters({
               )}
             >
               <p className="text-xs text-muted-foreground">Chapter {chapter.order}</p>
-              {/* Text color is now inherited from the parent div */}
               <h3 className="font-semibold">{chapter.name}</h3>
             </div>
           ))}

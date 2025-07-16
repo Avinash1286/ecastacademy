@@ -24,7 +24,6 @@ export function TutorHeader({
 }: TutorHeaderProps) {
   return (
     <div className="flex shrink-0 items-center gap-2 border-b border-border p-2 sm:gap-4">
-      {/* This button is already correctly using a variant */}
       <Button type="button" variant="ghost" size="icon" aria-label="Toggle panel" onClick={onToggleLeftPanel}>
         <ArrowLeft className={`h-5 w-5 transform transition-transform ${isLeftPanelVisible ? '' : 'rotate-180'}`} />
       </Button>
@@ -34,10 +33,9 @@ export function TutorHeader({
         <Button
           key={item.id}
           type="button"
-          // This variant logic is the single source of truth for the button's style
           variant={activeTab === item.id ? 'secondary' : 'ghost'}
           onClick={() => onTabChange(item.id)}
-          className="flex-1 justify-center gap-2 sm:flex-initial" // Use flex-1 for better mobile distribution
+          className="flex-1 justify-center gap-2 sm:flex-initial"
           aria-current={activeTab === item.id ? 'page' : undefined}
         >
           <item.icon className="h-4 w-4" />

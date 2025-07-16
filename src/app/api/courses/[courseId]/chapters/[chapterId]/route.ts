@@ -14,7 +14,7 @@ export async function GET(
       .select({
         notes: videos.notes,
         quiz: videos.quiz,
-        transcript: videos.transcript, // Add transcript to the selection
+        transcript: videos.transcript,
       })
       .from(chapters)
       .innerJoin(videos, eq(chapters.videoId, videos.id))

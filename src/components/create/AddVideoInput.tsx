@@ -12,8 +12,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Progress } from '@/components/ui/progress'
-import CourseInfoDialog from '@/components/create/CourseInfoDialog'
 import { toast } from 'sonner'
+import dynamic from 'next/dynamic';
+
+
+const CourseInfoDialog = dynamic(() => import('@/components/create/CourseInfoDialog'), {
+  loading: () => <Button variant="default" size="sm" disabled>Create Course</Button>,
+  ssr: false
+});
 
 const formSchema = z.object({
   link: z.string().url({ message: "Please enter a valid YouTube URL." }).min(1, {

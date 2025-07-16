@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAllCoursesWithThumbnails } from '@/lib/services/courseService';
 
-export const revalidate = 0; 
+export const revalidate = 60; 
 
 export async function GET(request: NextRequest) {
   try {

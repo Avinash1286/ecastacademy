@@ -36,7 +36,6 @@ export const QuizInterface = ({ quiz, onQuizComplete }: QuizInterfaceProps) => {
   };
 
   return (
-    // Removed redundant bg-card and border-border as they are defaults for the Card component
     <Card className="mx-auto max-w-3xl p-6 shadow-sm">
       <div className="mb-6">
         <div className="mb-4 flex items-center justify-between">
