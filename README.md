@@ -2,6 +2,9 @@
 
 Ecast Academy is a modern, AI-powered e-learning platform built with Next.js 15, Drizzle, and Google Gemini. It transforms any YouTube video or playlist into a fully interactive course, complete with detailed notes and quizzes, all generated automatically by AI.
 
+![Alt Text](https://drive.google.com/uc?export=view&id=1pvJzPeAnQvK9W3fR3q2xM9fRv9cFIX_5)
+
+
 ## 🚀 Tech Stack
 
 -   **Framework**: [Next.js](https://nextjs.org/) 15 (App Router & Turbopack)
