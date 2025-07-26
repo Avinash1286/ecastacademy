@@ -6,7 +6,7 @@ export async function GET(
   { params }: { params: { courseId: string } }
 ) {
   try {
-    const { courseId } =await params;
+    const { courseId } = params;
     const courseDetails = await getCourseDetails(courseId);
 
     if (!courseDetails) {

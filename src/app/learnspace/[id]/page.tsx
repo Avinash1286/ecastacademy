@@ -4,7 +4,7 @@ import Learnspace from '@/components/learnspace/Learnspace';
 
 export default async function LearningPage({ params }: { params: { id: string } }) {
   
-  const {id}=await params
+  const {id}= params
   const chapters = await getCourseChapters(id);
   
 

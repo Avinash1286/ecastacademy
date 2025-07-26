@@ -8,7 +8,7 @@ export async function GET(
   { params }: { params: { courseId: string; chapterId: string } }
 ) {
   try {
-    const { chapterId } =await params;
+    const { chapterId } = params;
 
     const result = await db
       .select({
