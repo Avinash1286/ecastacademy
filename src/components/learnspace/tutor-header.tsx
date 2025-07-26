@@ -1,6 +1,6 @@
 'use client';
 import { Button } from '@/components/ui/button';
-import { FileQuestion, Library, MessageCircle, StickyNote, ArrowLeft } from 'lucide-react';
+import { FileQuestion, MessageCircle, StickyNote, ArrowLeft } from 'lucide-react';
 
 const NAV_ITEMS = [
   { id: 'chat', label: 'Chat', icon: MessageCircle },

@@ -41,7 +41,7 @@ export const parseDurationToSeconds = (duration: string): number => {
   return hours * 3600 + minutes * 60 + seconds;
 };
 
-const selectBestThumbnail = (thumbnails: any): string => {
+const selectBestThumbnail = (thumbnails: { [key: string]: { url: string } }): string => {
   return thumbnails.maxres?.url || thumbnails.high?.url || thumbnails.medium?.url || '/placeholder.svg';
 };
 

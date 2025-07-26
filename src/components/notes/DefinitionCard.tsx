@@ -1,6 +1,6 @@
 // UPDATED: Imported FlaskConical for the example block
 import { BookOpen, FlaskConical } from 'lucide-react';
-import { cn } from '@/lib/utils';
+
 
 interface DefinitionCardProps {
   term: string;

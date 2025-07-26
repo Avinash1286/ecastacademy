@@ -4,7 +4,6 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { useYouTubeImporter } from '@/hooks/useYouTubeImporter'
 import { VideoCard } from './VideoCard'
 import { Button } from "@/components/ui/button"
@@ -28,7 +27,6 @@ const formSchema = z.object({
 });
 
 const AddVideoInput = () => {
-  const router = useRouter();
   const { videos, isLoading, progress, loadingText, error, updateTranscript, importFromUrl, removeVideo, clearAllVideos } = useYouTubeImporter();
   
   const [isCreating, setIsCreating] = useState(false);
@@ -190,7 +188,7 @@ const AddVideoInput = () => {
               </div>
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" onClick={clearAllVideos}>Clear All</Button>
-                <CourseInfoDialog onFormSubmit={handleCreateCourse} videos={videos} />
+                <CourseInfoDialog onFormSubmit={handleCreateCourse}/>
               </div>
             </div>
           </CardHeader>

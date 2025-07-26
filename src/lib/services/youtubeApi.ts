@@ -28,7 +28,7 @@ export const fetchPlaylistVideos = async (playlistId: string, apiKey: string, on
   if (!playlistItemsResponse.ok) throw new Error(`YouTube API error: ${playlistItemsResponse.statusText}`);
 
   const playlistData = await playlistItemsResponse.json();
-  const videoIds = playlistData.items.map((item: any) => item.snippet.resourceId.videoId);
+  const videoIds = playlistData.items.map((item: { snippet: { resourceId: { videoId: string } } }) => item.snippet.resourceId.videoId);
   
   if (videoIds.length === 0) return [];
 

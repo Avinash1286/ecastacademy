@@ -7,8 +7,9 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
-import { ExternalLink, Trash2, FileText, Calendar, User, Save, X, Edit } from 'lucide-react';
+import { ExternalLink, Trash2, FileText, User, Save, X, Edit } from 'lucide-react';
 import type { VideoInfo } from '@/lib/types';
+import Image from 'next/image';
 
 interface VideoCardProps {
   video: VideoInfo;
@@ -40,11 +41,13 @@ export const VideoCard: React.FC<VideoCardProps> = ({ video, onRemove, onTranscr
       <div className="bg-card border border-border rounded-lg flex flex-col overflow-hidden transition-all duration-200 hover:border-primary/50 shadow-sm">
         <div className="relative">
           <div className="aspect-video w-full bg-muted">
-            <img
+            <Image
               src={video.thumbnail}
               alt={video.title}
+              fill
+              sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+              style={{ objectFit: 'cover' }}
               className="w-full h-full object-cover"
-              onError={(e) => { e.currentTarget.style.display = 'none'; }}
             />
           </div>
           <div className="absolute top-2 right-2">
@@ -100,7 +103,7 @@ export const VideoCard: React.FC<VideoCardProps> = ({ video, onRemove, onTranscr
               // VIEWING VIEW
               <div className="flex-grow rounded-md border bg-muted/50 p-3">
                 <p className="text-sm text-muted-foreground pr-4 line-clamp-3">
-                  {video.transcript || <span className="italic">No transcript available. Click 'Add' to create one.</span>}
+                  {video.transcript || <span className="italic">No transcript available. Click Add to create one.</span>}
                 </p>
               </div>
             )}

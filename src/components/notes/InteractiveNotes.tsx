@@ -16,7 +16,7 @@ export function InteractiveNotes({ topic, sections }: InteractiveNotesProps) {
     try {
       await navigator.clipboard.writeText(content);
       toast("Copied to clipboard!");
-    } catch (err) {
+    } catch (_err) {
       toast("Copy failed");
     }
   };

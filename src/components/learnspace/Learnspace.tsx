@@ -9,7 +9,7 @@ import {
 } from '@/components/ui/resizable';
 import { VideoPlayerPanel } from '@/components/learnspace/video-player-panel';
 import { AiTutorPanel } from '@/components/learnspace/ai-tutor-panel';
-import { ChapterWithVideo } from '@/lib/types';
+import { ChapterWithVideo, InteractiveNotesProps, Quiz } from '@/lib/types';
 import { LearnspaceNavbar } from '@/components/learnspace/learnspace-navbar';
 import { useIsMobile } from '@/hooks/use-mobile';
 
@@ -29,7 +29,7 @@ export default function Learnspace({ initialChapters }: LearnspaceProps) {
   const searchParams = useSearchParams();
   const chapterIdFromUrl = searchParams.get('chapter');
   
-  const [chapters, setChapters] = useState(initialChapters);
+  const chapters = initialChapters;
   const [activeChapter, setActiveChapter] = useState<ChapterWithVideo>(
     () => getInitialChapter(initialChapters, chapterIdFromUrl)
   );
@@ -52,7 +52,7 @@ export default function Learnspace({ initialChapters }: LearnspaceProps) {
     try {
       const response = await fetch(`/api/courses/${activeChapter.course.id}/chapters/${chapterId}`);
       if (!response.ok) throw new Error("Failed to fetch chapter details");
-      const details: { notes: any; quiz: any; transcript: string | null } = await response.json();
+      const details: { notes: InteractiveNotesProps; quiz: Quiz; transcript: string | null } = await response.json();
       
       setActiveChapter(prev => ({
         ...prev,
@@ -72,7 +72,7 @@ export default function Learnspace({ initialChapters }: LearnspaceProps) {
 
   useEffect(() => {
     fetchChapterDetails(activeChapter.id);
-  }, []); 
+  }, [activeChapter.id, fetchChapterDetails]); 
 
   const toggleLeftPanel = () => {
     setIsLeftPanelVisible(prevState => !prevState);

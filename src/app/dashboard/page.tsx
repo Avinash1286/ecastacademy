@@ -35,8 +35,12 @@ const CoursesPage = () => {
       setAllCourses(prev => pageNum === 1 ? newCourses : [...prev, ...newCourses]);
       setHasMore(newCourses.length === PAGE_SIZE);
 
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError('An unknown error occurred.');
+      }
     } finally {
       if (pageNum === 1) setLoading(false);
       else setLoadingMore(false);

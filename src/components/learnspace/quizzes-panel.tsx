@@ -6,7 +6,7 @@ import { Quiz } from '@/lib/types';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
 
-export function QuizzesPanel({ questions }: { questions: any}) {
+export function QuizzesPanel({ questions }: { questions: Quiz }) {
   const [currentView, setCurrentView] = useState<'quiz' | 'results'>('quiz');
   const [quiz, setQuiz] = useState<Quiz | null>(null);
   const [userAnswers, setUserAnswers] = useState<number[]>([]);

@@ -23,7 +23,7 @@ export const validateAndCorrectJson = async (jsonString: string): Promise<string
     try {
       JSON.parse(currentJson);
       return currentJson;
-    } catch (e) {
+    } catch (_e) {
       console.warn(`Attempt ${i + 1}: Invalid JSON detected. Attempting to correct...`);
       currentJson = await generateValidJson(currentJson);
     }
@@ -32,8 +32,8 @@ export const validateAndCorrectJson = async (jsonString: string): Promise<string
   try {
     JSON.parse(currentJson);
     return currentJson;
-  } catch (e) {
-    console.error("Failed to generate valid JSON after multiple attempts.", e);
+  } catch (_e) {
+    console.error("Failed to generate valid JSON after multiple attempts.", _e);
     throw new Error("Failed to process content due to invalid data format after multiple retries.");
   }
 };
@@ -48,13 +48,16 @@ export async function retryWithExponentialBackoff<T>(
   for (let i = 0; i < retries; i++) {
     try {
       return await fn(); // Attempt the function
-    } catch (error: any) {
+    } catch (error: unknown) {
       // Check if it's a rate limit or overload error (503 or 429)
+      const errorMessage = typeof error === "object" && error !== null && "message" in error
+        ? String((error as { message: unknown }).message)
+        : "";
       const isRateLimitError = 
-        error.message?.includes('503') || 
-        error.message?.includes('UNAVAILABLE') || 
-        error.message?.includes('overloaded') ||
-        error.message?.includes('429');
+        errorMessage.includes('503') || 
+        errorMessage.includes('UNAVAILABLE') || 
+        errorMessage.includes('overloaded') ||
+        errorMessage.includes('429');
 
       if (isRateLimitError && i < retries - 1) {
         console.warn(`Attempt ${i + 1} failed due to API overload. Retrying in ${delay}ms...`);

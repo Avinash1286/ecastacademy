@@ -15,7 +15,6 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { VideoInfo } from "@/lib/types"
 import {
   Form,
   FormControl,
@@ -33,11 +32,10 @@ const formSchema = z.object({
 });
 
 interface CourseInfoDialogProps {
-  videos: VideoInfo[];
   onFormSubmit: (data: { title: string; description: string }) => void;
 }
 
-const CourseInfoDialog = ({ videos, onFormSubmit }: CourseInfoDialogProps) => {
+const CourseInfoDialog = ({onFormSubmit }: CourseInfoDialogProps) => {
   const [open, setOpen] = useState(false);
 
   const form = useForm<z.infer<typeof formSchema>>({

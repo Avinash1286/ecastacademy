@@ -31,7 +31,7 @@ export function VideoPlayerPanel({
   return (
     <div className="flex h-full flex-col gap-4 p-4 bg-background">
       <div className={!isPlayerVisible ? 'hidden' : ''}>
-        <VideoPlayer key={activeChapter.id} video={activeChapter.video}  isPlayerVisible={isPlayerVisible} />
+        <VideoPlayer video={activeChapter.video}  isPlayerVisible={isPlayerVisible} />
       </div>
       <div className="flex-1 min-h-0">
         <VideoChapters

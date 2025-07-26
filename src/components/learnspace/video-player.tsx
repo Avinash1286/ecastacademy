@@ -31,7 +31,6 @@ export function VideoPlayer({ video, isPlayerVisible }: VideoPlayerProps) {
   return (
     <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-muted">
       <YouTube
-        key={video.videoId}
         videoId={video.videoId}
         opts={opts}
         className="absolute inset-0 h-full w-full"
