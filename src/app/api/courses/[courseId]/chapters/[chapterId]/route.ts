@@ -5,9 +5,10 @@ import { eq } from 'drizzle-orm';
 
 export async function GET(
   request: Request,
-  { params }: { params: { courseId: string; chapterId: string } }
+  context: { params: Promise<{ courseId: string; chapterId: string }> }
 ) {
   try {
+    const params = await context.params;
     const { chapterId } = params;
 
     const result = await db

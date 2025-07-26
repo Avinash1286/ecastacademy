@@ -3,9 +3,10 @@ import { getCourseDetails } from '@/lib/services/courseService';
 
 export async function GET(
   request: Request,
-  { params }: { params: { courseId: string } }
+  context: { params: Promise<{ courseId: string }> }
 ) {
   try {
+    const params=await context.params;
     const { courseId } = params;
     const courseDetails = await getCourseDetails(courseId);
 

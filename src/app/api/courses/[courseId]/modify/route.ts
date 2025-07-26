@@ -5,9 +5,10 @@ import { ZodError } from "zod";
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { courseId: string } }
+  context: { params: Promise<{ courseId: string }> }
 ) {
   try {
+    const params=await context.params;
     const { courseId } = params;
     const body = await request.json();
 

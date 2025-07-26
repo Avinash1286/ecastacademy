@@ -3,9 +3,10 @@ import { getCourseChapters } from "@/lib/services/courseService";
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { courseId: string } }
+  context: { params: Promise<{ courseId: string }> }
 ) {
   try {
+    const params=await context.params
     const { courseId } = params;
 
     if (!courseId) {
