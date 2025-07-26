@@ -50,7 +50,7 @@ export type ChapterWithVideo = {
     thumbnailUrl: string | null;
     durationInSeconds: number | null;
     notes: InteractiveNotesProps;
-    quiz: unknown;
+    quiz: Quiz;
   };
 };
 
