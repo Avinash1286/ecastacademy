@@ -33,9 +33,10 @@ export async function PATCH(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { courseId: string } }
+  context: { params: Promise<{ courseId: string }> }
 ) {
   try {
+    const params=await context.params;
     const { courseId } = params;
     
     await deleteCourse(courseId);
