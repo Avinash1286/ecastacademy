@@ -23,7 +23,7 @@ export const validateAndCorrectJson = async (jsonString: string): Promise<string
     try {
       JSON.parse(currentJson);
       return currentJson;
-    } catch (_e) {
+    } catch{
       console.warn(`Attempt ${i + 1}: Invalid JSON detected. Attempting to correct...`);
       currentJson = await generateValidJson(currentJson);
     }
