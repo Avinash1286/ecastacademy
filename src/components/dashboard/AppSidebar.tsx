@@ -14,7 +14,7 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
 import { cn } from "@/lib/utils"
-import { Book, Compass, Plus, type LucideIcon } from "lucide-react"
+import { Book, Compass, Settings, type LucideIcon } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useSidebar } from "@/components/ui/sidebar" 
@@ -29,12 +29,6 @@ type NavItem = {
 
 const navItems: NavItem[] = [
   {
-    href: "/dashboard/create",
-    icon: Plus,
-    label: "Add Course",
-    variant: "button",
-  },
-  {
     href: "/dashboard",
     icon: Compass,
     label: "Explore",
@@ -44,6 +38,12 @@ const navItems: NavItem[] = [
     href: "/dashboard/my-learnings",
     icon: Book,
     label: "My Learnings",
+    variant: "link",
+  },
+  {
+    href: "/admin/videos",
+    icon: Settings,
+    label: "Admin Panel",
     variant: "link",
   },
 ]

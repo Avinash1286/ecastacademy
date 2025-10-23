@@ -34,6 +34,29 @@ export interface Course {
   createdAt: string;
 }
 
+export type ContentItem = {
+  id: string;
+  type: 'video' | 'text' | 'quiz' | 'assignment' | 'resource';
+  title: string;
+  order: number;
+  textContent?: string;
+  textQuiz?: Quiz;
+  textQuizStatus?: 'pending' | 'processing' | 'completed' | 'failed';
+  textQuizError?: string;
+  videoId?: string;
+  videoDetails?: {
+    youtubeVideoId: string;
+    url: string;
+    thumbnailUrl: string | null;
+    durationInSeconds: number | null;
+    notes: InteractiveNotesProps;
+    quiz: Quiz;
+    transcript: string | null;
+  } | null;
+  resourceUrl?: string;
+  resourceTitle?: string;
+};
+
 export type ChapterWithVideo = {
   id: string;
   name: string;
@@ -43,6 +66,7 @@ export type ChapterWithVideo = {
     name: string;
     description: string | null;
   },
+  contentItems?: ContentItem[];
   video: {
     videoId: string;
     title: string;
@@ -51,7 +75,7 @@ export type ChapterWithVideo = {
     durationInSeconds: number | null;
     notes: InteractiveNotesProps;
     quiz: Quiz;
-  };
+  } | null;
 };
 
 export interface CalloutSection {

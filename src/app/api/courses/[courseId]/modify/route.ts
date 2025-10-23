@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { updateCourse, deleteCourse } from "@/lib/services/courseService";
+import { updateCourse, deleteCourse } from "@/lib/services/courseServiceConvex";
 import { UpdateCourseSchema } from "@/lib/validators/courseValidator";
 import { ZodError } from "zod";
+import type { Id } from '../../../../../../convex/_generated/dataModel';
 
 export async function PATCH(
   request: NextRequest,
@@ -14,7 +15,7 @@ export async function PATCH(
 
     const validatedData = UpdateCourseSchema.parse(body);
 
-    const updatedCourse = await updateCourse(courseId, validatedData);
+    const updatedCourse = await updateCourse(courseId as Id<"courses">, validatedData);
 
     return NextResponse.json(updatedCourse, { status: 200 });
   } catch (error) {
@@ -39,7 +40,7 @@ export async function DELETE(
     const params=await context.params;
     const { courseId } = params;
     
-    await deleteCourse(courseId);
+    await deleteCourse(courseId as Id<"courses">);
 
     return NextResponse.json(
       { message: "Course deleted successfully" },

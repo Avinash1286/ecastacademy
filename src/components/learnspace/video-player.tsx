@@ -4,7 +4,7 @@ import YouTube, { YouTubeProps } from 'react-youtube';
 import type { ChapterWithVideo } from '@/lib/types';
 
 type VideoPlayerProps = {
-  video: ChapterWithVideo['video'];
+  video: ChapterWithVideo['video'] | null;
   isPlayerVisible: boolean;
 };
 
@@ -20,10 +20,11 @@ export function VideoPlayer({ video, isPlayerVisible }: VideoPlayerProps) {
     },
   };
 
-  if (!video.videoId) {
+  // Handle null video or missing videoId
+  if (!video || !video.videoId) {
     return (
       <div className="flex aspect-video w-full items-center justify-center rounded-lg bg-muted text-center text-muted-foreground">
-        Invalid YouTube URL
+        {!video ? "No video available" : "Invalid YouTube URL"}
       </div>
     );
   }

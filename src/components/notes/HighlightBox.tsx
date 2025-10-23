@@ -29,7 +29,8 @@ const highlightStyles = {
 };
 
 export function HighlightBox({ type, title, content }: HighlightBoxProps) {
-  const styles = highlightStyles[type];
+  // Fallback to 'insight' if type is not recognized
+  const styles = highlightStyles[type] || highlightStyles.insight;
   const Icon = styles.icon;
 
   return (

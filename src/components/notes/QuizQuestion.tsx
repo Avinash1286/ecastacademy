@@ -18,7 +18,8 @@ interface QuizQuestionProps {
   questionIndex: number;
 }
 
-const compareStrings = (a: string, b: string) => {
+const compareStrings = (a: string | undefined, b: string | undefined) => {
+  if (!a || !b) return false;
   return a.trim().toLowerCase() === b.trim().toLowerCase();
 };
 
@@ -26,6 +27,12 @@ export function QuizQuestion({ question, questionIndex }: QuizQuestionProps) {
   const [selectedAnswer, setSelectedAnswer] = useState<string>('');
   const [showResult, setShowResult] = useState(false);
   const [showExplanation, setShowExplanation] = useState(false);
+
+  // Validate question has required fields
+  if (!question || !question.question || !question.correctAnswer) {
+    console.warn('Invalid quiz question data:', question);
+    return null;
+  }
 
   const isAnswerCorrect = compareStrings(selectedAnswer, question.correctAnswer);
 

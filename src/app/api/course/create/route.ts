@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { createCourseWithProgress } from "@/lib/services/courseService";
+import { createCourseWithProgress } from "@/lib/services/courseServiceConvex";
 import { CreateCourseSchema } from "@/lib/validators/courseValidator";
 import { ZodError } from "zod";
 

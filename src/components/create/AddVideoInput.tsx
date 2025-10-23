@@ -4,21 +4,15 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { useYouTubeImporter } from '@/hooks/useYouTubeImporter'
 import { VideoCard } from './VideoCard'
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { Progress } from '@/components/ui/progress'
+import { Progress } from "@/components/ui/progress"
 import { toast } from 'sonner'
-import dynamic from 'next/dynamic';
-
-
-const CourseInfoDialog = dynamic(() => import('@/components/create/CourseInfoDialog'), {
-  loading: () => <Button variant="default" size="sm" disabled>Create Course</Button>,
-  ssr: false
-});
 
 const formSchema = z.object({
   link: z.string().url({ message: "Please enter a valid YouTube URL." }).min(1, {
@@ -27,11 +21,10 @@ const formSchema = z.object({
 });
 
 const AddVideoInput = () => {
+  const router = useRouter();
   const { videos, isLoading, progress, loadingText, error, updateTranscript, importFromUrl, removeVideo, clearAllVideos } = useYouTubeImporter();
   
   const [isCreating, setIsCreating] = useState(false);
-  const [creationStatus, setCreationStatus] = useState("");
-  const [creationProgress, setCreationProgress] = useState(0);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -43,84 +36,58 @@ const AddVideoInput = () => {
     form.reset();
   }
 
-  const handleCreateCourse = async (data: { title: string; description: string }) => {
+  const handleProcessVideos = async () => {
     setIsCreating(true);
-    setCreationStatus("Initializing course creation...");
-    setCreationProgress(0);
 
     try {
-      const response = await fetch('/api/course/create', {
+      const videosToSend = videos.map(v => ({
+        id: v.id,
+        title: v.title,
+        url: v.url,
+        thumbnail: v.thumbnail,
+        channelTitle: v.channelTitle,
+        publishedAt: v.publishedAt,
+        durationInSeconds: v.durationInSeconds,
+        transcript: v.transcript || ''
+      }));
+
+      const response = await fetch('/api/videos/create', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          ...data,
-          videos: videos.map(v => ({ ...v, transcript: v.transcript || '' }))
+          videos: videosToSend
         }),
       });
 
-      if (!response.body) {
-        throw new Error("The response body is empty.");
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to process videos');
       }
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let done = false;
-      let accumulatedData = '';
-
-      while (!done) {
-        const { value, done: readerDone } = await reader.read();
-        done = readerDone;
-        accumulatedData += decoder.decode(value, { stream: true });
-
-        // Process server-sent events
-        const events = accumulatedData.split('\n\n');
-        accumulatedData = events.pop() || ''; // Keep the last, possibly incomplete event
-
-        for (const event of events) {
-          if (event.startsWith('data: ')) {
-            const eventData = JSON.parse(event.substring(6));
-            if (eventData.error) {
-              throw new Error(eventData.error);
-            }
-            if (eventData.message) {
-              setCreationStatus(eventData.message);
-            }
-            if (eventData.progress) {
-              setCreationProgress(eventData.progress);
-            }
-            if (eventData.courseId) {
-              toast.success("Course created successfully!");
-              // router.push(`/course/${eventData.courseId}`);
-            }
-          }
-        }
-      }
+      const { created, existing, total } = data;
+      
+      toast.success(
+        `Processing ${total} video(s) in background! ${created} new, ${existing} already existed. Check the Video Library to see progress.`,
+        { duration: 5000 }
+      );
+      
+      // Clear videos after successful creation
+      clearAllVideos();
+      
+      // Redirect to video library
+      router.push('/admin/videos');
 
     } catch (error) {
-      console.error("Failed to create course:", error);
+      console.error("Failed to create videos:", error);
       const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
-      toast.error(`Failed to create course: ${errorMessage}`);
+      toast.error(`Failed to create videos: ${errorMessage}`);
     } finally {
       setIsCreating(false);
-      setCreationProgress(0);
-      setCreationStatus("");
     }
   };
-
-  if (isCreating) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full w-full space-y-4 p-8">
-        <div className="w-full max-w-md text-center">
-          <h2 className="text-2xl font-semibold mb-2">Creating Your Course</h2>
-          <p className="text-muted-foreground mb-4">Please wait, this may take a few moments...</p>
-          <Progress value={creationProgress} className="w-full mb-2" />
-          <p className="text-sm text-muted-foreground">{creationStatus}</p>
-        </div>
-      </div>
-    )
-  }
 
   return (
     <main className="container mx-auto max-w-4xl py-12 px-4 space-y-12">
@@ -184,11 +151,30 @@ const AddVideoInput = () => {
             <div className="flex justify-between items-start">
               <div>
                 <CardTitle>Your Video Collection</CardTitle>
-                <CardDescription>You have {videos.length} video(s) ready to be organized into a course.</CardDescription>
+                <CardDescription>
+                  You have {videos.length} video(s) ready to be processed. 
+                  Videos will be saved to the library and AI will generate notes & quizzes in the background.
+                </CardDescription>
               </div>
               <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={clearAllVideos}>Clear All</Button>
-                <CourseInfoDialog onFormSubmit={handleCreateCourse}/>
+                <Button variant="outline" size="sm" onClick={clearAllVideos} disabled={isCreating}>
+                  Clear All
+                </Button>
+                <Button 
+                  variant="default" 
+                  size="sm" 
+                  onClick={handleProcessVideos}
+                  disabled={isCreating}
+                >
+                  {isCreating ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Processing...
+                    </>
+                  ) : (
+                    'Process Videos'
+                  )}
+                </Button>
               </div>
             </div>
           </CardHeader>

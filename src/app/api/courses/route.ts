@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAllCoursesWithThumbnails } from '@/lib/services/courseService';
+import { getAllCoursesWithThumbnails } from '@/lib/services/courseServiceConvex';
 
 export const revalidate = 60; 
 

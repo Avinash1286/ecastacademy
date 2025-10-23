@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import Image from 'next/image';
+import { BookOpen } from 'lucide-react';
 import type { Course } from '@/lib/types';
 
 export const CourseCard = ({ course }: { course: Course }) => (
@@ -9,16 +10,24 @@ export const CourseCard = ({ course }: { course: Course }) => (
     href={`/coursedetails/${course.id}`}
     className="group block rounded-lg border border-border bg-card overflow-hidden transition-all duration-300 hover:shadow-lg hover:border-primary/50 transform hover:-translate-y-1"
   >
-    <div className="relative w-full aspect-video">
-      <Image
-        src={course.thumbnailUrl || '/placeholder-image.jpg'}
-        alt={`Thumbnail for ${course.name}`}
-        fill
-        sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
-        style={{ objectFit: 'cover' }}
-        className="transition-transform duration-500 group-hover:scale-105"
-      />
-      <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
+    <div className="relative w-full aspect-video bg-muted">
+      {course.thumbnailUrl ? (
+        <>
+          <Image
+            src={course.thumbnailUrl}
+            alt={`Thumbnail for ${course.name}`}
+            fill
+            sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+            style={{ objectFit: 'cover' }}
+            className="transition-transform duration-500 group-hover:scale-105"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
+        </>
+      ) : (
+        <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-primary/20 to-secondary/20">
+          <BookOpen className="w-20 h-20 text-muted-foreground/40" />
+        </div>
+      )}
     </div>
     <div className="p-4">
       <h3 className="text-lg font-bold text-card-foreground truncate group-hover:text-primary transition-colors">

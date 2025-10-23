@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCourseChapters } from "@/lib/services/courseService";
+import { getCourseChapters } from "@/lib/services/courseServiceConvex";
+import type { Id } from '../../../../../../convex/_generated/dataModel';
 
 export async function GET(
   request: NextRequest,
@@ -12,7 +13,7 @@ export async function GET(
     if (!courseId) {
       return new NextResponse("Bad Request: Course ID is required", { status: 400 });
     }
-    const chapters = await getCourseChapters(courseId);
+    const chapters = await getCourseChapters(courseId as Id<"courses">);
 
     if (!chapters || chapters.length === 0) {
         return new NextResponse("Not Found: No chapters found for this course", { status: 404 });

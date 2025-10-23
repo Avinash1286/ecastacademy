@@ -6,18 +6,21 @@ import { Quiz } from '@/lib/types';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
 
-export function QuizzesPanel({ questions }: { questions: Quiz }) {
+export function QuizzesPanel({ questions }: { questions: Quiz | null | undefined }) {
   const [currentView, setCurrentView] = useState<'quiz' | 'results'>('quiz');
   const [quiz, setQuiz] = useState<Quiz | null>(null);
   const [userAnswers, setUserAnswers] = useState<number[]>([]);
   const [score, setScore] = useState(0);
 
   useEffect(() => {
-    if (questions) {
+    // Check if questions has the required structure
+    if (questions && questions.topic && questions.questions && Array.isArray(questions.questions)) {
       setQuiz(questions);
       setCurrentView('quiz');
       setUserAnswers([]);
       setScore(0);
+    } else {
+      setQuiz(null);
     }
   }, [questions]);
   
@@ -52,7 +55,9 @@ export function QuizzesPanel({ questions }: { questions: Quiz }) {
         />
       )}
       {!quiz && (
-        <div className="text-center text-muted-foreground p-8">Loading quiz...</div>
+        <div className="text-center text-muted-foreground p-8">
+          No quiz available for this chapter yet.
+        </div>
       )}
     </div>
     </ScrollArea>

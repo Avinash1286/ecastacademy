@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import { getCourseDetails } from '@/lib/services/courseService';
+import { getCourseDetails } from '@/lib/services/courseServiceConvex';
+import type { Id } from '../../../../../../convex/_generated/dataModel';
 
 export async function GET(
   request: Request,
@@ -8,7 +9,7 @@ export async function GET(
   try {
     const params=await context.params;
     const { courseId } = params;
-    const courseDetails = await getCourseDetails(courseId);
+    const courseDetails = await getCourseDetails(courseId as Id<"courses">);
 
     if (!courseDetails) {
       return new NextResponse('Course not found', { status: 404 });

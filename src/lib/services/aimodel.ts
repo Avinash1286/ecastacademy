@@ -37,16 +37,41 @@ export const generateNotes = async (input: string): Promise<string> => {
         },
     ];
 
-    // WRAPPED the original API call with the retry utility
-    const response = await retryWithExponentialBackoff(() => 
-        ai.models.generateContent({
-            model,
-            config,
-            contents,
-        })
-    );
+    try {
+        // WRAPPED the original API call with the retry utility
+        const response = await retryWithExponentialBackoff(() => 
+            ai.models.generateContent({
+                model,
+                config,
+                contents,
+            })
+        );
 
-    return response.text ?? '';
+        return response.text ?? '';
+    } catch (error) {
+        // Parse and simplify Google AI errors
+        if (error && typeof error === 'object' && 'error' in error) {
+            const apiError = error.error as { code?: number; message?: string; status?: string };
+            
+            // Check for quota/rate limit errors
+            if (apiError.code === 429 || apiError.status === 'RESOURCE_EXHAUSTED') {
+                throw new Error('AI quota exceeded. Please try again in a minute.');
+            }
+            
+            // Check for authentication errors
+            if (apiError.code === 401 || apiError.code === 403) {
+                throw new Error('AI service authentication failed.');
+            }
+            
+            // Return simplified message if available
+            if (apiError.message && apiError.message.length < 100) {
+                throw new Error(apiError.message);
+            }
+        }
+        
+        // Re-throw with simplified message
+        throw new Error('Failed to generate notes. Please try again.');
+    }
 }
 
 export const generateQuiz = async (input: string): Promise<string> => {
@@ -75,16 +100,41 @@ export const generateQuiz = async (input: string): Promise<string> => {
         },
     ];
 
-    // WRAPPED the original API call with the retry utility
-    const response = await retryWithExponentialBackoff(() => 
-        ai.models.generateContent({
-            model,
-            config,
-            contents,
-        })
-    );
+    try {
+        // WRAPPED the original API call with the retry utility
+        const response = await retryWithExponentialBackoff(() => 
+            ai.models.generateContent({
+                model,
+                config,
+                contents,
+            })
+        );
 
-    return response.text ?? '';
+        return response.text ?? '';
+    } catch (error) {
+        // Parse and simplify Google AI errors
+        if (error && typeof error === 'object' && 'error' in error) {
+            const apiError = error.error as { code?: number; message?: string; status?: string };
+            
+            // Check for quota/rate limit errors
+            if (apiError.code === 429 || apiError.status === 'RESOURCE_EXHAUSTED') {
+                throw new Error('AI quota exceeded. Please try again in a minute.');
+            }
+            
+            // Check for authentication errors
+            if (apiError.code === 401 || apiError.code === 403) {
+                throw new Error('AI service authentication failed.');
+            }
+            
+            // Return simplified message if available
+            if (apiError.message && apiError.message.length < 100) {
+                throw new Error(apiError.message);
+            }
+        }
+        
+        // Re-throw with simplified message
+        throw new Error('Failed to generate quiz. Please try again.');
+    }
 }
 
 
