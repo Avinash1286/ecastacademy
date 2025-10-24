@@ -1,29 +1,7 @@
-import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 export default defineSchema({
-  users: defineTable({
-    name: v.optional(v.string()),
-    email: v.optional(v.string()),
-    phone: v.optional(v.string()),
-    image: v.optional(v.string()),
-    emailVerificationTime: v.optional(v.number()),
-    phoneVerificationTime: v.optional(v.number()),
-    isAnonymous: v.optional(v.boolean()),
-    role: v.optional(v.union(v.literal("admin"), v.literal("user"))),
-    createdAt: v.optional(v.number()),
-    updatedAt: v.optional(v.number()),
-  })
-    .index("email", ["email"])
-    .index("phone", ["phone"]),
-  authSessions: authTables.authSessions,
-  authAccounts: authTables.authAccounts,
-  authRefreshTokens: authTables.authRefreshTokens,
-  authVerificationCodes: authTables.authVerificationCodes,
-  authVerifiers: authTables.authVerifiers,
-  authRateLimits: authTables.authRateLimits,
-
   // Videos table with processing status
   videos: defineTable({
     youtubeVideoId: v.string(),

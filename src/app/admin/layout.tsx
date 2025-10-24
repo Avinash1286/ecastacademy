@@ -1,40 +1,12 @@
 "use client";
 
-import { ReactNode, useEffect, useState } from "react";
+import { ReactNode } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { Video, BookOpen, LayoutDashboard, LucideIcon, Loader2 } from "lucide-react";
+import { Video, BookOpen, LayoutDashboard, LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { usePathname } from "next/navigation";
-import { useRequireAuth } from "@/hooks/useAuth";
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
-  const router = useRouter();
-  const { user, isLoading } = useRequireAuth({ redirectTo: "/login" });
-  const [hasRedirected, setHasRedirected] = useState(false);
-
-  useEffect(() => {
-    if (isLoading || !user) {
-      return;
-    }
-
-    if (user.role !== "admin" && !hasRedirected) {
-      setHasRedirected(true);
-      router.replace("/dashboard");
-    }
-  }, [isLoading, user, router, hasRedirected]);
-
-  if (isLoading || !user || user.role !== "admin") {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
-        <div className="flex items-center gap-3 text-muted-foreground">
-          <Loader2 className="h-5 w-5 animate-spin" />
-          <span>Checking admin access…</span>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen flex flex-col">
       {/* Admin Header */}

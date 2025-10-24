@@ -10,8 +10,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "convex:dev": "convex dev",
-    "convex:codegen": "npx convex codegen"
+    "convex:dev": "convex dev"
   },
   "dependencies": {
     "@auth/core": "^0.41.0",
