@@ -1,10 +1,10 @@
 import { auth } from "./auth.config";
 import { redirect } from "next/navigation";
-import { ConvexHttpClient } from "convex/browser";
 import { api } from "../../../convex/_generated/api";
 import { Id } from "../../../convex/_generated/dataModel";
+import { createConvexClient } from "@/lib/convexClient";
 
-const convex = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
+const convex = createConvexClient();
 
 /**
  * Get the current server session
@@ -32,7 +32,7 @@ export async function requireAuth() {
 export async function requireAdmin() {
   const session = await requireAuth();
 
-  const userId = (session.user as any).id as Id<"users">;
+  const userId = session.user.id as Id<"users">;
   const user = await convex.query(api.auth.getUserById, { id: userId });
 
   if (!user || user.role !== "admin") {
@@ -48,11 +48,11 @@ export async function requireAdmin() {
 export async function isAdmin(): Promise<boolean> {
   const session = await getSession();
 
-  if (!session || !(session.user as any).id) {
+  if (!session || !session.user?.id) {
     return false;
   }
 
-  const userId = (session.user as any).id as Id<"users">;
+  const userId = session.user.id as Id<"users">;
   const user = await convex.query(api.auth.getUserById, { id: userId });
 
   return user?.role === "admin";
@@ -64,11 +64,11 @@ export async function isAdmin(): Promise<boolean> {
 export async function getCurrentUser() {
   const session = await getSession();
 
-  if (!session || !(session.user as any).id) {
+  if (!session || !session.user?.id) {
     return null;
   }
 
-  const userId = (session.user as any).id as Id<"users">;
+  const userId = session.user.id as Id<"users">;
   const user = await convex.query(api.auth.getUserById, { id: userId });
 
   return user;

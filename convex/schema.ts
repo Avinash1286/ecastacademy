@@ -178,13 +178,15 @@ export default defineSchema({
     maxScore: v.optional(v.number()), // Maximum possible score
     percentage: v.optional(v.number()), // Score as percentage
     passed: v.optional(v.boolean()), // Did user pass this item?
+    latestPassed: v.optional(v.boolean()), // Did the latest attempt pass?
     attempts: v.optional(v.number()), // Number of attempts
     bestScore: v.optional(v.number()), // Best score achieved across attempts
     lastAttemptAt: v.optional(v.number()), // Timestamp of last attempt
   })
     .index("by_userId_courseId", ["userId", "courseId"])
     .index("by_userId_contentItemId", ["userId", "contentItemId"])
-    .index("by_userId_courseId_contentItemId", ["userId", "courseId", "contentItemId"]),
+    .index("by_userId_courseId_contentItemId", ["userId", "courseId", "contentItemId"])
+    .index("by_courseId", ["courseId"]),
 
   // Certificates table
   certificates: defineTable({

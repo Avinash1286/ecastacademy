@@ -50,11 +50,14 @@ export function QuizzesPanel({
   useEffect(() => {
     console.log('QuizzesPanel Debug:', {
       contentItemId: contentItem?.id,
+      contentItemType: typeof contentItem?.id,
       isGraded: contentItem?.isGraded,
       userId,
+      userIdType: typeof userId,
       attemptHistory,
       attemptCount: attemptHistory?.length || 0,
-      hasSession: !!session
+      hasSession: !!session,
+      sessionUser: session?.user
     });
   }, [contentItem, userId, attemptHistory, session]);
 
@@ -102,6 +105,12 @@ export function QuizzesPanel({
   }, [questions, attemptHistory]);
   
   const handleQuizComplete = async (answers: number[], finalScore: number) => {
+    console.log('=== handleQuizComplete START ===');
+    console.log('Answers:', answers);
+    console.log('Final Score:', finalScore);
+    console.log('ContentItem:', contentItem);
+    console.log('Session:', session);
+    
     setUserAnswers(answers);
     setScore(finalScore);
     setShowPreviousAttempt(false); // This is a new attempt
@@ -109,28 +118,38 @@ export function QuizzesPanel({
     // Get userId from session
     const userId = session?.user ? (session.user as ExtendedUser).id : undefined;
     
+    console.log('Extracted userId:', userId, 'Type:', typeof userId);
+    
     if (!userId) {
-      console.error('User not authenticated');
+      console.error('❌ User not authenticated');
       setCurrentView('results');
       return;
     }
     
     if (!contentItem?.id) {
-      console.error('Content item ID is missing');
+      console.error('❌ Content item ID is missing');
+      console.error('ContentItem object:', contentItem);
       setCurrentView('results');
       return;
     }
     
     try {
-      const maxScore = contentItem?.maxPoints || quiz?.questions.length || 100;
-      
-      console.log('Recording quiz completion:', {
+      const totalQuestions = quiz?.questions.length ?? 0;
+      const maxScore = totalQuestions > 0
+        ? totalQuestions
+        : contentItem?.maxPoints ?? 100;
+      const percentage = maxScore > 0 ? (finalScore / maxScore) * 100 : 0;
+
+      console.log('✅ Recording quiz completion:', {
         userId,
         contentItemId: contentItem.id,
+        contentItemIdType: typeof contentItem.id,
         finalScore,
         maxScore,
-        percentage: (finalScore / maxScore) * 100,
-        isGraded: contentItem?.isGraded
+        percentage,
+        isGraded: contentItem?.isGraded,
+        answers,
+        answersLength: answers.length
       });
       
       // Use the new unified recordCompletion mutation
@@ -142,12 +161,17 @@ export function QuizzesPanel({
         answers, // Include answers for quiz attempt record
       });
       
-      console.log('Completion recorded:', result);
+      console.log('✅✅ Completion recorded successfully:', result);
     } catch (error) {
-      console.error('Error submitting quiz:', error);
+      console.error('❌❌ Error submitting quiz:', error);
+      if (error instanceof Error) {
+        console.error('Error message:', error.message);
+        console.error('Error stack:', error.stack);
+      }
       // Continue to show results even if submission fails
     } finally {
       setCurrentView('results');
+      console.log('=== handleQuizComplete END ===');
     }
   };
 

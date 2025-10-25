@@ -3,13 +3,57 @@ import type { NextAuthConfig } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import GoogleProvider from "next-auth/providers/google";
 import GitHubProvider from "next-auth/providers/github";
-import { ConvexHttpClient } from "convex/browser";
 import { api } from "../../../convex/_generated/api";
 import { hashPassword, verifyPassword, validateEmail, validatePassword } from "./utils";
 import { Id } from "../../../convex/_generated/dataModel";
+import { createConvexClient } from "@/lib/convexClient";
+
+// Extend the built-in session and user types
+declare module "next-auth" {
+  interface User {
+    role?: string;
+  }
+  interface Session {
+    user: {
+      id: string;
+      role: string;
+      name?: string | null;
+      email?: string | null;
+      image?: string | null;
+    }
+  }
+}
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL!;
-const convex = new ConvexHttpClient(convexUrl);
+const deployKey = process.env.CONVEX_DEPLOY_KEY;
+
+console.log('🔍 [AUTH CONFIG] Convex URL:', convexUrl);
+console.log('🔍 [AUTH CONFIG] Has Deploy Key:', !!deployKey);
+console.log('🔍 [AUTH CONFIG] Deploy Key preview:', deployKey ? deployKey.substring(0, 30) + '...' : 'none');
+
+// Create Convex client
+const convex = createConvexClient();
+
+// Helper to make authenticated requests with deploy key
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function authenticatedQuery<T>(queryFunction: any, args: Record<string, unknown>): Promise<T> {
+  try {
+    return await convex.query(queryFunction, args);
+  } catch (error) {
+    console.error("Convex query failed", error);
+    throw error;
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function authenticatedMutation<T>(mutationFunction: any, args: Record<string, unknown>): Promise<T> {
+  try {
+    return await convex.mutation(mutationFunction, args);
+  } catch (error) {
+    console.error("Convex mutation failed", error);
+    throw error;
+  }
+}
 
 const authConfig: NextAuthConfig = {
   providers: [
@@ -125,7 +169,7 @@ const authConfig: NextAuthConfig = {
   },
 
   callbacks: {
-    async signIn({ user, account, profile }) {
+    async signIn({ user, account }) {
       // For OAuth providers, check if user exists or create new one
       if (account?.provider === "google" || account?.provider === "github") {
         const email = user.email;
@@ -133,25 +177,30 @@ const authConfig: NextAuthConfig = {
           return false;
         }
 
-        let existingUser = await convex.query(api.auth.getUserByEmail, {
+        const existingUser = await authenticatedQuery<{
+          _id: Id<"users">;
+          name?: string;
+          image?: string;
+          role: string;
+        } | null>(api.auth.getUserByEmail, {
           email,
         });
 
         if (!existingUser) {
           // Create new user from OAuth
-          const userId = await convex.mutation(api.auth.createUser, {
+          const userId = await authenticatedMutation<string>(api.auth.createUser, {
             email,
             name: user.name || undefined,
             image: user.image || undefined,
             emailVerified: Date.now(),
           });
-          user.id = userId;
+          user.id = userId as string;
         } else {
-          user.id = existingUser._id;
+          user.id = existingUser._id as string;
           // Update user info if changed
           if (existingUser.name !== user.name || existingUser.image !== user.image) {
-            await convex.mutation(api.auth.updateUser, {
-              id: existingUser._id as Id<"users">,
+            await authenticatedMutation(api.auth.updateUser, {
+              id: existingUser._id,
               name: user.name || undefined,
               image: user.image || undefined,
             });
@@ -159,7 +208,7 @@ const authConfig: NextAuthConfig = {
         }
 
         // Link account if not already linked
-        const existingAccount = await convex.query(
+        const existingAccount = await authenticatedQuery(
           api.auth.getAccountByProvider,
           {
             provider: account.provider,
@@ -168,7 +217,7 @@ const authConfig: NextAuthConfig = {
         );
 
         if (!existingAccount) {
-          await convex.mutation(api.auth.linkAccount, {
+          await authenticatedMutation(api.auth.linkAccount, {
             userId: user.id as Id<"users">,
             type: account.type,
             provider: account.provider,
@@ -191,7 +240,7 @@ const authConfig: NextAuthConfig = {
       // Initial sign in
       if (user) {
         token.id = user.id;
-        token.role = (user as any).role || "user";
+        token.role = user.role || "user";
         token.email = user.email;
         token.name = user.name;
         token.picture = user.image;
@@ -224,8 +273,8 @@ const authConfig: NextAuthConfig = {
 
     async session({ session, token }) {
       if (session.user) {
-        (session.user as any).id = token.id as string;
-        (session.user as any).role = token.role as string;
+        session.user.id = token.id as string;
+        session.user.role = token.role as string;
         session.user.name = token.name as string;
         session.user.email = token.email as string;
         session.user.image = token.picture as string;
@@ -235,11 +284,11 @@ const authConfig: NextAuthConfig = {
   },
 
   events: {
-    async signIn({ user, account, isNewUser }) {
+    async signIn({ user, isNewUser }) {
       console.log("User signed in:", { userId: user.id, isNewUser });
     },
-    async signOut({ token }) {
-      console.log("User signed out:", token.id);
+    async signOut() {
+      console.log("User signed out");
     },
   },
 

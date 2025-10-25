@@ -1,21 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth/auth.config";
-import { ConvexHttpClient } from "convex/browser";
 import { api } from "../../../../../convex/_generated/api";
 import { Id } from "../../../../../convex/_generated/dataModel";
+import { createConvexClient } from "@/lib/convexClient";
 
-const convex = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
+const convex = createConvexClient();
 
 // GET - List all users (admin only)
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     const session = await auth();
 
-    if (!session || !(session.user as any)?.id) {
+    if (!session || !session.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const currentUserId = (session.user as any).id as Id<"users">;
+    const currentUserId = session.user.id as Id<"users">;
 
     // Fetch users with stats
     const users = await convex.query(api.admin.listUsers, {
@@ -23,10 +23,10 @@ export async function GET(request: NextRequest) {
     });
 
     return NextResponse.json({ users });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Error fetching users:", error);
-    
-    if (error.message?.includes("Unauthorized")) {
+
+    if (error instanceof Error && error.message?.includes("Unauthorized")) {
       return NextResponse.json({ error: "Admin access required" }, { status: 403 });
     }
 
@@ -42,11 +42,11 @@ export async function PATCH(request: NextRequest) {
   try {
     const session = await auth();
 
-    if (!session || !(session.user as any)?.id) {
+    if (!session || !session.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const currentUserId = (session.user as any).id as Id<"users">;
+    const currentUserId = session.user.id as Id<"users">;
     const { targetUserId, newRole } = await request.json();
 
     if (!targetUserId || !newRole) {
@@ -71,14 +71,14 @@ export async function PATCH(request: NextRequest) {
     });
 
     return NextResponse.json({ user: updatedUser });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Error updating user role:", error);
 
-    if (error.message?.includes("Unauthorized") || error.message?.includes("Admin")) {
+    if (error instanceof Error && (error.message?.includes("Unauthorized") || error.message?.includes("Admin"))) {
       return NextResponse.json({ error: "Admin access required" }, { status: 403 });
     }
 
-    if (error.message?.includes("cannot demote yourself")) {
+    if (error instanceof Error && error.message?.includes("cannot demote yourself")) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
@@ -94,11 +94,11 @@ export async function DELETE(request: NextRequest) {
   try {
     const session = await auth();
 
-    if (!session || !(session.user as any)?.id) {
+    if (!session || !session.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const currentUserId = (session.user as any).id as Id<"users">;
+    const currentUserId = session.user.id as Id<"users">;
     const { searchParams } = new URL(request.url);
     const targetUserId = searchParams.get("userId");
 
@@ -116,14 +116,14 @@ export async function DELETE(request: NextRequest) {
     });
 
     return NextResponse.json(result);
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Error deleting user:", error);
 
-    if (error.message?.includes("Unauthorized") || error.message?.includes("Admin")) {
+    if (error instanceof Error && (error.message?.includes("Unauthorized") || error.message?.includes("Admin"))) {
       return NextResponse.json({ error: "Admin access required" }, { status: 403 });
     }
 
-    if (error.message?.includes("cannot delete yourself")) {
+    if (error instanceof Error && error.message?.includes("cannot delete yourself")) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 

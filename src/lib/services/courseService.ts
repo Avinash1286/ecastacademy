@@ -1,4 +1,3 @@
-import { ConvexHttpClient } from "convex/browser";
 import { api } from "../../../convex/_generated/api";
 import { Id } from "../../../convex/_generated/dataModel";
 import { generateNotes, generateQuiz } from "@/lib/services/aimodel";
@@ -7,8 +6,9 @@ import { TCreateCourseSchema } from "@/lib/validators/courseValidator";
 import type { TUpdateCourseSchema } from "@/lib/validators/courseValidator";
 import { formatDuration } from "@/lib/youtube";
 import type { ContentItem } from "@/lib/types";
+import { createConvexClient } from "@/lib/convexClient";
 
-const convex = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
+const convex = createConvexClient();
 
 type Course = {
   _id: Id<"courses">;
@@ -142,8 +142,16 @@ export async function getCourseChapters(courseId: string): Promise<ChapterRespon
       id: chapter.course.id,
       name: chapter.course.name,
       description: chapter.course.description ?? null,
+      isCertification: chapter.course.isCertification ?? false,
+      passingGrade: chapter.course.passingGrade ?? undefined,
     },
-    contentItems: chapter.contentItems, // Include content items!
+    contentItems: chapter.contentItems?.map((item: ContentItem & { allowRetakes?: boolean }) => ({
+      ...item,
+      isGraded: item.isGraded ?? false,
+      allowRetakes: item.allowRetakes ?? true,
+      maxPoints: item.maxPoints ?? undefined,
+      passingScore: item.passingScore ?? undefined,
+    })),
     video: chapter.video,
   }));
 }
