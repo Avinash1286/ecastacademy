@@ -11,6 +11,9 @@ export default async function LearningPage({
 }) {
   const { id } = await params;
   const chapters = await getCourseChapters(id);
+  
+  // Get course info from first chapter
+  const courseInfo = chapters && chapters.length > 0 ? chapters[0].course : null;
 
   if (!chapters || chapters.length === 0) {
     return (
@@ -36,5 +39,11 @@ export default async function LearningPage({
     );
   }
 
-  return <Learnspace initialChapters={chapters as unknown as import('@/lib/types').ChapterWithVideo[]} />;
+  return (
+    <Learnspace 
+      initialChapters={chapters as unknown as import('@/lib/types').ChapterWithVideo[]} 
+      courseId={id}
+      isCertification={courseInfo?.isCertification}
+    />
+  );
 }

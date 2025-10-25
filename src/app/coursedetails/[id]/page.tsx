@@ -1,88 +1,225 @@
 "use client"
 
+import { useParams, useRouter } from "next/navigation"
+import { useQuery } from "convex/react"
+import { api } from "../../../../convex/_generated/api"
+import { Id } from "../../../../convex/_generated/dataModel"
+import { EnrollButton } from "@/components/course/EnrollButton"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import Link from "next/link"
-import { useParams } from "next/navigation"
+import { Skeleton } from "@/components/ui/skeleton"
+import { Award, BookOpen, Video, ArrowLeft } from "lucide-react"
+import Image from "next/image"
 
 const Page = () => {
   const params = useParams()
+  const router = useRouter()
+  const courseId = params.id as Id<"courses">
   
-  // const sampleCourse={
-  //   "id": "e0b46fc7-bda8-4ba6-9d1a-c00c86512e49",
-  //   "name": "MIT Introduction to Deep Learning | 6.S191",
-  //   "description": "MIT 6.S191 (Introduction to Deep Learning) is a popular short course offered during MIT’s Independent Activities Period (IAP). The course provides students with:\n\nFoundational knowledge of deep learning algorithms, covering the core concepts behind neural networks and their applications.\n\nBeginner-friendly prerequisites: The only requirements are a basic understanding of calculus (e.g., derivatives) and linear algebra (e.g., matrix multiplication), with experience in Python helpful but not required. The course is designed to be accessible to a wide range of students, not limited to computer science majors.",
-  //   "thumbnailUrl": "https://i.ytimg.com/vi/alfdI7S6wCY/maxresdefault.jpg",
-  //   "chapters": [
-  //     {
-  //       "id": "4cb027d1-e8b6-49e2-8eb3-ae37a7837c73",
-  //       "name": "MIT Introduction to Deep Learning | 6.S191",
-  //       "order": 1,
-  //       "duration": "1:09:26"
-  //     },
-  //     {
-  //       "id": "909c9ea4-fb1d-45ee-b6b7-46dcc8e99354",
-  //       "name": "MIT 6.S191: Recurrent Neural Networks, Transformers, and Attention",
-  //       "order": 2,
-  //       "duration": "1:01:34"
-  //     },
-  //     {
-  //       "id": "6b618309-9d5f-47c7-941e-4e16afcb5184",
-  //       "name": "MIT 6.S191: Convolutional Neural Networks",
-  //       "order": 3,
-  //       "duration": "1:01:04"
-  //     },
-  //     {
-  //       "id": "ed16e22e-dd97-4d5f-9904-37b432012b9a",
-  //       "name": "MIT 6.S191: Deep Generative Modeling",
-  //       "order": 4,
-  //       "duration": "48:57"
-  //     },
-  //     {
-  //       "id": "e31e7282-31a2-4e3b-ba4f-2567a0173667",
-  //       "name": "MIT 6.S191: Reinforcement Learning",
-  //       "order": 5,
-  //       "duration": "1:02:00"
-  //     },
-  //     {
-  //       "id": "0b7d05c9-2b5f-4f13-b014-a68cd88ce053",
-  //       "name": "MIT 6.S191: Language Models and New Frontiers",
-  //       "order": 6,
-  //       "duration": "47:36"
-  //     },
-  //     {
-  //       "id": "780bc42d-54ba-4eaf-be48-ed8d0805cca6",
-  //       "name": "MIT 6.S191 (Google): Large Language Models",
-  //       "order": 7,
-  //       "duration": "55:52"
-  //     },
-  //     {
-  //       "id": "6e670307-69b7-495e-9eab-543dd40bcb1e",
-  //       "name": "MIT 6.S191 (Liquid AI): Large Language Models",
-  //       "order": 8,
-  //       "duration": "1:08:18"
-  //     },
-  //     {
-  //       "id": "ea96e006-c4ff-47ec-a236-c8fb07744d21",
-  //       "name": "MIT 6.S191 (Comet ML): A Hipocratic Oath, for *your* AI",
-  //       "order": 9,
-  //       "duration": "51:26"
-  //     },
-  //     {
-  //       "id": "c2a7db13-f665-4742-8289-c0996ff1e135",
-  //       "name": "MIT 6.S191 (Microsoft): AI for Biology",
-  //       "order": 10,
-  //       "duration": "57:13"
-  //     }
-  //   ]
-  // }
+  const course = useQuery(api.courses.getCourse, { id: courseId })
+  const chapters = useQuery(api.chapters.getChaptersByCourse, { courseId })
+
+  if (course === undefined || chapters === undefined) {
+    return <CourseDetailsSkeleton />
+  }
+
+  if (!course) {
+    return (
+      <>
+        {/* Sticky Navbar */}
+        <div className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+          <div className="container mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <div className="flex h-16 items-center">
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={() => router.back()}
+                className="gap-2"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                Back
+              </Button>
+            </div>
+          </div>
+        </div>
+        
+        <div className="container mx-auto max-w-7xl py-12 px-4 text-center">
+          <h1 className="text-2xl font-bold">Course not found</h1>
+        </div>
+      </>
+    )
+  }
+
+  const totalChapters = chapters?.length || 0
+  const totalContentItems = chapters?.reduce((acc: number, chapter: any) => acc + (chapter.contentItems?.length || 0), 0) || 0
 
   return (
-    <div className="container mx-auto max-w-7xl py-12 px-4 sm:px-6 lg:px-8">
-      <Link href={`/learnspace/${params.id}`}>
-      THis is Course Detailed page where all the information about the course will be displayed
-        <Button>Go to course</Button>
-      </Link>
+    <>
+      {/* Sticky Navbar */}
+      <div className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <div className="container mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="flex h-16 items-center">
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              onClick={() => router.back()}
+              className="gap-2"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Back
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      <div className="container mx-auto max-w-7xl py-12 px-4 sm:px-6 lg:px-8">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div className="lg:col-span-2 space-y-6">
+            <div>
+            <div className="flex items-start gap-4 mb-4">
+              <h1 className="text-4xl font-bold flex-1">{course.name}</h1>
+              {course.isCertification && (
+                <Badge className="bg-amber-500 hover:bg-amber-600 text-white">
+                  <Award className="h-4 w-4 mr-1" />
+                  Certificate Course
+                </Badge>
+              )}
+            </div>
+            <p className="text-lg text-muted-foreground">
+              {course.description || "No description available"}
+            </p>
+          </div>
+
+          {course.thumbnailUrl && (
+            <div className="relative w-full aspect-video rounded-lg overflow-hidden">
+              <Image src={course.thumbnailUrl} alt={course.name} fill className="object-cover" />
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+            <Card>
+              <CardContent className="pt-6">
+                <div className="flex items-center gap-2">
+                  <BookOpen className="h-5 w-5 text-primary" />
+                  <div>
+                    <p className="text-2xl font-bold">{totalChapters}</p>
+                    <p className="text-sm text-muted-foreground">Chapters</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <div className="flex items-center gap-2">
+                  <Video className="h-5 w-5 text-primary" />
+                  <div>
+                    <p className="text-2xl font-bold">{totalContentItems}</p>
+                    <p className="text-sm text-muted-foreground">Content Items</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            {course.isCertification && (
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="flex items-center gap-2">
+                    <Award className="h-5 w-5 text-amber-600" />
+                    <div>
+                      <p className="text-2xl font-bold">{course.passingGrade || 70}%</p>
+                      <p className="text-sm text-muted-foreground">Passing Grade</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Course Curriculum</CardTitle>
+              <CardDescription>{totalChapters} chapters  {totalContentItems} content items</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {chapters?.map((chapter: any, index: number) => (
+                  <div key={chapter._id} className="flex items-start gap-3 p-3 rounded-lg border hover:bg-muted/50 transition-colors">
+                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-sm font-semibold text-primary">
+                      {index + 1}
+                    </div>
+                    <div className="flex-1">
+                      <h4 className="font-semibold">{chapter.name}</h4>
+                      <p className="text-sm text-muted-foreground">{chapter.contentItems?.length || 0} items</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="lg:col-span-1">
+          <Card className="sticky top-20">
+            <CardHeader>
+              <CardTitle>Start Learning</CardTitle>
+              <CardDescription>Enroll now to access all course content</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <EnrollButton courseId={courseId} size="lg" className="w-full" />
+              
+              {course.isCertification && (
+                <div className="p-4 rounded-lg border border-amber-500/20 bg-amber-50/50 dark:bg-amber-950/20">
+                  <div className="flex items-start gap-2">
+                    <Award className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="font-semibold text-amber-900 dark:text-amber-100 mb-1">Certificate of Completion</h4>
+                      <p className="text-sm text-amber-800 dark:text-amber-200">
+                        Complete all graded items with {course.passingGrade || 70}% or higher to earn your certificate.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
     </div>
+    </>
+  )
+}
+
+function CourseDetailsSkeleton() {
+  return (
+    <>
+      {/* Sticky Navbar Skeleton */}
+      <div className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <div className="container mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="flex h-16 items-center">
+            <Skeleton className="h-9 w-20" />
+          </div>
+        </div>
+      </div>
+      
+      <div className="container mx-auto max-w-7xl py-12 px-4 sm:px-6 lg:px-8">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div className="lg:col-span-2 space-y-6">
+            <Skeleton className="h-12 w-3/4" />
+            <Skeleton className="h-6 w-full" />
+            <Skeleton className="h-6 w-2/3" />
+            <Skeleton className="w-full aspect-video" />
+            <div className="grid grid-cols-3 gap-4">
+              <Skeleton className="h-24" />
+              <Skeleton className="h-24" />
+              <Skeleton className="h-24" />
+            </div>
+          </div>
+          <div className="lg:col-span-1">
+            <Skeleton className="h-64 w-full" />
+          </div>
+        </div>
+      </div>
+    </>
   )
 }
 

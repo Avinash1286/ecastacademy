@@ -1,3 +1,4 @@
+import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 
 // Query to check videos without proper notes/quiz
@@ -169,6 +170,287 @@ export const migrateChaptersToContentItems = mutation({
       totalChapters: chapters.length,
       migratedChapters: migratedCount,
       message: `Successfully migrated ${migratedCount} chapters to use content items`,
+    };
+  },
+});
+
+/**
+ * Manual migration to fix content items grading status for a specific course
+ * Run this from Convex dashboard if you need to fix a course's content items
+ */
+export const fixCourseContentItemsGrading = mutation({
+  args: {
+    courseId: v.id("courses"),
+  },
+  handler: async (ctx, args) => {
+    // Get the course
+    const course = await ctx.db.get(args.courseId);
+    if (!course) {
+      throw new Error("Course not found");
+    }
+
+    console.log(`Fixing content items for course: ${course.name}`);
+    console.log(`Course is certification: ${course.isCertification}`);
+
+    // Get all chapters for this course
+    const chapters = await ctx.db
+      .query("chapters")
+      .withIndex("by_courseId", (q) => q.eq("courseId", args.courseId))
+      .collect();
+
+    let updatedCount = 0;
+    const updates: Array<{ itemId: string; title: string; wasGraded: boolean; nowGraded: boolean }> = [];
+
+    // For each chapter, update its content items
+    for (const chapter of chapters) {
+      const contentItems = await ctx.db
+        .query("contentItems")
+        .withIndex("by_chapterId", (q) => q.eq("chapterId", chapter._id))
+        .collect();
+
+      for (const item of contentItems) {
+        let shouldBeGraded: boolean;
+
+        if (course.isCertification) {
+          // For certification courses, determine grading based on type
+          if (item.type === "video" && item.videoId) {
+            // Check if video has a quiz
+            const video = await ctx.db.get(item.videoId);
+            shouldBeGraded = video?.quiz ? true : false;
+          } else if (item.type === "quiz" || item.type === "assignment") {
+            shouldBeGraded = true;
+          } else {
+            shouldBeGraded = false;
+          }
+        } else {
+          // Non-certification courses: all items are non-graded
+          shouldBeGraded = false;
+        }
+
+        // Update if different from current status
+        if (item.isGraded !== shouldBeGraded) {
+          await ctx.db.patch(item._id, {
+            isGraded: shouldBeGraded,
+            maxPoints: shouldBeGraded ? (item.maxPoints ?? 100) : undefined,
+            passingScore: shouldBeGraded
+              ? (item.passingScore ?? course.passingGrade ?? 70)
+              : undefined,
+          });
+          
+          updates.push({
+            itemId: item._id,
+            title: item.title,
+            wasGraded: item.isGraded ?? false,
+            nowGraded: shouldBeGraded,
+          });
+          
+          updatedCount++;
+        }
+      }
+    }
+
+    console.log(`Updated ${updatedCount} content items`);
+    console.log('Updates:', updates);
+
+    return {
+      success: true,
+      updatedCount,
+      updates,
+      message: `Updated ${updatedCount} content items for course "${course.name}"`,
+    };
+  },
+});
+
+/**
+ * Fix progress records to match content items' grading status
+ * This updates the isGradedItem field in progress records
+ */
+export const fixProgressRecordsGradingStatus = mutation({
+  args: {
+    courseId: v.id("courses"),
+  },
+  handler: async (ctx, args) => {
+    // Get all progress records (we'll filter by courseId)
+    const allProgress = await ctx.db.query("progress").collect();
+    const progressRecords = allProgress.filter(p => p.courseId === args.courseId);
+
+    let updatedCount = 0;
+    const updates: Array<{ progressId: string; contentItemId: string; wasGraded: boolean; nowGraded: boolean }> = [];
+
+    for (const progress of progressRecords) {
+      if (progress.contentItemId) {
+        // Get the content item to check its current grading status
+        const contentItem = await ctx.db.get(progress.contentItemId);
+        
+        if (contentItem && progress.isGradedItem !== contentItem.isGraded) {
+          await ctx.db.patch(progress._id, {
+            isGradedItem: contentItem.isGraded ?? false,
+          });
+
+          updates.push({
+            progressId: progress._id,
+            contentItemId: progress.contentItemId,
+            wasGraded: progress.isGradedItem ?? false,
+            nowGraded: contentItem.isGraded ?? false,
+          });
+
+          updatedCount++;
+        }
+      }
+    }
+
+    console.log(`Updated ${updatedCount} progress records`);
+    console.log('Updates:', updates);
+
+    return {
+      success: true,
+      updatedCount,
+      updates,
+      message: `Updated ${updatedCount} progress records`,
+    };
+  },
+});
+
+/**
+ * Complete migration - fix both content items and progress records
+ */
+export const fixCourseCertificationComplete = mutation({
+  args: {
+    courseId: v.id("courses"),
+  },
+  handler: async (ctx, args) => {
+    const course = await ctx.db.get(args.courseId);
+    if (!course) {
+      throw new Error("Course not found");
+    }
+
+    console.log(`=== Starting complete certification fix for course: ${course.name} ===`);
+
+    // Step 1: Fix content items
+    const chapters = await ctx.db
+      .query("chapters")
+      .withIndex("by_courseId", (q) => q.eq("courseId", args.courseId))
+      .collect();
+
+    let contentItemsUpdated = 0;
+
+    for (const chapter of chapters) {
+      const contentItems = await ctx.db
+        .query("contentItems")
+        .withIndex("by_chapterId", (q) => q.eq("chapterId", chapter._id))
+        .collect();
+
+      for (const item of contentItems) {
+        let shouldBeGraded: boolean;
+
+        if (course.isCertification) {
+          if (item.type === "video" && item.videoId) {
+            const video = await ctx.db.get(item.videoId);
+            shouldBeGraded = video?.quiz ? true : false;
+          } else if (item.type === "quiz" || item.type === "assignment") {
+            shouldBeGraded = true;
+          } else {
+            shouldBeGraded = false;
+          }
+        } else {
+          shouldBeGraded = false;
+        }
+
+        if (item.isGraded !== shouldBeGraded) {
+          await ctx.db.patch(item._id, {
+            isGraded: shouldBeGraded,
+            maxPoints: shouldBeGraded ? (item.maxPoints ?? 100) : undefined,
+            passingScore: shouldBeGraded
+              ? (item.passingScore ?? course.passingGrade ?? 70)
+              : undefined,
+          });
+          contentItemsUpdated++;
+        }
+      }
+    }
+
+    console.log(`Step 1: Updated ${contentItemsUpdated} content items`);
+
+    // Step 2: Fix progress records - clean up invalid data
+    const allProgress = await ctx.db.query("progress").collect();
+    const progressRecords = allProgress.filter(p => p.courseId === args.courseId);
+
+    let progressUpdated = 0;
+
+    for (const progress of progressRecords) {
+      if (progress.contentItemId) {
+        const contentItem = await ctx.db.get(progress.contentItemId);
+        
+        if (contentItem) {
+          // Check if this progress record is valid
+          const hasScore = progress.score !== undefined && progress.score !== null;
+          const isGradedItem = contentItem.isGraded ?? false;
+          
+          // Determine if item should be marked as completed
+          let shouldBeCompleted: boolean;
+          let shouldBePassed: boolean | undefined;
+          
+          if (isGradedItem) {
+            // Graded items: only completed if they have a score and passed
+            if (hasScore) {
+              const percentage = progress.percentage ?? ((progress.score ?? 0) / (progress.maxScore ?? 100)) * 100;
+              const passingScore = contentItem.passingScore ?? 70;
+              shouldBePassed = percentage >= passingScore;
+              shouldBeCompleted = shouldBePassed;
+            } else {
+              // No score = not attempted = not completed
+              shouldBeCompleted = false;
+              shouldBePassed = undefined;
+            }
+          } else {
+            // Non-graded items: completed if they have any progress record
+            // (they were marked complete when viewed)
+            shouldBeCompleted = progress.completed ?? false;
+            shouldBePassed = undefined;
+          }
+          
+          // Update if needed
+          const needsUpdate = 
+            progress.isGradedItem !== isGradedItem ||
+            progress.completed !== shouldBeCompleted ||
+            (shouldBePassed !== undefined && progress.passed !== shouldBePassed);
+          
+          if (needsUpdate) {
+            const updates: {
+              isGradedItem: boolean;
+              completed: boolean;
+              passed?: boolean;
+              completedAt?: number;
+            } = {
+              isGradedItem,
+              completed: shouldBeCompleted,
+            };
+            
+            if (shouldBePassed !== undefined) {
+              updates.passed = shouldBePassed;
+            }
+            
+            // If not completed, clear completion timestamp
+            if (!shouldBeCompleted && progress.completedAt) {
+              updates.completedAt = undefined;
+            }
+            
+            await ctx.db.patch(progress._id, updates);
+            progressUpdated++;
+          }
+        }
+      }
+    }
+
+    console.log(`Step 2: Updated ${progressUpdated} progress records`);
+    console.log(`=== Complete! ===`);
+
+    return {
+      success: true,
+      courseName: course.name,
+      contentItemsUpdated,
+      progressRecordsUpdated: progressUpdated,
+      message: `Fixed ${contentItemsUpdated} content items and ${progressUpdated} progress records for "${course.name}"`,
     };
   },
 });

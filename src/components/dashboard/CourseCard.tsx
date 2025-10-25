@@ -2,7 +2,8 @@
 
 import Link from 'next/link';
 import Image from 'next/image';
-import { BookOpen } from 'lucide-react';
+import { BookOpen, Award } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import type { Course } from '@/lib/types';
 
 export const CourseCard = ({ course }: { course: Course }) => (
@@ -26,6 +27,16 @@ export const CourseCard = ({ course }: { course: Course }) => (
       ) : (
         <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-primary/20 to-secondary/20">
           <BookOpen className="w-20 h-20 text-muted-foreground/40" />
+        </div>
+      )}
+      
+      {/* Certification Badge */}
+      {course.isCertification && (
+        <div className="absolute top-3 right-3">
+          <Badge className="bg-amber-500/90 hover:bg-amber-500 text-white border-none shadow-lg">
+            <Award className="h-3 w-3 mr-1" />
+            Certificate
+          </Badge>
         </div>
       )}
     </div>

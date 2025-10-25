@@ -12,9 +12,12 @@ import { AiTutorPanel } from '@/components/learnspace/ai-tutor-panel';
 import { ChapterWithVideo, ContentItem, InteractiveNotesProps, Quiz } from '@/lib/types';
 import { LearnspaceNavbar } from '@/components/learnspace/learnspace-navbar';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { Id } from '../../../convex/_generated/dataModel';
 
 interface LearnspaceProps {
   initialChapters: ChapterWithVideo[];
+  courseId: string;
+  isCertification?: boolean;
 }
 
 const getInitialChapter = (chapters: ChapterWithVideo[], chapterIdFromUrl: string | null) => {
@@ -25,7 +28,7 @@ const getInitialChapter = (chapters: ChapterWithVideo[], chapterIdFromUrl: strin
   return chapters[0];
 }
 
-export default function Learnspace({ initialChapters }: LearnspaceProps) {
+export default function Learnspace({ initialChapters, courseId, isCertification }: LearnspaceProps) {
   const searchParams = useSearchParams();
   const chapterIdFromUrl = searchParams.get('chapter');
   
@@ -160,7 +163,11 @@ export default function Learnspace({ initialChapters }: LearnspaceProps) {
 
   return (
     <main className="h-full w-full flex flex-col overflow-hidden bg-black">
-      <LearnspaceNavbar courseTitle={courseTitle} />
+      <LearnspaceNavbar 
+        courseTitle={courseTitle} 
+        courseId={courseId as Id<"courses">}
+        isCertification={isCertification}
+      />
       <div className="flex-1 overflow-hidden">
         <ResizablePanelGroup direction="horizontal">
             <ResizablePanel 

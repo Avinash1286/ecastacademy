@@ -110,6 +110,8 @@ type ChapterResponse = {
     id: string;
     name: string;
     description: string | null;
+    isCertification?: boolean;
+    passingGrade?: number;
   };
   contentItems?: ContentItem[];
   video: {

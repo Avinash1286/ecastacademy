@@ -1,0 +1,597 @@
+import { v } from "convex/values";
+import { mutation, query, MutationCtx } from "./_generated/server";
+import { Id } from "./_generated/dataModel";
+
+/**
+ * Submit a quiz attempt and update progress
+ * Records the attempt, calculates score, updates progress, and checks for certificate eligibility
+ */
+export const submitQuizAttempt = mutation({
+  args: {
+    userId: v.id("users"),
+    contentItemId: v.id("contentItems"),
+    answers: v.any(), // Quiz answers array
+    score: v.number(), // Score achieved (0-100)
+    maxScore: v.optional(v.number()), // Maximum possible score (default 100)
+  },
+  handler: async (ctx, args) => {
+    // Get user
+    const user = await ctx.db.get(args.userId);
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    // Get content item
+    const contentItem = await ctx.db.get(args.contentItemId);
+    if (!contentItem) {
+      throw new Error("Content item not found");
+    }
+
+    // Get chapter to get courseId
+    const chapter = await ctx.db.get(contentItem.chapterId);
+    if (!chapter) {
+      throw new Error("Chapter not found");
+    }
+
+    // Get course to check if it's a certification course
+    const course = await ctx.db.get(chapter.courseId);
+    if (!course) {
+      throw new Error("Course not found");
+    }
+
+    const maxScore = args.maxScore ?? contentItem.maxPoints ?? 100;
+    const percentage = (args.score / maxScore) * 100;
+    const passingScore = contentItem.passingScore ?? 70;
+    const passed = percentage >= passingScore;
+
+    // Get existing attempts count for this content item
+    const existingAttempts = await ctx.db
+      .query("quizAttempts")
+      .withIndex("by_userId_contentItemId", (q) =>
+        q.eq("userId", user._id).eq("contentItemId", args.contentItemId)
+      )
+      .collect();
+
+    const attemptNumber = existingAttempts.length + 1;
+
+    // Record quiz attempt
+    const attemptId = await ctx.db.insert("quizAttempts", {
+      userId: user._id,
+      courseId: chapter.courseId,
+      contentItemId: args.contentItemId,
+      attemptNumber: attemptNumber,
+      answers: args.answers,
+      score: args.score,
+      maxScore: maxScore,
+      percentage: percentage,
+      passed: passed,
+      startedAt: Date.now(), // TODO: Track actual start time from frontend
+      completedAt: Date.now(),
+      timeSpent: 0, // TODO: Calculate actual time spent from frontend
+    });
+
+    // Get or create progress record
+    const existingProgress = await ctx.db
+      .query("progress")
+      .withIndex("by_userId_courseId_contentItemId", (q) =>
+        q
+          .eq("userId", user._id)
+          .eq("courseId", chapter.courseId)
+          .eq("contentItemId", args.contentItemId)
+      )
+      .first();
+
+    if (existingProgress) {
+      // Update existing progress
+      const newAttempts = (existingProgress.attempts ?? 0) + 1;
+      const newBestScore = Math.max(
+        existingProgress.bestScore ?? 0,
+        percentage
+      );
+
+      // For graded items: mark complete only if passed
+      // For non-graded items: mark complete after any attempt
+      const shouldComplete = contentItem.isGraded ? passed : true;
+
+      await ctx.db.patch(existingProgress._id, {
+        score: args.score,
+        maxScore: maxScore,
+        percentage: percentage,
+        passed: passed,
+        attempts: newAttempts,
+        bestScore: newBestScore,
+        lastAttemptAt: Date.now(),
+        completed: shouldComplete,
+        completedAt: shouldComplete ? Date.now() : existingProgress.completedAt,
+        progressPercentage: shouldComplete ? 100 : existingProgress.progressPercentage,
+      });
+    } else {
+      // For graded items: mark complete only if passed
+      // For non-graded items: mark complete after any attempt
+      const shouldComplete = contentItem.isGraded ? passed : true;
+
+      // Create new progress record
+      await ctx.db.insert("progress", {
+        userId: user._id,
+        courseId: chapter.courseId,
+        chapterId: chapter._id,
+        contentItemId: args.contentItemId,
+        isGradedItem: contentItem.isGraded ?? false,
+        score: args.score,
+        maxScore: maxScore,
+        percentage: percentage,
+        passed: passed,
+        attempts: 1,
+        bestScore: percentage,
+        lastAttemptAt: Date.now(),
+        completed: shouldComplete,
+        completedAt: shouldComplete ? Date.now() : undefined,
+        progressPercentage: shouldComplete ? 100 : 0,
+      });
+    }
+
+    // Check if user should receive a certificate
+    if (course.isCertification && passed) {
+      await checkAndIssueCertificate(ctx, user._id, chapter.courseId);
+    }
+
+    return {
+      attemptId,
+      score: args.score,
+      maxScore: maxScore,
+      percentage: percentage,
+      passed: passed,
+    };
+  },
+});
+
+/**
+ * Mark a non-quiz graded item as complete (e.g., assignment, video)
+ * Used for items that don't have auto-grading
+ */
+export const markItemComplete = mutation({
+  args: {
+    userId: v.id("users"),
+    contentItemId: v.id("contentItems"),
+    score: v.optional(v.number()), // Optional score for manual grading
+    maxScore: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const user = await ctx.db.get(args.userId);
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    const contentItem = await ctx.db.get(args.contentItemId);
+    if (!contentItem) {
+      throw new Error("Content item not found");
+    }
+
+    const chapter = await ctx.db.get(contentItem.chapterId);
+    if (!chapter) {
+      throw new Error("Chapter not found");
+    }
+
+    const course = await ctx.db.get(chapter.courseId);
+    if (!course) {
+      throw new Error("Course not found");
+    }
+
+    // Calculate scoring if provided
+    let percentage: number | undefined;
+    let passed: boolean | undefined;
+    
+    if (args.score !== undefined) {
+      const maxScore = args.maxScore ?? contentItem.maxPoints ?? 100;
+      percentage = (args.score / maxScore) * 100;
+      const passingScore = contentItem.passingScore ?? 70;
+      passed = percentage >= passingScore;
+    }
+
+    // Get existing progress
+    const existingProgress = await ctx.db
+      .query("progress")
+      .withIndex("by_userId_courseId_contentItemId", (q) =>
+        q
+          .eq("userId", user._id)
+          .eq("courseId", chapter.courseId)
+          .eq("contentItemId", args.contentItemId)
+      )
+      .first();
+
+    if (existingProgress) {
+      // Update existing progress
+      await ctx.db.patch(existingProgress._id, {
+        completed: true,
+        completedAt: Date.now(),
+        progressPercentage: 100,
+        ...(args.score !== undefined && {
+          score: args.score,
+          maxScore: args.maxScore ?? contentItem.maxPoints ?? 100,
+          percentage: percentage,
+          passed: passed,
+          attempts: (existingProgress.attempts ?? 0) + 1,
+          bestScore: Math.max(existingProgress.bestScore ?? 0, percentage ?? 0),
+          lastAttemptAt: Date.now(),
+        }),
+      });
+    } else {
+      // Create new progress record
+      await ctx.db.insert("progress", {
+        userId: user._id,
+        courseId: chapter.courseId,
+        chapterId: chapter._id,
+        contentItemId: args.contentItemId,
+        isGradedItem: contentItem.isGraded ?? false,
+        completed: true,
+        completedAt: Date.now(),
+        progressPercentage: 100,
+        ...(args.score !== undefined && {
+          score: args.score,
+          maxScore: args.maxScore ?? contentItem.maxPoints ?? 100,
+          percentage: percentage,
+          passed: passed,
+          attempts: 1,
+          bestScore: percentage,
+          lastAttemptAt: Date.now(),
+        }),
+      });
+    }
+
+    // Check for certificate eligibility
+    if (course.isCertification) {
+      await checkAndIssueCertificate(ctx, user._id, chapter.courseId);
+    }
+
+    return { success: true };
+  },
+});
+
+/**
+ * Calculate overall course progress for a user
+ * Returns completion percentage and grade for certification courses
+ */
+export const calculateCourseProgress = query({
+  args: {
+    courseId: v.id("courses"),
+    userId: v.id("users"),
+  },
+  handler: async (ctx, args) => {
+    const course = await ctx.db.get(args.courseId);
+    if (!course) {
+      throw new Error("Course not found");
+    }
+
+    // Get all chapters for this course
+    const chapters = await ctx.db
+      .query("chapters")
+      .withIndex("by_courseId", (q) => q.eq("courseId", args.courseId))
+      .collect();
+
+    // Get all content items for these chapters
+    const allContentItems = await Promise.all(
+      chapters.map((chapter) =>
+        ctx.db
+          .query("contentItems")
+          .withIndex("by_chapterId", (q) => q.eq("chapterId", chapter._id))
+          .collect()
+      )
+    );
+
+    const contentItems = allContentItems.flat();
+    const totalItems = contentItems.length;
+
+    if (totalItems === 0) {
+      return {
+        courseId: args.courseId,
+        totalItems: 0,
+        completedItems: 0,
+        completionPercentage: 0,
+        isCertification: course.isCertification,
+        gradedItems: 0,
+        passedGradedItems: 0,
+        overallGrade: null,
+        eligibleForCertificate: false,
+      };
+    }
+
+    // Get user's progress for all items
+    const progressRecords = await ctx.db
+      .query("progress")
+      .withIndex("by_userId_courseId", (q) =>
+        q.eq("userId", args.userId).eq("courseId", args.courseId)
+      )
+      .collect();
+
+    const completedItems = progressRecords.filter((p) => p.completed).length;
+    const completionPercentage = (completedItems / totalItems) * 100;
+
+    // Calculate grading info for certification courses
+    const gradingInfo = {
+      gradedItems: 0,
+      passedGradedItems: 0,
+      overallGrade: null as number | null,
+      eligibleForCertificate: false,
+    };
+
+    if (course.isCertification) {
+      const gradedContentItems = contentItems.filter((item) => item.isGraded);
+      const gradedItemIds = new Set(gradedContentItems.map((item) => item._id));
+
+      const gradedProgress = progressRecords.filter(
+        (p) => p.contentItemId && gradedItemIds.has(p.contentItemId)
+      );
+
+      gradingInfo.gradedItems = gradedContentItems.length;
+      gradingInfo.passedGradedItems = gradedProgress.filter((p) => p.passed).length;
+
+      // Calculate overall grade using best scores
+      if (gradedProgress.length > 0) {
+        const totalPossiblePoints = gradedProgress.reduce(
+          (sum, p) => sum + (p.maxScore ?? 100),
+          0
+        );
+        const totalEarnedPoints = gradedProgress.reduce(
+          (sum, p) => sum + (p.bestScore ?? p.score ?? 0),
+          0
+        );
+        gradingInfo.overallGrade = (totalEarnedPoints / totalPossiblePoints) * 100;
+      }
+
+      // Check certificate eligibility
+      const passingGrade = course.passingGrade ?? 70;
+      gradingInfo.eligibleForCertificate =
+        gradingInfo.gradedItems > 0 &&
+        gradingInfo.gradedItems === gradedProgress.length &&
+        gradingInfo.passedGradedItems === gradingInfo.gradedItems &&
+        (gradingInfo.overallGrade ?? 0) >= passingGrade;
+    }
+
+    return {
+      courseId: args.courseId,
+      totalItems,
+      completedItems,
+      completionPercentage,
+      isCertification: course.isCertification,
+      ...gradingInfo,
+    };
+  },
+});
+
+/**
+ * Get detailed progress for a user in a course
+ * Includes per-item progress and grading details
+ */
+export const getCourseProgress = query({
+  args: {
+    courseId: v.id("courses"),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Not authenticated");
+    }
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", identity.email!))
+      .first();
+
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    // Get all progress records for this course
+    const progressRecords = await ctx.db
+      .query("progress")
+      .withIndex("by_userId_courseId", (q) =>
+        q.eq("userId", user._id).eq("courseId", args.courseId)
+      )
+      .collect();
+
+    // Get course details
+    const course = await ctx.db.get(args.courseId);
+    if (!course) {
+      throw new Error("Course not found");
+    }
+
+    // Check if user has a certificate
+    const certificate = await ctx.db
+      .query("certificates")
+      .withIndex("by_userId_courseId", (q) =>
+        q.eq("userId", user._id).eq("courseId", args.courseId)
+      )
+      .first();
+
+    return {
+      progress: progressRecords,
+      hasCertificate: !!certificate,
+      certificate: certificate,
+    };
+  },
+});
+
+/**
+ * Get quiz attempt history for a specific content item
+ */
+export const getQuizAttemptHistory = query({
+  args: {
+    contentItemId: v.id("contentItems"),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Not authenticated");
+    }
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", identity.email!))
+      .first();
+
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    const attempts = await ctx.db
+      .query("quizAttempts")
+      .withIndex("by_userId_contentItemId", (q) =>
+        q.eq("userId", user._id).eq("contentItemId", args.contentItemId)
+      )
+      .collect();
+
+    // Sort by date descending (most recent first)
+    return attempts.sort((a, b) => b.completedAt - a.completedAt);
+  },
+});
+
+/**
+ * Get all certificates earned by a user
+ */
+export const getUserCertificates = query({
+  args: {
+    userId: v.id("users"), // Required: user ID to fetch certificates for
+  },
+  handler: async (ctx, args) => {
+    const certificates = await ctx.db
+      .query("certificates")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .collect();
+
+    // Sort by completion date descending (most recent first)
+    return certificates.sort((a, b) => b.completionDate - a.completionDate);
+  },
+});
+
+/**
+ * Get a specific certificate by certificate ID
+ */
+export const getCertificate = query({
+  args: {
+    certificateId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const certificate = await ctx.db
+      .query("certificates")
+      .withIndex("by_certificateId", (q) => q.eq("certificateId", args.certificateId))
+      .first();
+
+    if (!certificate) {
+      throw new Error("Certificate not found");
+    }
+
+    return certificate;
+  },
+});
+
+/**
+ * Helper function to check if user has completed all requirements and issue certificate
+ * Internal function called after quiz submission or item completion
+ */
+async function checkAndIssueCertificate(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  courseId: Id<"courses">
+): Promise<void> {
+  // Check if certificate already exists
+  const existingCertificate = await ctx.db
+    .query("certificates")
+    .withIndex("by_userId_courseId", (q) =>
+      q.eq("userId", userId).eq("courseId", courseId)
+    )
+    .first();
+
+  if (existingCertificate) {
+    return; // Certificate already issued
+  }
+
+  const course = await ctx.db.get(courseId);
+  if (!course || !course.isCertification) {
+    return; // Not a certification course
+  }
+
+  // Get all chapters
+  const chapters = await ctx.db
+    .query("chapters")
+    .withIndex("by_courseId", (q) => q.eq("courseId", courseId))
+    .collect();
+
+  // Get all graded content items
+  const allContentItems = await Promise.all(
+    chapters.map((chapter) =>
+      ctx.db
+        .query("contentItems")
+        .withIndex("by_chapterId", (q) => q.eq("chapterId", chapter._id))
+        .collect()
+    )
+  );
+
+  const gradedItems = allContentItems.flat().filter((item) => item.isGraded);
+
+  if (gradedItems.length === 0) {
+    return; // No graded items
+  }
+
+  // Get user's progress on graded items
+  const gradedItemIds = new Set(gradedItems.map((item) => item._id));
+  const progressRecords = await ctx.db
+    .query("progress")
+    .withIndex("by_userId_courseId", (q) =>
+      q.eq("userId", userId).eq("courseId", courseId)
+    )
+    .collect();
+
+  const gradedProgress = progressRecords.filter(
+    (p) => p.contentItemId && gradedItemIds.has(p.contentItemId)
+  );
+
+  // Check if all graded items are completed and passed
+  if (gradedProgress.length !== gradedItems.length) {
+    return; // Not all graded items attempted
+  }
+
+  const allPassed = gradedProgress.every((p) => p.passed);
+  if (!allPassed) {
+    return; // Not all items passed
+  }
+
+  // Calculate overall grade
+  const totalPossiblePoints = gradedProgress.reduce(
+    (sum, p) => sum + (p.maxScore ?? 100),
+    0
+  );
+  const totalEarnedPoints = gradedProgress.reduce(
+    (sum, p) => sum + (p.bestScore ?? p.score ?? 0),
+    0
+  );
+  const overallGrade = (totalEarnedPoints / totalPossiblePoints) * 100;
+
+  const passingGrade = course.passingGrade ?? 70;
+  if (overallGrade < passingGrade) {
+    return; // Overall grade not sufficient
+  }
+
+  // Get user details
+  const user = await ctx.db.get(userId);
+  if (!user) {
+    return;
+  }
+
+  // Generate unique certificate ID
+  const certificateId = `CERT-${courseId}-${userId}-${Date.now()}`;
+
+  // Issue certificate
+  await ctx.db.insert("certificates", {
+    userId: userId,
+    courseId: courseId,
+    certificateId: certificateId,
+    courseName: course.name,
+    userName: user.name ?? user.email,
+    completionDate: Date.now(),
+    overallGrade: overallGrade,
+    issuedAt: Date.now(),
+    totalGradedItems: gradedItems.length,
+    passedItems: gradedProgress.length,
+    averageScore: overallGrade,
+  });
+}

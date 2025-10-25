@@ -4,6 +4,7 @@ import { SidebarTrigger } from '@/components/ui/sidebar'
 import React from 'react'
 import { CourseSearch } from '@/components/dashboard/CourseSearch'
 import { ThemeToggle } from '@/components/dashboard/ThemeToggle'
+import { UserButton } from '@/components/auth/UserButton'
 import { useDashboard } from '@/context/DashboardContext'
 
 const Navbar = () => {
@@ -17,8 +18,9 @@ const Navbar = () => {
         <CourseSearch searchTerm={searchTerm} setSearchTerm={setSearchTerm} />
       </div>
 
-      <div className="ml-auto">
+      <div className="ml-auto flex items-center gap-2">
         <ThemeToggle />
+        <UserButton />
       </div>
     </div>
   )

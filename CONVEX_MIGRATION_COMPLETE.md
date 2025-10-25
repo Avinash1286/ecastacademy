@@ -14,6 +14,12 @@ Your application has been successfully migrated from NeonDB/Drizzle to Convex.
   - `videos` - YouTube video data with notes and quizzes
   - `courses` - Course information
   - `chapters` - Course chapters linking courses to videos
+  - `users` - User accounts for authentication (NextAuth.js backend)
+  - `accounts` - OAuth provider linking (NextAuth.js backend)
+  - `sessions` - User sessions (NextAuth.js backend)
+  - `verificationTokens` - Password reset tokens (NextAuth.js backend)
+  - `progress` - User learning progress
+  - `contentItems` - Course content items (lessons, quizzes, etc.)
 
 ### 3. Created Convex Functions
 - **`convex/courses.ts`**: All course-related mutations and queries
@@ -29,6 +35,14 @@ Your application has been successfully migrated from NeonDB/Drizzle to Convex.
   - `createChapter`, `updateChapter`, `deleteChapter`
   - `getChapter`, `getChaptersByCourseId`, `getChapterWithDetails`
 
+- **`convex/auth.ts`**: Custom database helpers for NextAuth.js
+  - ⚠️ **Note**: This is NOT the `@convex-dev/auth` package
+  - These are custom Convex functions that NextAuth.js uses for database operations
+  - User, account, session, and token management queries/mutations
+
+- **`convex/admin.ts`**: Admin-only operations with role verification
+  - `listUsers`, `updateUserRole`, `deleteUser`, `getAdminStats`
+
 ### 4. Updated Application Code
 - Created `src/components/ConvexProvider.tsx` for Convex client
 - Updated `src/app/layout.tsx` to wrap app with ConvexProvider
@@ -41,6 +55,18 @@ Your application has been successfully migrated from NeonDB/Drizzle to Convex.
 - Deleted `drizzle.config.ts`
 
 ## How to Run
+
+### Authentication Note
+
+**This application uses NextAuth.js (NOT Convex Auth)**
+- Authentication is handled by `next-auth` package
+- Convex serves as the database backend through custom helper functions in `convex/auth.ts`
+- The `@convex-dev/auth` package is NOT used in this project
+
+For authentication setup, see:
+- [AUTH_SETUP.md](./AUTH_SETUP.md) - Setup instructions
+- [AUTH_IMPLEMENTATION.md](./AUTH_IMPLEMENTATION.md) - Technical details
+- [AUTHENTICATION_SUMMARY.md](./AUTHENTICATION_SUMMARY.md) - Quick overview
 
 ### 1. Set Up Environment Variables
 Create or update your `.env.local` file:

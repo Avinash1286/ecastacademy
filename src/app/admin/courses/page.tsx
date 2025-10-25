@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import { 
   BookOpen, 
   Plus, 
@@ -40,7 +41,10 @@ import {
   CheckCircle2,
   XCircle,
   Clock,
-  Loader2
+  Loader2,
+  AlertTriangle,
+  Award,
+  Info
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -54,6 +58,8 @@ type CourseWithStats = {
   description?: string;
   status?: CourseStatus;
   isPublished?: boolean;
+  isCertification?: boolean;
+  passingGrade?: number;
   createdAt: number;
   updatedAt: number;
   chapterCount: number;
@@ -68,6 +74,8 @@ export default function CoursesManagementPage() {
   // Form states
   const [courseName, setCourseName] = useState("");
   const [courseDescription, setCourseDescription] = useState("");
+  const [isCertification, setIsCertification] = useState(false);
+  const [passingGrade, setPassingGrade] = useState("70");
   
   // Fetch courses
   const courses = useQuery(api.courses.getCoursesWithStats, {});
@@ -103,12 +111,16 @@ export default function CoursesManagementPage() {
         id: selectedCourse.id as Id<"courses">,
         name: courseName,
         description: courseDescription || undefined,
+        isCertification,
+        passingGrade: isCertification ? Number(passingGrade) : undefined,
       });
       toast.success("Course updated successfully");
       setEditDialogOpen(false);
       setSelectedCourse(null);
       setCourseName("");
       setCourseDescription("");
+      setIsCertification(false);
+      setPassingGrade("70");
     } catch (error) {
       toast.error("Failed to update course");
       console.error(error);
@@ -146,6 +158,8 @@ export default function CoursesManagementPage() {
     setSelectedCourse(course);
     setCourseName(course.name);
     setCourseDescription(course.description || "");
+    setIsCertification(course.isCertification || false);
+    setPassingGrade(course.passingGrade?.toString() || "70");
     setEditDialogOpen(true);
   };
 
@@ -334,14 +348,14 @@ export default function CoursesManagementPage() {
 
       {/* Edit Dialog */}
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>Edit Course</DialogTitle>
             <DialogDescription>
               Update course details
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
+          <div className="space-y-4 py-4 overflow-y-auto flex-1">
             <div className="space-y-2">
               <Label htmlFor="edit-name">Course Name</Label>
               <Input
@@ -358,6 +372,72 @@ export default function CoursesManagementPage() {
                 onChange={(e) => setCourseDescription(e.target.value)}
                 rows={4}
               />
+            </div>
+
+            {/* Certification Settings Section */}
+            <div className="space-y-4 pt-4 border-t">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="certification-toggle" className="text-base font-semibold flex items-center gap-2">
+                    <Award className="h-4 w-4 text-amber-500" />
+                    Certification Course
+                  </Label>
+                  <p className="text-sm text-muted-foreground">
+                    Students can earn a certificate upon completion
+                  </p>
+                </div>
+                <Switch
+                  id="certification-toggle"
+                  checked={isCertification}
+                  onCheckedChange={setIsCertification}
+                />
+              </div>
+
+              {isCertification && (
+                <div className="space-y-4 pl-4 border-l-2 border-amber-500/50">
+                  {/* Warning about progress recalculation */}
+                  {selectedCourse && selectedCourse.isCertification !== isCertification && (
+                    <div className="flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+                      <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-500 mt-0.5 flex-shrink-0" />
+                      <div className="text-xs text-amber-900 dark:text-amber-100">
+                        <p className="font-medium mb-1">Warning: Progress Recalculation</p>
+                        <p>
+                          Changing certification status will recalculate all student progress for this course. 
+                          This may affect certificate eligibility and completion percentages.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  <div>
+                    <Label htmlFor="passing-grade">Passing Grade (%)</Label>
+                    <Input
+                      id="passing-grade"
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={passingGrade}
+                      onChange={(e) => setPassingGrade(e.target.value)}
+                      placeholder="70"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Minimum percentage required to earn the certificate (0-100)
+                    </p>
+                  </div>
+
+                  <div className="flex items-start gap-2 p-3 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                    <Info className="h-4 w-4 text-blue-600 dark:text-blue-500 mt-0.5 flex-shrink-0" />
+                    <div className="text-xs text-blue-900 dark:text-blue-100">
+                      <p className="font-medium mb-1">Certification Requirements:</p>
+                      <ul className="list-disc list-inside space-y-0.5">
+                        <li>Complete all chapters in the course</li>
+                        <li>Pass all graded quizzes and assignments</li>
+                        <li>Achieve at least {passingGrade}% overall course score</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
           <DialogFooter>

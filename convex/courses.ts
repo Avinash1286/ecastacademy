@@ -6,12 +6,16 @@ export const createCourse = mutation({
   args: {
     name: v.string(),
     description: v.optional(v.string()),
+    isCertification: v.optional(v.boolean()),
+    passingGrade: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
     const courseId = await ctx.db.insert("courses", {
       name: args.name,
       description: args.description,
+      isCertification: args.isCertification ?? false, // Default to non-certification
+      passingGrade: args.passingGrade ?? 70, // Default 70%
       status: "draft",
       isPublished: false,
       createdAt: now,
@@ -28,15 +32,73 @@ export const updateCourse = mutation({
     name: v.optional(v.string()),
     description: v.optional(v.string()),
     thumbnailUrl: v.optional(v.string()),
+    isCertification: v.optional(v.boolean()),
+    passingGrade: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const { id, ...updates } = args;
     const now = Date.now();
     
+    // Get the current course to check if certification status is changing
+    const currentCourse = await ctx.db.get(id);
+    const certificationChanged = 
+      currentCourse && 
+      updates.isCertification !== undefined && 
+      currentCourse.isCertification !== updates.isCertification;
+    
     await ctx.db.patch(id, {
       ...updates,
       updatedAt: now,
     });
+    
+    // If certification status changed, sync all content items' grading status
+    if (certificationChanged) {
+      const updatedCourse = await ctx.db.get(id);
+      if (updatedCourse) {
+        // Get all chapters for this course
+        const chapters = await ctx.db
+          .query("chapters")
+          .withIndex("by_courseId", (q) => q.eq("courseId", id))
+          .collect();
+
+        // For each chapter, update its content items
+        for (const chapter of chapters) {
+          const contentItems = await ctx.db
+            .query("contentItems")
+            .withIndex("by_chapterId", (q) => q.eq("chapterId", chapter._id))
+            .collect();
+
+          for (const item of contentItems) {
+            let shouldBeGraded: boolean;
+
+            if (updatedCourse.isCertification) {
+              // For certification courses, determine grading based on type
+              if (item.type === "video" && item.videoId) {
+                const video = await ctx.db.get(item.videoId);
+                shouldBeGraded = video?.quiz ? true : false;
+              } else if (item.type === "quiz" || item.type === "assignment") {
+                shouldBeGraded = true;
+              } else {
+                shouldBeGraded = false;
+              }
+            } else {
+              shouldBeGraded = false;
+            }
+
+            // Update if different from current status
+            if (item.isGraded !== shouldBeGraded) {
+              await ctx.db.patch(item._id, {
+                isGraded: shouldBeGraded,
+                maxPoints: shouldBeGraded ? (item.maxPoints ?? 100) : undefined,
+                passingScore: shouldBeGraded
+                  ? (item.passingScore ?? updatedCourse.passingGrade ?? 70)
+                  : undefined,
+              });
+            }
+          }
+        }
+      }
+    }
     
     return await ctx.db.get(id);
   },
@@ -331,6 +393,8 @@ export const getChaptersWithVideosByCourseId = query({
             id: course._id,
             name: course.name,
             description: course.description,
+            isCertification: course.isCertification,
+            passingGrade: course.passingGrade,
           },
           contentItems: enrichedContentItems,
           video: video ? {
@@ -454,3 +518,250 @@ export const getCoursesWithStats = query({
     return coursesWithStats;
   },
 });
+
+// Query to get course grading configuration
+export const getCourseGradingConfig = query({
+  args: { 
+    courseId: v.id("courses") 
+  },
+  handler: async (ctx, args) => {
+    const course = await ctx.db.get(args.courseId);
+    if (!course) return null;
+    
+    // Get all chapters for this course
+    const chapters = await ctx.db
+      .query("chapters")
+      .withIndex("by_courseId", (q) => q.eq("courseId", args.courseId))
+      .collect();
+    
+    // Count graded items across all chapters
+    let totalGradedItems = 0;
+    for (const chapter of chapters) {
+      const contentItems = await ctx.db
+        .query("contentItems")
+        .withIndex("by_chapterId", (q) => q.eq("chapterId", chapter._id))
+        .collect();
+      
+      totalGradedItems += contentItems.filter(item => item.isGraded).length;
+    }
+    
+    return {
+      courseId: args.courseId,
+      courseName: course.name,
+      isCertification: course.isCertification ?? false,
+      passingGrade: course.passingGrade ?? 70,
+      totalGradedItems,
+    };
+  },
+});
+
+// ========== ENROLLMENT MUTATIONS & QUERIES ==========
+
+/**
+ * Enroll a user in a course
+ */
+export const enrollInCourse = mutation({
+  args: {
+    courseId: v.id("courses"),
+    userId: v.id("users"),
+  },
+  handler: async (ctx, args) => {
+    // Check if course exists
+    const course = await ctx.db.get(args.courseId);
+    if (!course) {
+      throw new Error("Course not found");
+    }
+
+    // Check if already enrolled
+    const existingEnrollment = await ctx.db
+      .query("enrollments")
+      .withIndex("by_userId_courseId", (q) =>
+        q.eq("userId", args.userId).eq("courseId", args.courseId)
+      )
+      .first();
+
+    if (existingEnrollment) {
+      // If previously dropped, reactivate enrollment
+      if (existingEnrollment.status === "dropped") {
+        await ctx.db.patch(existingEnrollment._id, {
+          status: "active",
+          enrolledAt: Date.now(),
+          lastAccessedAt: Date.now(),
+        });
+        return { enrollmentId: existingEnrollment._id, message: "Re-enrolled successfully" };
+      }
+      throw new Error("Already enrolled in this course");
+    }
+
+    // Create new enrollment
+    const enrollmentId = await ctx.db.insert("enrollments", {
+      userId: args.userId,
+      courseId: args.courseId,
+      enrolledAt: Date.now(),
+      status: "active",
+      lastAccessedAt: Date.now(),
+    });
+
+    return { enrollmentId, message: "Enrolled successfully" };
+  },
+});
+
+/**
+ * Unenroll a user from a course
+ */
+export const unenrollFromCourse = mutation({
+  args: {
+    courseId: v.id("courses"),
+    userId: v.id("users"),
+  },
+  handler: async (ctx, args) => {
+    // Find enrollment
+    const enrollment = await ctx.db
+      .query("enrollments")
+      .withIndex("by_userId_courseId", (q) =>
+        q.eq("userId", args.userId).eq("courseId", args.courseId)
+      )
+      .first();
+
+    if (!enrollment) {
+      throw new Error("Not enrolled in this course");
+    }
+
+    if (enrollment.status === "completed") {
+      throw new Error("Cannot unenroll from a completed course");
+    }
+
+    // Mark as dropped instead of deleting
+    await ctx.db.patch(enrollment._id, {
+      status: "dropped",
+    });
+
+    return { message: "Unenrolled successfully" };
+  },
+});
+
+/**
+ * Check if current user is enrolled in a course
+ */
+export const isUserEnrolled = query({
+  args: {
+    courseId: v.id("courses"),
+    userId: v.id("users"),
+  },
+  handler: async (ctx, args) => {
+    const enrollment = await ctx.db
+      .query("enrollments")
+      .withIndex("by_userId_courseId", (q) =>
+        q.eq("userId", args.userId).eq("courseId", args.courseId)
+      )
+      .first();
+
+    return {
+      isEnrolled: enrollment?.status === "active" || enrollment?.status === "completed",
+      status: enrollment?.status,
+      enrolledAt: enrollment?.enrolledAt,
+    };
+  },
+});
+
+/**
+ * Get all courses the current user is enrolled in
+ */
+export const getEnrolledCourses = query({
+  args: {
+    userId: v.id("users"),
+  },
+  handler: async (ctx, args) => {
+    // Get all active enrollments
+    const enrollments = await ctx.db
+      .query("enrollments")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .filter((q) => 
+        q.or(
+          q.eq(q.field("status"), "active"),
+          q.eq(q.field("status"), "completed")
+        )
+      )
+      .collect();
+
+    // Get course details for each enrollment
+    const courses = await Promise.all(
+      enrollments.map(async (enrollment) => {
+        const course = await ctx.db.get(enrollment.courseId);
+        if (!course) return null;
+
+        // Get chapter count
+        const chapters = await ctx.db
+          .query("chapters")
+          .withIndex("by_courseId", (q) => q.eq("courseId", course._id))
+          .collect();
+
+        // Get progress
+        const progressRecords = await ctx.db
+          .query("progress")
+          .withIndex("by_userId_courseId", (q) =>
+            q.eq("userId", args.userId).eq("courseId", course._id)
+          )
+          .collect();
+
+        // Count total content items
+        let totalItems = 0;
+        for (const chapter of chapters) {
+          const items = await ctx.db
+            .query("contentItems")
+            .withIndex("by_chapterId", (q) => q.eq("chapterId", chapter._id))
+            .collect();
+          totalItems += items.length;
+        }
+
+        const completedItems = progressRecords.filter((p) => p.completed).length;
+        const progressPercentage = totalItems > 0 ? (completedItems / totalItems) * 100 : 0;
+
+        return {
+          ...course,
+          enrollmentStatus: enrollment.status,
+          enrolledAt: enrollment.enrolledAt,
+          lastAccessedAt: enrollment.lastAccessedAt,
+          progressPercentage,
+          totalChapters: chapters.length,
+        };
+      })
+    );
+
+    return courses.filter((course) => course !== null);
+  },
+});
+
+/**
+ * Update last accessed time for a course enrollment
+ */
+export const updateLastAccessed = mutation({
+  args: {
+    courseId: v.id("courses"),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return;
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", identity.email!))
+      .first();
+
+    if (!user) return;
+
+    const enrollment = await ctx.db
+      .query("enrollments")
+      .withIndex("by_userId_courseId", (q) =>
+        q.eq("userId", user._id).eq("courseId", args.courseId)
+      )
+      .first();
+
+    if (enrollment) {
+      await ctx.db.patch(enrollment._id, {
+        lastAccessedAt: Date.now(),
+      });
+    }
+  },
+});
+

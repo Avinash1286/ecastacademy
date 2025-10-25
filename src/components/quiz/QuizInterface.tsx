@@ -2,16 +2,23 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
+import { Badge } from '@/components/ui/badge';
+import { Award, TrendingUp } from 'lucide-react';
 import { cn } from "@/lib/utils";
 import { QuizInterfaceProps } from '@/lib/types';
 
-export const QuizInterface = ({ quiz, onQuizComplete }: QuizInterfaceProps) => {
+export const QuizInterface = ({ quiz, onQuizComplete, contentItem }: QuizInterfaceProps) => {
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
   const [answers, setAnswers] = useState<(number | null)[]>(new Array(quiz.questions.length).fill(null));
 
   const progress = ((currentQuestion + 1) / quiz.questions.length) * 100;
   const question = quiz.questions[currentQuestion];
+  
+  // Grading information
+  const isGraded = contentItem?.isGraded ?? false;
+  const passingScore = contentItem?.passingScore ?? 70;
+  const maxPoints = contentItem?.maxPoints ?? 100;
 
   const handleAnswerSelect = (answerIndex: number) => {
     const newAnswers = [...answers];
@@ -40,10 +47,35 @@ export const QuizInterface = ({ quiz, onQuizComplete }: QuizInterfaceProps) => {
       <div className="mb-6">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-xl font-bold text-foreground">{quiz.topic}</h2>
-          <span className="text-sm text-muted-foreground">
-            Question {currentQuestion + 1} of {quiz.questions.length}
-          </span>
+          <div className="flex items-center gap-2">
+            {isGraded && (
+              <Badge className="bg-amber-500 hover:bg-amber-600 text-white">
+                <Award className="h-3 w-3 mr-1" />
+                Graded
+              </Badge>
+            )}
+            <span className="text-sm text-muted-foreground">
+              Question {currentQuestion + 1} of {quiz.questions.length}
+            </span>
+          </div>
         </div>
+        
+        {isGraded && (
+          <div className="mb-4 p-3 rounded-lg bg-amber-50/50 dark:bg-amber-950/20 border border-amber-500/20">
+            <div className="flex items-start gap-2">
+              <TrendingUp className="h-4 w-4 text-amber-600 flex-shrink-0 mt-0.5" />
+              <div className="flex-1 text-sm">
+                <p className="text-amber-900 dark:text-amber-100 font-medium mb-1">
+                  This quiz affects your grade
+                </p>
+                <p className="text-amber-800 dark:text-amber-200 text-xs">
+                  You need {passingScore}% or higher to pass • Worth {maxPoints} points
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+        
         <Progress value={progress} className="h-2" />
       </div>
 

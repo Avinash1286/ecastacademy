@@ -1,19 +1,48 @@
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Trophy, RotateCcw, CheckCircle, XCircle } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Trophy, CheckCircle, XCircle, Award, AlertCircle, Clock, TrendingUp, RefreshCw } from 'lucide-react';
 import { cn } from "@/lib/utils";
 import { QuizResultsProps } from '@/lib/types';
 
-export const QuizResults = ({ quiz, userAnswers, score, onRestart }: QuizResultsProps) => {
+export const QuizResults = ({ 
+  quiz, 
+  userAnswers, 
+  score, 
+  onRestart, 
+  contentItem, 
+  attemptHistory,
+  isPreviousAttempt = false 
+}: QuizResultsProps & { isPreviousAttempt?: boolean }) => {
   const percentage = Math.round((score / quiz.questions.length) * 100);
   
+  // Grading information
+  const isGraded = contentItem?.isGraded ?? false;
+  const passingScore = contentItem?.passingScore ?? 70;
+  const passed = percentage >= passingScore;
+  const allowRetakes = contentItem?.allowRetakes ?? true;
+  
   const getScoreColor = () => {
-    if (percentage >= 80) return 'text-chart-4 dark:text-chart-2';
-    if (percentage >= 60) return 'text-chart-5 dark:text-chart-3';
-    return 'text-destructive';
+    if (!isGraded) {
+      if (percentage >= 80) return 'text-chart-4 dark:text-chart-2';
+      if (percentage >= 60) return 'text-chart-5 dark:text-chart-3';
+      return 'text-destructive';
+    }
+    // For graded quizzes, use pass/fail colors
+    return passed ? 'text-green-600 dark:text-green-400' : 'text-destructive';
   };
 
   const getScoreMessage = () => {
+    if (isGraded) {
+      if (passed) {
+        return percentage >= 90 ? 'Excellent work! 🎉' : 'Well done! 👏';
+      } else {
+        return allowRetakes 
+          ? 'You can retake this quiz to improve your score 💪'
+          : 'Keep studying and try again later 📚';
+      }
+    }
+    // Non-graded messages
     if (percentage >= 90) return 'Outstanding! 🎉';
     if (percentage >= 80) return 'Great job! 👏';
     if (percentage >= 70) return 'Good work! 👍';
@@ -23,13 +52,50 @@ export const QuizResults = ({ quiz, userAnswers, score, onRestart }: QuizResults
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
+      {/* Show "Previous Attempt" banner if viewing history */}
+      {isPreviousAttempt && (
+        <Card className="p-4 bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800">
+          <div className="flex items-center gap-2 text-blue-700 dark:text-blue-400">
+            <Clock className="h-5 w-5" />
+            <p className="font-semibold">
+              Viewing your previous attempt
+            </p>
+          </div>
+        </Card>
+      )}
+
       <Card className="p-8 text-center shadow-lg">
         <Trophy className="mx-auto mb-4 h-16 w-16 text-chart-5 dark:text-chart-3" />
-        <h2 className="mb-2 text-3xl font-bold text-foreground">Quiz Complete!</h2>
+        <h2 className="mb-2 text-3xl font-bold text-foreground">
+          {isPreviousAttempt ? 'Your Previous Result' : 'Quiz Complete!'}
+        </h2>
         <div className={`mb-2 text-6xl font-bold ${getScoreColor()}`}>
           {score}/{quiz.questions.length}
         </div>
         <p className="mb-4 text-xl text-muted-foreground">{percentage}% Correct</p>
+        
+        {isGraded && (
+          <div className="mb-4 flex items-center justify-center gap-2">
+            {passed ? (
+              <Badge className="bg-green-500 hover:bg-green-600 text-white text-base py-1 px-3">
+                <CheckCircle className="h-4 w-4 mr-1" />
+                Passed
+              </Badge>
+            ) : (
+              <Badge className="bg-destructive hover:bg-destructive text-white text-base py-1 px-3">
+                <AlertCircle className="h-4 w-4 mr-1" />
+                Need {passingScore}% to Pass
+              </Badge>
+            )}
+            {isGraded && (
+              <Badge variant="outline" className="text-base py-1 px-3">
+                <Award className="h-4 w-4 mr-1 text-amber-600" />
+                Graded
+              </Badge>
+            )}
+          </div>
+        )}
+        
         <p className="text-lg font-semibold text-foreground">{getScoreMessage()}</p>
       </Card>
 
@@ -90,10 +156,102 @@ export const QuizResults = ({ quiz, userAnswers, score, onRestart }: QuizResults
         </div>
       </Card>
 
+      {/* Attempt History for Graded Quizzes */}
+      {isGraded && attemptHistory && attemptHistory.length > 0 && (
+        <Card className="p-6 shadow-lg">
+          <div className="flex items-center gap-2 mb-4">
+            <Clock className="h-5 w-5 text-muted-foreground" />
+            <h3 className="text-xl font-bold text-foreground">Attempt History</h3>
+          </div>
+          
+          <div className="space-y-3">
+            {attemptHistory.map((attempt, index) => {
+              const isCurrentAttempt = index === 0; // Most recent is first
+              const attemptPassed = attempt.percentage >= passingScore;
+              
+              return (
+                <div 
+                  key={attempt._id} 
+                  className={cn(
+                    "p-4 rounded-lg border",
+                    isCurrentAttempt 
+                      ? "border-primary bg-primary/5" 
+                      : "border-border bg-muted/30"
+                  )}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-muted-foreground">
+                          Attempt #{attempt.attemptNumber}
+                        </span>
+                        {isCurrentAttempt && (
+                          <Badge variant="outline" className="text-xs">
+                            Latest
+                          </Badge>
+                        )}
+                      </div>
+                      <Badge 
+                        className={cn(
+                          "text-xs",
+                          attemptPassed 
+                            ? "bg-green-500 hover:bg-green-600 text-white" 
+                            : "bg-destructive hover:bg-destructive text-white"
+                        )}
+                      >
+                        {attemptPassed ? <CheckCircle className="h-3 w-3 mr-1" /> : <XCircle className="h-3 w-3 mr-1" />}
+                        {attemptPassed ? 'Passed' : 'Failed'}
+                      </Badge>
+                    </div>
+                    
+                    <div className="flex items-center gap-4">
+                      <div className="text-right">
+                        <div className="flex items-center gap-1">
+                          <TrendingUp className={cn(
+                            "h-4 w-4",
+                            attemptPassed ? "text-green-600" : "text-destructive"
+                          )} />
+                          <span className={cn(
+                            "text-xl font-bold",
+                            attemptPassed ? "text-green-600 dark:text-green-400" : "text-destructive"
+                          )}>
+                            {Math.round(attempt.percentage)}%
+                          </span>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          {attempt.score}/{attempt.maxScore} points
+                        </p>
+                      </div>
+                      <div className="text-right text-xs text-muted-foreground">
+                        {new Date(attempt.completedAt).toLocaleDateString()}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          
+          {attemptHistory.length > 0 && (
+            <div className="mt-4 p-3 rounded-lg bg-muted/50 border border-border">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-semibold text-foreground">Best Score:</span>
+                <span className="text-lg font-bold text-primary">
+                  {Math.max(...attemptHistory.map(a => a.percentage))}%
+                </span>
+              </div>
+            </div>
+          )}
+        </Card>
+      )}
+
       <div className="py-4 text-center">
-        <Button onClick={onRestart} size="lg" variant="outline">
-          <RotateCcw className="mr-2 h-5 w-5" />
-          Restart Quiz
+        <Button onClick={onRestart} size="lg" variant="outline" className="min-w-[200px]">
+          <RefreshCw className="mr-2 h-5 w-5" />
+          {isPreviousAttempt 
+            ? (isGraded && !passed ? 'Retake Quiz to Improve' : 'Take Quiz Again')
+            : (isGraded && !passed ? 'Retake Quiz' : 'Restart Quiz')
+          }
         </Button>
       </div>
     </div>

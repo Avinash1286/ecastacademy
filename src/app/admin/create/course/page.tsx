@@ -8,13 +8,16 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { BookOpen, Video, Layers, ArrowRight } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { BookOpen, Video, Layers, ArrowRight, Award } from 'lucide-react';
 
 export default function CreateCoursePage() {
   const router = useRouter();
   const [courseType, setCourseType] = useState<'videos-only' | 'mixed'>('videos-only');
   const [courseName, setCourseName] = useState('');
   const [courseDescription, setCourseDescription] = useState('');
+  const [isCertification, setIsCertification] = useState(false);
+  const [passingGrade, setPassingGrade] = useState(70);
 
   const handleNext = () => {
     if (!courseName.trim()) {
@@ -25,7 +28,9 @@ export default function CreateCoursePage() {
     sessionStorage.setItem('newCourse', JSON.stringify({
       name: courseName,
       description: courseDescription,
-      type: courseType
+      type: courseType,
+      isCertification,
+      passingGrade,
     }));
 
     if (courseType === 'videos-only') {
@@ -74,6 +79,52 @@ export default function CreateCoursePage() {
               className="text-base resize-none"
             />
           </div>
+
+          {/* Certification Settings */}
+          <Card className={`transition-all ${isCertification ? 'border-amber-500 bg-amber-50/50 dark:bg-amber-950/20' : ''}`}>
+            <CardContent className="pt-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <Award className="h-5 w-5 text-amber-600" />
+                    <Label htmlFor="certification" className="text-base font-semibold">
+                      Certification Course
+                    </Label>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Enable grading and certificate generation upon completion
+                  </p>
+                </div>
+                <Switch
+                  id="certification"
+                  checked={isCertification}
+                  onCheckedChange={setIsCertification}
+                />
+              </div>
+
+              {isCertification && (
+                <div className="space-y-2 pt-2 border-t">
+                  <Label htmlFor="passingGrade">
+                    Passing Grade (%)
+                  </Label>
+                  <div className="flex items-center gap-4">
+                    <Input
+                      id="passingGrade"
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={passingGrade}
+                      onChange={(e) => setPassingGrade(Math.min(100, Math.max(0, parseInt(e.target.value) || 70)))}
+                      className="w-24"
+                    />
+                    <span className="text-sm text-muted-foreground">
+                      Students must score at least {passingGrade}% to earn a certificate
+                    </span>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
           {/* Course Type Selection */}
           <div className="space-y-4">
