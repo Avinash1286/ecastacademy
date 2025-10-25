@@ -27,6 +27,8 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { RichTextEditor } from "@/components/ui/rich-text-editor";
+import { Switch } from "@/components/ui/switch";
+import { Info } from "lucide-react";
 import {
   ChevronLeft,
   Plus,
@@ -121,6 +123,12 @@ export default function CourseBuilderPage() {
   const [selectedVideoId, setSelectedVideoId] = useState("");
   const [textContent, setTextContent] = useState("");
   const [resourceUrl, setResourceUrl] = useState("");
+  
+  // Grading configuration states
+  const [isGraded, setIsGraded] = useState(false);
+  const [maxPoints, setMaxPoints] = useState("100");
+  const [passingScore, setPassingScore] = useState("70");
+  const [allowRetakes, setAllowRetakes] = useState(true);
 
   const completedVideos = videos?.filter((v) => v.status === "completed") || [];
   
@@ -247,6 +255,11 @@ export default function CourseBuilderPage() {
     setSelectedVideoId("");
     setTextContent("");
     setResourceUrl("");
+    // Reset grading configuration to defaults
+    setIsGraded(false);
+    setMaxPoints("100");
+    setPassingScore(course?.passingGrade?.toString() || "70");
+    setAllowRetakes(true);
     setContentDialog(true);
   };
 
@@ -265,6 +278,11 @@ export default function CourseBuilderPage() {
         type: contentType,
         title: contentTitle,
         order: chapterContentItems.length + 1,
+        // Add grading configuration
+        isGraded,
+        maxPoints: isGraded ? Number(maxPoints) : undefined,
+        passingScore: isGraded ? Number(passingScore) : undefined,
+        allowRetakes: isGraded ? allowRetakes : undefined,
       };
 
       let additionalData = {};
@@ -312,6 +330,10 @@ export default function CourseBuilderPage() {
       videoId?: Id<"videos">;
       textContent?: string;
       resourceUrl?: string;
+      isGraded?: boolean;
+      maxPoints?: number;
+      passingScore?: number;
+      allowRetakes?: boolean;
     },
     chapterId: Id<"chapters">
   ) => {
@@ -329,6 +351,11 @@ export default function CourseBuilderPage() {
     setSelectedVideoId(contentItem.videoId || "");
     setTextContent(contentItem.textContent || "");
     setResourceUrl(contentItem.resourceUrl || "");
+    // Load existing grading configuration
+    setIsGraded(contentItem.isGraded || false);
+    setMaxPoints(contentItem.maxPoints?.toString() || "100");
+    setPassingScore(contentItem.passingScore?.toString() || course?.passingGrade?.toString() || "70");
+    setAllowRetakes(contentItem.allowRetakes !== undefined ? contentItem.allowRetakes : true);
     setContentDialog(true);
   };
 
@@ -339,6 +366,11 @@ export default function CourseBuilderPage() {
       const baseData = {
         id: editingContentItem._id,
         title: contentTitle,
+        // Update grading configuration
+        isGraded,
+        maxPoints: isGraded ? Number(maxPoints) : undefined,
+        passingScore: isGraded ? Number(passingScore) : undefined,
+        allowRetakes: isGraded ? allowRetakes : undefined,
       };
 
       let additionalData = {};
@@ -662,6 +694,11 @@ export default function CourseBuilderPage() {
                             <div className="flex items-center gap-2">
                               <span className="font-medium">{item.title}</span>
                               {getContentTypeBadge(item.type)}
+                              {item.isGraded && (
+                                <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950 dark:text-amber-400 dark:border-amber-800">
+                                  Graded
+                                </Badge>
+                              )}
                               {item.type === "text" && textQuizStatus && (
                                 <>
                                   {textQuizStatus === "pending" && (
@@ -903,6 +940,98 @@ export default function CourseBuilderPage() {
                   onChange={(e) => setResourceUrl(e.target.value)}
                   placeholder="https://example.com/resource.pdf"
                 />
+              </div>
+            )}
+
+            {/* Grading Configuration Section */}
+            {(contentType === "quiz" || contentType === "assignment") && (
+              <div className="space-y-4 pt-4 border-t">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="grading-toggle" className="text-base font-semibold">
+                      Graded Content
+                    </Label>
+                    <p className="text-sm text-muted-foreground">
+                      Enable grading to track student performance and require passing scores
+                    </p>
+                  </div>
+                  <Switch
+                    id="grading-toggle"
+                    checked={isGraded}
+                    onCheckedChange={setIsGraded}
+                  />
+                </div>
+
+                {isGraded && (
+                  <div className="space-y-4 pl-4 border-l-2 border-amber-500/50">
+                    <div className="flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+                      <Info className="h-4 w-4 text-amber-600 dark:text-amber-500 mt-0.5 flex-shrink-0" />
+                      <div className="text-xs text-amber-900 dark:text-amber-100">
+                        <p className="font-medium mb-1">Grading Impact:</p>
+                        <ul className="list-disc list-inside space-y-0.5">
+                          <li>Students must achieve the passing score to progress</li>
+                          <li>Scores are tracked and displayed in their progress</li>
+                          <li>Affects overall course completion percentage</li>
+                          {course?.isCertification && (
+                            <li className="font-medium text-amber-700 dark:text-amber-400">
+                              Required for certificate eligibility
+                            </li>
+                          )}
+                        </ul>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <Label htmlFor="max-points">Maximum Points</Label>
+                        <Input
+                          id="max-points"
+                          type="number"
+                          min="1"
+                          max="1000"
+                          value={maxPoints}
+                          onChange={(e) => setMaxPoints(e.target.value)}
+                          placeholder="100"
+                        />
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Total points possible (typically 100)
+                        </p>
+                      </div>
+
+                      <div>
+                        <Label htmlFor="passing-score">Passing Score (%)</Label>
+                        <Input
+                          id="passing-score"
+                          type="number"
+                          min="0"
+                          max="100"
+                          value={passingScore}
+                          onChange={(e) => setPassingScore(e.target.value)}
+                          placeholder="70"
+                        />
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Minimum percentage to pass (0-100)
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between p-3 border rounded-lg">
+                      <div className="space-y-0.5">
+                        <Label htmlFor="allow-retakes" className="font-medium">
+                          Allow Retakes
+                        </Label>
+                        <p className="text-xs text-muted-foreground">
+                          Let students retake this content if they fail
+                        </p>
+                      </div>
+                      <Switch
+                        id="allow-retakes"
+                        checked={allowRetakes}
+                        onCheckedChange={setAllowRetakes}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

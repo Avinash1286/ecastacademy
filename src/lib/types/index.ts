@@ -32,6 +32,8 @@ export interface Course {
   description: string | "";
   thumbnailUrl: string | "";
   createdAt: string;
+  isCertification?: boolean;
+  passingGrade?: number;
 }
 
 export type ContentItem = {
@@ -39,6 +41,12 @@ export type ContentItem = {
   type: 'video' | 'text' | 'quiz' | 'assignment' | 'resource';
   title: string;
   order: number;
+  // Grading fields
+  isGraded?: boolean;
+  maxPoints?: number;
+  passingScore?: number;
+  allowRetakes?: boolean;
+  // Content fields
   textContent?: string;
   textQuiz?: Quiz;
   textQuizStatus?: 'pending' | 'processing' | 'completed' | 'failed';
@@ -149,6 +157,7 @@ export interface Quiz {
 export interface QuizInterfaceProps {
   quiz: Quiz;
   onQuizComplete: (answers: number[], score: number) => void;
+  contentItem?: ContentItem | null;
 }
 
 
@@ -157,4 +166,14 @@ export interface QuizResultsProps {
   userAnswers: number[];
   score: number;
   onRestart: () => void;
+  contentItem?: ContentItem | null;
+  attemptHistory?: Array<{
+    _id: string;
+    attemptNumber: number;
+    score: number;
+    maxScore: number;
+    percentage: number;
+    passed: boolean;
+    completedAt: number;
+  }>;
 }

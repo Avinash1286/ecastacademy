@@ -40,7 +40,7 @@ export function AiTutorPanel({ activeChapter, activeContentItem, isLeftPanelVisi
       if (activeTab === 'quizzes') {
         const textQuiz = activeContentItem.textQuiz;
         if (textQuiz) {
-          return <QuizzesPanel questions={textQuiz} />;
+          return <QuizzesPanel questions={textQuiz} contentItem={activeContentItem} />;
         }
         return (
           <div className="flex h-full items-center justify-center p-8 text-center text-muted-foreground">
@@ -96,7 +96,7 @@ export function AiTutorPanel({ activeChapter, activeContentItem, isLeftPanelVisi
       case 'notes':
         return notes ? <NotesPanel notes={notes}/> : null;
       case 'quizzes':
-        return quiz ? <QuizzesPanel questions={quiz} /> : null;
+        return quiz ? <QuizzesPanel questions={quiz} contentItem={activeContentItem} /> : null;
       default:
         return null;
     }

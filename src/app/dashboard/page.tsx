@@ -1,64 +1,27 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useMemo } from 'react';
+import { useQuery } from 'convex/react';
+import { api } from '../../../convex/_generated/api';
 import type { Course } from '@/lib/types';
 
 import { CoursesPageHeader } from '@/components/dashboard/CoursesPageHeader';
 import { CourseGrid } from '@/components/dashboard/CourseGrid';
 import { CourseGridSkeleton } from '@/components/dashboard/CourseGridSkeleton';
 import { useDashboard } from '@/context/DashboardContext';
-import { Button } from '@/components/ui/button';
-import { Loader2 } from 'lucide-react';
-
-const PAGE_SIZE = 9;
+import { BookOpen } from 'lucide-react';
 
 const CoursesPage = () => {
-  const [allCourses, setAllCourses] = useState<Course[]>([]);
   const { searchTerm } = useDashboard();
-  const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
+  
+  // Fetch all published courses
+  const allCourses = useQuery(api.courses.getAllCourses, { limit: 100, offset: 0 });
 
-  const fetchCourses = useCallback(async (pageNum: number) => {
-    if (pageNum === 1) setLoading(true);
-    else setLoadingMore(true);
+  const loading = allCourses === undefined;
 
-    try {
-      const response = await fetch(`/api/courses?page=${pageNum}&limit=${PAGE_SIZE}`);
-      if (!response.ok) {
-        throw new Error('Failed to fetch courses. Please try again later.');
-      }
-      const newCourses: Course[] = await response.json();
-      
-      setAllCourses(prev => pageNum === 1 ? newCourses : [...prev, ...newCourses]);
-      setHasMore(newCourses.length === PAGE_SIZE);
-
-    } catch (err: unknown) {
-      if (err instanceof Error) {
-        setError(err.message);
-      } else {
-        setError('An unknown error occurred.');
-      }
-    } finally {
-      if (pageNum === 1) setLoading(false);
-      else setLoadingMore(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchCourses(1);
-  }, [fetchCourses]);
-
-  const handleLoadMore = () => {
-    const nextPage = page + 1;
-    setPage(nextPage);
-    fetchCourses(nextPage);
-  };
-
-  const filteredCourses = useMemo(() => {
-    // When searching, we filter from all loaded courses.
+  // Filter all courses based on search
+  const filteredAllCourses = useMemo(() => {
+    if (!allCourses) return [];
     if (!searchTerm) return allCourses;
     return allCourses.filter(
       (course) =>
@@ -66,6 +29,20 @@ const CoursesPage = () => {
         course.description?.toLowerCase().includes(searchTerm.toLowerCase())
     );
   }, [allCourses, searchTerm]);
+
+  // Transform to Course type for display
+  const allCoursesForGrid: Course[] = useMemo(() => {
+    if (!filteredAllCourses) return [];
+    return filteredAllCourses.map(course => ({
+      id: course._id,
+      name: course.name,
+      description: course.description || '',
+      thumbnailUrl: course.thumbnailUrl || '',
+      createdAt: new Date(course.createdAt).toISOString(),
+      isCertification: course.isCertification,
+      passingGrade: course.passingGrade,
+    }));
+  }, [filteredAllCourses]);
 
   return (
     <main className="bg-background min-h-screen">
@@ -75,22 +52,16 @@ const CoursesPage = () => {
           
           {loading ? (
             <CourseGridSkeleton />
-          ) : error ? (
-            <div className="text-center py-10">
-              <p className="font-semibold text-destructive">{error}</p>
+          ) : allCoursesForGrid.length === 0 ? (
+            <div className="text-center py-12 px-4">
+              <BookOpen className="mx-auto h-12 w-12 text-muted-foreground/50 mb-4" />
+              <h3 className="text-lg font-semibold mb-2">No Courses Available</h3>
+              <p className="text-muted-foreground">
+                {searchTerm ? 'No courses found matching your search.' : 'No courses found. Check back later!'}
+              </p>
             </div>
           ) : (
-            <>
-              <CourseGrid courses={filteredCourses} />
-              {!searchTerm && hasMore && (
-                <div className="flex justify-center pt-4">
-                  <Button onClick={handleLoadMore} disabled={loadingMore}>
-                    {loadingMore && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    Load More
-                  </Button>
-                </div>
-              )}
-            </>
+            <CourseGrid courses={allCoursesForGrid} />
           )}
         </div>
       </div>

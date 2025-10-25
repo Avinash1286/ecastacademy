@@ -8,10 +8,16 @@
  * @module
  */
 
+import type * as admin from "../admin.js";
+import type * as auth from "../auth.js";
+import type * as certificates from "../certificates.js";
 import type * as chapters from "../chapters.js";
+import type * as completions from "../completions.js";
 import type * as contentItems from "../contentItems.js";
 import type * as courses from "../courses.js";
+import type * as debug from "../debug.js";
 import type * as migrations from "../migrations.js";
+import type * as progress from "../progress.js";
 import type * as testQueries from "../testQueries.js";
 import type * as videoProcessing from "../videoProcessing.js";
 import type * as videos from "../videos.js";
@@ -31,10 +37,16 @@ import type {
  * ```
  */
 declare const fullApi: ApiFromModules<{
+  admin: typeof admin;
+  auth: typeof auth;
+  certificates: typeof certificates;
   chapters: typeof chapters;
+  completions: typeof completions;
   contentItems: typeof contentItems;
   courses: typeof courses;
+  debug: typeof debug;
   migrations: typeof migrations;
+  progress: typeof progress;
   testQueries: typeof testQueries;
   videoProcessing: typeof videoProcessing;
   videos: typeof videos;

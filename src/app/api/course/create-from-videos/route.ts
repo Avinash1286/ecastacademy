@@ -7,7 +7,7 @@ const convex = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
 
 export async function POST(request: Request) {
   try {
-    const { courseName, courseDescription, videoIds } = await request.json();
+    const { courseName, courseDescription, videoIds, isCertification, passingGrade } = await request.json();
 
     if (!courseName || !videoIds || videoIds.length === 0) {
       return NextResponse.json(
@@ -20,6 +20,8 @@ export async function POST(request: Request) {
     const courseId = await convex.mutation(api.courses.createCourse, {
       name: courseName,
       description: courseDescription || '',
+      isCertification: isCertification || false,
+      passingGrade: passingGrade || 70,
     });
 
     // Create chapters from videos (each video = one chapter)

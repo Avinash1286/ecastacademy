@@ -1,12 +1,43 @@
 "use client";
 
-import { ReactNode } from "react";
+import { ReactNode, useEffect } from "react";
 import Link from "next/link";
-import { Video, BookOpen, LayoutDashboard, LucideIcon } from "lucide-react";
+import { Video, BookOpen, LayoutDashboard, LucideIcon, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
+  const { data: session, status } = useSession();
+  const router = useRouter();
+
+  useEffect(() => {
+    // Check if user is admin
+    if (status === "authenticated") {
+      const user = session?.user as any;
+      if (user?.role !== "admin") {
+        router.push("/dashboard");
+      }
+    } else if (status === "unauthenticated") {
+      router.push("/auth/signin");
+    }
+  }, [status, session, router]);
+
+  // Show loading while checking auth
+  if (status === "loading") {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+
+  // Don't render admin content if not admin
+  const user = session?.user as any;
+  if (user?.role !== "admin") {
+    return null;
+  }
+
   return (
     <div className="min-h-screen flex flex-col">
       {/* Admin Header */}
@@ -26,6 +57,9 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
                 <AdminNavLink href="/admin/courses" icon={BookOpen}>
                   Courses
                 </AdminNavLink>
+                <AdminNavLink href="/admin/users" icon={Users}>
+                  Users
+                </AdminNavLink>
               </nav>
             </div>
 
@@ -44,6 +78,9 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
             </AdminNavLink>
             <AdminNavLink href="/admin/courses" icon={BookOpen} mobile>
               Courses
+            </AdminNavLink>
+            <AdminNavLink href="/admin/users" icon={Users} mobile>
+              Users
             </AdminNavLink>
           </nav>
         </div>

@@ -1,11 +1,50 @@
 # Ecast Academy 🎓
 
-Ecast Academy is a modern, AI-powered e-learning platform built with Next.js 15, Drizzle, and Google Gemini. It transforms any YouTube video or playlist into a fully interactive course, complete with detailed notes and quizzes, all generated automatically by AI.
+Ecast Academy is a modern, AI-powered e-learning platform built with Next.js 15, Convex, and Google Gemini. It transforms any YouTube video or playlist into a fully interactive course, complete with detailed notes and quizzes, all generated automatically by AI.
 
 ![Alt Text](https://drive.google.com/uc?export=view&id=1pvJzPeAnQvK9W3fR3q2xM9fRv9cFIX_5)
 
+## 📖 Documentation
+
+- **[Architecture Overview](./ARCHITECTURE_OVERVIEW.md)** - Complete system architecture and tech stack
+- **[Authentication Guide](./AUTH_IMPLEMENTATION.md)** - Authentication implementation details
+- **[Convex Migration](./CONVEX_MIGRATION_COMPLETE.md)** - Database migration notes
+
 
 ## 🚀 Tech Stack
+
+-   **Framework**: [Next.js](https://nextjs.org/) 15 (App Router & Turbopack)
+-   **Database**: [Convex](https://convex.dev/) (Real-time backend)
+-   **Authentication**: [NextAuth.js](https://next-auth.js.org/) v5 (NOT Convex Auth)
+-   **AI**: [Google Gemini](https://ai.google.dev/)
+-   **Styling**: [Tailwind CSS v4](https://tailwindcss.com/)
+-   **UI Components**: [Shadcn/ui](https://ui.shadcn.com/)
+-   **Forms**: [React Hook Form](https://react-hook-form.com/) & [Zod](https://zod.dev/)
+-   **Language**: [TypeScript](https://www.typescriptlang.org/)
+
+## 🔐 Authentication
+
+**Authentication System**: NextAuth.js v5 with Convex Backend
+
+- **NOT using Convex Auth package** (`@convex-dev/auth`)
+- Using **NextAuth.js** as the primary authentication library
+- Convex serves as the database backend via custom helper functions
+- The `convex/auth.ts` file contains custom Convex queries/mutations for NextAuth.js
+
+Features:
+- Email/Password authentication
+- OAuth (Google & GitHub)
+- Password reset functionality
+- Role-based access control (User/Admin)
+- Session management with JWT
+
+For details, see:
+- [Architecture Overview](./ARCHITECTURE_OVERVIEW.md)
+- [Authentication Setup](./AUTH_SETUP.md)
+- [Implementation Guide](./AUTH_IMPLEMENTATION.md)
+- [Summary](./AUTHENTICATION_SUMMARY.md)
+
+## 🗄️ Database
 
 -   **Framework**: [Next.js](https://nextjs.org/) 15 (App Router & Turbopack)
 -   **Database**: [PostgreSQL](https://www.postgresql.org/) (via [Neon](https://neon.tech/))

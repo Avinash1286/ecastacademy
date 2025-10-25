@@ -18,7 +18,7 @@ export default function SelectVideosPage() {
   const [selectedVideos, setSelectedVideos] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
   const [isCreating, setIsCreating] = useState(false);
-  const [courseData, setCourseData] = useState<{ name: string; description: string; type: string } | null>(null);
+  const [courseData, setCourseData] = useState<{ name: string; description: string; type: string; isCertification?: boolean; passingGrade?: number } | null>(null);
 
   // Fetch all completed videos
   const allVideos = useQuery(api.videos.getAllVideos, {}) || [];
@@ -71,6 +71,8 @@ export default function SelectVideosPage() {
           courseName: courseData.name,
           courseDescription: courseData.description,
           videoIds: Array.from(selectedVideos),
+          isCertification: courseData.isCertification,
+          passingGrade: courseData.passingGrade,
         }),
       });
 
