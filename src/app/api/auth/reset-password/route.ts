@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ConvexHttpClient } from "convex/browser";
 import { api } from "../../../../../convex/_generated/api";
 import { hashPassword, validatePassword } from "@/lib/auth/utils";
 import { Id } from "../../../../../convex/_generated/dataModel";
+import { createConvexClient } from "@/lib/convexClient";
 
-const convex = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
+const convex = createConvexClient();
 
 export async function POST(request: NextRequest) {
   try {

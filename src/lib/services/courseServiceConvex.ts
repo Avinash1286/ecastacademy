@@ -1,13 +1,12 @@
 import { api } from "../../../convex/_generated/api";
 import { Id } from "../../../convex/_generated/dataModel";
-import { ConvexHttpClient } from "convex/browser";
 import { generateNotes, generateQuiz } from "@/lib/services/aimodel";
 import { validateAndCorrectJson } from "@/lib/utils";
 import { TCreateCourseSchema, TUpdateCourseSchema } from "@/lib/validators/courseValidator";
 import { formatDuration } from "@/lib/youtube";
+import { createConvexClient } from "@/lib/convexClient";
 
-const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL!;
-const convex = new ConvexHttpClient(convexUrl);
+const convex = createConvexClient();
 
 type ProgressCallback = (data: { message: string; progress: number }) => void;
 

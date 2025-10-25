@@ -3,8 +3,9 @@ import { mutation, query, MutationCtx } from "./_generated/server";
 import { Id } from "./_generated/dataModel";
 
 /**
- * Submit a quiz attempt and update progress
- * Records the attempt, calculates score, updates progress, and checks for certificate eligibility
+ * @deprecated Prefer mutations in completions.ts.
+ * Keeping the legacy surface for backwards compatibility but it will
+ * continue to use its original behaviour.
  */
 export const submitQuizAttempt = mutation({
   args: {
@@ -82,35 +83,30 @@ export const submitQuizAttempt = mutation({
       .first();
 
     if (existingProgress) {
-      // Update existing progress
       const newAttempts = (existingProgress.attempts ?? 0) + 1;
-      const newBestScore = Math.max(
-        existingProgress.bestScore ?? 0,
-        percentage
-      );
-
-      // For graded items: mark complete only if passed
-      // For non-graded items: mark complete after any attempt
-      const shouldComplete = contentItem.isGraded ? passed : true;
+      const newBestScore = Math.max(existingProgress.bestScore ?? 0, percentage);
+      const everPassed = (existingProgress.passed ?? false) || passed;
+      const shouldComplete = contentItem.isGraded && course.isCertification
+        ? (existingProgress.completed || passed)
+        : true;
+      const now = Date.now();
 
       await ctx.db.patch(existingProgress._id, {
         score: args.score,
         maxScore: maxScore,
         percentage: percentage,
-        passed: passed,
+        passed: everPassed,
         attempts: newAttempts,
         bestScore: newBestScore,
-        lastAttemptAt: Date.now(),
+        lastAttemptAt: now,
         completed: shouldComplete,
-        completedAt: shouldComplete ? Date.now() : existingProgress.completedAt,
+        completedAt: shouldComplete ? (existingProgress.completedAt ?? now) : existingProgress.completedAt,
         progressPercentage: shouldComplete ? 100 : existingProgress.progressPercentage,
       });
     } else {
-      // For graded items: mark complete only if passed
-      // For non-graded items: mark complete after any attempt
-      const shouldComplete = contentItem.isGraded ? passed : true;
+      const shouldComplete = contentItem.isGraded && course.isCertification ? passed : true;
+      const now = Date.now();
 
-      // Create new progress record
       await ctx.db.insert("progress", {
         userId: user._id,
         courseId: chapter.courseId,
@@ -120,12 +116,12 @@ export const submitQuizAttempt = mutation({
         score: args.score,
         maxScore: maxScore,
         percentage: percentage,
-        passed: passed,
+        passed: contentItem.isGraded ? passed : true,
         attempts: 1,
         bestScore: percentage,
-        lastAttemptAt: Date.now(),
+        lastAttemptAt: now,
         completed: shouldComplete,
-        completedAt: shouldComplete ? Date.now() : undefined,
+        completedAt: shouldComplete ? now : undefined,
         progressPercentage: shouldComplete ? 100 : 0,
       });
     }
@@ -200,19 +196,27 @@ export const markItemComplete = mutation({
       .first();
 
     if (existingProgress) {
-      // Update existing progress
+      const now = Date.now();
+      const updatedAttempts = (existingProgress.attempts ?? 0) + 1;
+      const newBestScore = Math.max(existingProgress.bestScore ?? 0, percentage ?? 0);
+      const everPassed = (existingProgress.passed ?? false) || (passed ?? false);
+
       await ctx.db.patch(existingProgress._id, {
         completed: true,
-        completedAt: Date.now(),
+        completedAt: existingProgress.completedAt ?? now,
         progressPercentage: 100,
         ...(args.score !== undefined && {
           score: args.score,
           maxScore: args.maxScore ?? contentItem.maxPoints ?? 100,
           percentage: percentage,
-          passed: passed,
-          attempts: (existingProgress.attempts ?? 0) + 1,
-          bestScore: Math.max(existingProgress.bestScore ?? 0, percentage ?? 0),
-          lastAttemptAt: Date.now(),
+          passed: everPassed,
+          attempts: updatedAttempts,
+          bestScore: newBestScore,
+          lastAttemptAt: now,
+        }),
+        ...(args.score === undefined && {
+          attempts: updatedAttempts,
+          lastAttemptAt: now,
         }),
       });
     } else {

@@ -14,7 +14,8 @@ export const QuizResults = ({
   attemptHistory,
   isPreviousAttempt = false 
 }: QuizResultsProps & { isPreviousAttempt?: boolean }) => {
-  const percentage = Math.round((score / quiz.questions.length) * 100);
+  const totalQuestions = quiz.questions.length || 0;
+  const percentage = totalQuestions > 0 ? Math.round((score / totalQuestions) * 100) : 0;
   
   // Grading information
   const isGraded = contentItem?.isGraded ?? false;
@@ -245,14 +246,73 @@ export const QuizResults = ({
         </Card>
       )}
 
-      <div className="py-4 text-center">
-        <Button onClick={onRestart} size="lg" variant="outline" className="min-w-[200px]">
-          <RefreshCw className="mr-2 h-5 w-5" />
-          {isPreviousAttempt 
-            ? (isGraded && !passed ? 'Retake Quiz to Improve' : 'Take Quiz Again')
-            : (isGraded && !passed ? 'Retake Quiz' : 'Restart Quiz')
-          }
-        </Button>
+      <div className="py-4 text-center space-y-3">
+        {/* Show different button text and state based on quiz type and status */}
+        {isGraded ? (
+          <>
+            {/* Graded Quiz: Check if retakes are allowed */}
+            {passed ? (
+              <div className="space-y-2">
+                <Button 
+                  onClick={onRestart} 
+                  size="lg" 
+                  variant="outline" 
+                  className="min-w-[200px]"
+                >
+                  <RefreshCw className="mr-2 h-5 w-5" />
+                  Retake to Improve Score
+                </Button>
+                <p className="text-xs text-muted-foreground">
+                  You&apos;ve already passed, but you can retake to improve your grade
+                </p>
+              </div>
+            ) : (
+              <>
+                {allowRetakes ? (
+                  <div className="space-y-2">
+                    <Button 
+                      onClick={onRestart} 
+                      size="lg" 
+                      className="min-w-[200px] bg-amber-600 hover:bg-amber-700"
+                    >
+                      <RefreshCw className="mr-2 h-5 w-5" />
+                      Retake Quiz to Pass
+                    </Button>
+                    <p className="text-xs text-muted-foreground">
+                      You need {passingScore}% or higher to pass this quiz
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Button 
+                      size="lg" 
+                      variant="outline" 
+                      className="min-w-[200px]" 
+                      disabled
+                    >
+                      <AlertCircle className="mr-2 h-5 w-5" />
+                      No Retakes Allowed
+                    </Button>
+                    <p className="text-xs text-destructive">
+                      This quiz does not allow retakes. Contact your instructor for assistance.
+                    </p>
+                  </div>
+                )}
+              </>
+            )}
+          </>
+        ) : (
+          /* Ungraded Quiz: Always allow retakes */
+          <Button 
+            onClick={onRestart} 
+            size="lg" 
+            variant="outline" 
+            className="min-w-[200px]"
+          >
+            <RefreshCw className="mr-2 h-5 w-5" />
+            {isPreviousAttempt ? 'Take Quiz Again' : 'Restart Quiz'}
+          </Button>
+        )}
       </div>
     </div>
   );

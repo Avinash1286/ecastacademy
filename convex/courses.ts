@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import { recalculateCourseProgressSync } from "./completions";
 
 // Mutation to create a new course
 export const createCourse = mutation({
@@ -97,6 +98,9 @@ export const updateCourse = mutation({
             }
           }
         }
+
+        // Recalculate cached progress so course switches remain consistent
+        await recalculateCourseProgressSync(ctx, { courseId: id });
       }
     }
     
@@ -335,6 +339,10 @@ export const getChaptersWithVideosByCourseId = query({
                 type: item.type,
                 title: item.title,
                 order: item.order,
+                isGraded: item.isGraded ?? false,
+                maxPoints: item.maxPoints ?? undefined,
+                passingScore: item.passingScore ?? undefined,
+                allowRetakes: item.allowRetakes ?? true,
                 videoId: item.videoId,
                 textContent: item.textContent,
                 videoDetails: videoData ? {
@@ -353,6 +361,10 @@ export const getChaptersWithVideosByCourseId = query({
               type: item.type,
               title: item.title,
               order: item.order,
+               isGraded: item.isGraded ?? false,
+               maxPoints: item.maxPoints ?? undefined,
+               passingScore: item.passingScore ?? undefined,
+               allowRetakes: item.allowRetakes ?? true,
               textContent: item.textContent,
               textQuiz: item.textQuiz,
               textQuizStatus: item.textQuizStatus,

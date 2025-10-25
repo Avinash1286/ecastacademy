@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import { recalculateCourseProgressSync } from "./completions";
 
 // Create a content item
 export const createContentItem = mutation({
@@ -145,7 +146,9 @@ export const toggleContentItemGrading = mutation({
       passingScore: args.passingScore ?? (args.isGraded ? (course.passingGrade ?? 70) : undefined),
       allowRetakes: args.allowRetakes ?? true,
     });
-    
+
+    await recalculateCourseProgressSync(ctx, { courseId: chapter.courseId });
+
     return await ctx.db.get(args.contentItemId);
   },
 });

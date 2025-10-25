@@ -16,9 +16,11 @@ import type * as completions from "../completions.js";
 import type * as contentItems from "../contentItems.js";
 import type * as courses from "../courses.js";
 import type * as debug from "../debug.js";
+import type * as migration from "../migration.js";
 import type * as migrations from "../migrations.js";
 import type * as progress from "../progress.js";
 import type * as testQueries from "../testQueries.js";
+import type * as utils_progressUtils from "../utils/progressUtils.js";
 import type * as videoProcessing from "../videoProcessing.js";
 import type * as videos from "../videos.js";
 
@@ -45,9 +47,11 @@ declare const fullApi: ApiFromModules<{
   contentItems: typeof contentItems;
   courses: typeof courses;
   debug: typeof debug;
+  migration: typeof migration;
   migrations: typeof migrations;
   progress: typeof progress;
   testQueries: typeof testQueries;
+  "utils/progressUtils": typeof utils_progressUtils;
   videoProcessing: typeof videoProcessing;
   videos: typeof videos;
 }>;

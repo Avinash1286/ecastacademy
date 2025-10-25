@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { internalMutation, mutation, query } from "./_generated/server";
-import { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
+import { summarizeProgressByContentItem } from "./utils/progressUtils";
 
 /**
  * =============================================================================
@@ -62,8 +62,7 @@ export const checkEligibility = internalMutation({
       return { eligible: false, reason: "No graded items in course" };
     }
 
-    // 5. Get user's progress on graded items
-    const gradedItemIds = new Set(gradedItems.map((item) => item._id));
+    // 5. Summarize user's progress on graded items
     const progressRecords = await ctx.db
       .query("progress")
       .withIndex("by_userId_courseId", (q) =>
@@ -71,49 +70,53 @@ export const checkEligibility = internalMutation({
       )
       .collect();
 
-    const gradedProgress = progressRecords.filter(
-      (p) => p.contentItemId && gradedItemIds.has(p.contentItemId)
-    );
+    const progressSummaryMap = summarizeProgressByContentItem(progressRecords);
+    const passingGrade = course.passingGrade ?? 70;
 
-    // 6. Check if all graded items are attempted
-    if (gradedProgress.length !== gradedItems.length) {
-      return {
-        eligible: false,
-        reason: `Not all graded items attempted (${gradedProgress.length}/${gradedItems.length})`,
-      };
-    }
+    const missingItems: typeof gradedItems = [];
+    const failedItems: { item: typeof gradedItems[number]; bestPercentage: number; passingScore: number }[] = [];
 
-    // 7. Check if all items are passed
-    const allPassed = gradedProgress.every((p) => p.passed);
-    if (!allPassed) {
-      const failedCount = gradedProgress.filter((p) => !p.passed).length;
-      return {
-        eligible: false,
-        reason: `${failedCount} graded item(s) not passed`,
-      };
-    }
-
-    // 8. Calculate overall grade with proper weighting
     let totalPossiblePoints = 0;
     let totalEarnedPoints = 0;
 
-    for (const progress of gradedProgress) {
-      const contentItem = gradedItems.find((item) => item._id === progress.contentItemId);
-      const maxPoints = contentItem?.maxPoints ?? 100;
-      
+    for (const item of gradedItems) {
+      const summary = progressSummaryMap.get(item._id);
+      if (!summary) {
+        missingItems.push(item);
+        continue;
+      }
+
+      const maxPoints = item.maxPoints ?? 100;
+      const bestPercentage = summary.bestPercentage ?? 0;
+      const itemPassingScore = item.passingScore ?? passingGrade;
+
       totalPossiblePoints += maxPoints;
-      
-      // Use bestScore for final grade calculation
-      const bestPercentage = progress.bestScore ?? 0;
       totalEarnedPoints += (bestPercentage / 100) * maxPoints;
+
+      if (bestPercentage < itemPassingScore) {
+        failedItems.push({ item, bestPercentage, passingScore: itemPassingScore });
+      }
     }
 
-    const overallGrade = totalPossiblePoints > 0 
-      ? (totalEarnedPoints / totalPossiblePoints) * 100 
+    if (missingItems.length > 0) {
+      const attemptedCount = gradedItems.length - missingItems.length;
+      return {
+        eligible: false,
+        reason: `Not all graded items attempted (${attemptedCount}/${gradedItems.length})`,
+      };
+    }
+
+    if (failedItems.length > 0) {
+      return {
+        eligible: false,
+        reason: `${failedItems.length} graded item(s) not passed`,
+      };
+    }
+
+    const overallGrade = totalPossiblePoints > 0
+      ? (totalEarnedPoints / totalPossiblePoints) * 100
       : 0;
 
-    // 9. Check if overall grade meets threshold
-    const passingGrade = course.passingGrade ?? 70;
     if (overallGrade < passingGrade) {
       return {
         eligible: false,
@@ -140,7 +143,7 @@ export const checkEligibility = internalMutation({
       overallGrade: overallGrade,
       issuedAt: Date.now(),
       totalGradedItems: gradedItems.length,
-      passedItems: gradedProgress.length,
+      passedItems: gradedItems.length,
       averageScore: overallGrade,
     });
 
@@ -252,26 +255,36 @@ export const debugCertificateEligibility = query({
       )
       .collect();
 
-    const gradedItemIds = new Set(gradedContentItems.map((item) => item._id));
-    const gradedProgress = progressRecords.filter(
-      (p) => p.contentItemId && gradedItemIds.has(p.contentItemId)
-    );
+    const progressSummaryMap = summarizeProgressByContentItem(progressRecords);
+    const passingGrade = course.passingGrade ?? 70;
 
-    const passedGradedItems = gradedProgress.filter((p) => p.passed).length;
+    const gradedSummaries = gradedContentItems.map((item) => ({
+      item,
+      summary: progressSummaryMap.get(item._id),
+    }));
 
-    // Calculate overall grade with proper weighting
-    let overallGrade = null;
-    if (gradedProgress.length > 0) {
+    const attemptedGradedCount = gradedSummaries.filter(({ summary }) => !!summary).length;
+    const passedGradedItems = gradedSummaries.reduce((count, { item, summary }) => {
+      if (!summary) {
+        return count;
+      }
+      const bestPercentage = summary.bestPercentage ?? 0;
+      const itemPassingScore = item.passingScore ?? passingGrade;
+      return bestPercentage >= itemPassingScore ? count + 1 : count;
+    }, 0);
+
+    let overallGrade: number | null = null;
+    if (attemptedGradedCount > 0) {
       let totalPossiblePoints = 0;
       let totalEarnedPoints = 0;
 
-      for (const progress of gradedProgress) {
-        const contentItem = contentItems.find((item) => item._id === progress.contentItemId);
-        const maxPoints = contentItem?.maxPoints ?? 100;
-        
+      for (const { item, summary } of gradedSummaries) {
+        if (!summary) {
+          continue;
+        }
+        const maxPoints = item.maxPoints ?? 100;
+        const bestPercentage = summary.bestPercentage ?? 0;
         totalPossiblePoints += maxPoints;
-        
-        const bestPercentage = progress.bestScore ?? 0;
         totalEarnedPoints += (bestPercentage / 100) * maxPoints;
       }
 
@@ -280,12 +293,9 @@ export const debugCertificateEligibility = query({
       }
     }
 
-    const passingGrade = course.passingGrade ?? 70;
-
-    // Check each condition
     const hasGradedItems = gradedContentItems.length > 0;
-    const allGradedItemsAttempted = gradedContentItems.length === gradedProgress.length;
-    const allGradedItemsPassed = passedGradedItems === gradedContentItems.length;
+    const allGradedItemsAttempted = hasGradedItems && attemptedGradedCount === gradedContentItems.length;
+    const allGradedItemsPassed = hasGradedItems && passedGradedItems === gradedContentItems.length;
     const gradeAboveThreshold = (overallGrade ?? 0) >= passingGrade;
 
     const eligibleForCertificate =
@@ -294,13 +304,9 @@ export const debugCertificateEligibility = query({
       allGradedItemsPassed &&
       gradeAboveThreshold;
 
-    // Find missing progress records
-    const progressedItemIds = new Set(
-      gradedProgress.map((p) => p.contentItemId).filter((id): id is Id<"contentItems"> => id !== undefined)
-    );
-    const itemsWithoutProgress = gradedContentItems.filter(
-      (item) => !progressedItemIds.has(item._id)
-    );
+    const itemsWithoutProgress = gradedSummaries
+      .filter(({ summary }) => !summary)
+      .map(({ item }) => item);
 
     return {
       courseName: course.name,
@@ -308,10 +314,10 @@ export const debugCertificateEligibility = query({
       passingGrade,
 
       totalContentItems: contentItems.length,
-      gradedContentItems: gradedContentItems.length,
+  gradedContentItems: gradedContentItems.length,
 
-      progressRecords: progressRecords.length,
-      gradedProgressRecords: gradedProgress.length,
+  progressRecords: progressRecords.length,
+  gradedProgressRecords: attemptedGradedCount,
       passedGradedItems,
 
       overallGrade,
@@ -325,13 +331,16 @@ export const debugCertificateEligibility = query({
 
       eligibleForCertificate,
 
-      gradedItemsList: gradedContentItems.map((item) => ({
+      gradedItemsList: gradedSummaries.map(({ item, summary }) => ({
         id: item._id,
         title: item.title,
         type: item.type,
         isGraded: item.isGraded,
         maxPoints: item.maxPoints,
-        hasProgress: progressedItemIds.has(item._id),
+        hasProgress: !!summary,
+        bestPercentage: summary?.bestPercentage ?? null,
+        latestPercentage: summary?.latestPercentage ?? null,
+        attempts: summary?.attempts ?? 0,
       })),
 
       itemsWithoutProgress: itemsWithoutProgress.map((item) => ({
@@ -340,15 +349,18 @@ export const debugCertificateEligibility = query({
         type: item.type,
       })),
 
-      gradedProgressList: gradedProgress.map((p) => ({
-        contentItemId: p.contentItemId,
-        score: p.score,
-        maxScore: p.maxScore,
-        percentage: p.percentage,
-        bestScore: p.bestScore,
-        passed: p.passed,
-        attempts: p.attempts,
-      })),
+      gradedProgressList: gradedSummaries
+        .filter(({ summary }) => !!summary)
+        .map(({ item, summary }) => ({
+          contentItemId: item._id,
+          title: item.title,
+          bestPercentage: summary?.bestPercentage ?? 0,
+          latestPercentage: summary?.latestPercentage ?? null,
+          latestPassed: summary?.latestPassed ?? null,
+          attempts: summary?.attempts ?? 0,
+          completed: summary?.completed ?? false,
+          progressPercentage: summary?.progressPercentage ?? 0,
+        })),
     };
   },
 });

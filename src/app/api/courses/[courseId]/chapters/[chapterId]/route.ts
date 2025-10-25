@@ -1,10 +1,9 @@
 import { NextResponse } from 'next/server';
-import { ConvexHttpClient } from 'convex/browser';
 import { api } from '../../../../../../../convex/_generated/api';
 import { Id } from '../../../../../../../convex/_generated/dataModel';
+import { createConvexClient } from '@/lib/convexClient';
 
-const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL!;
-const convex = new ConvexHttpClient(convexUrl);
+const convex = createConvexClient();
 
 // Helper function to retry with exponential backoff
 async function queryWithRetry<T>(
