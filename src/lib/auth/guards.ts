@@ -27,7 +27,11 @@ export async function requireAuth() {
 }
 
 /**
- * Require admin role - redirects if not admin
+ * Ensures the current session belongs to an admin user.
+ *
+ * If the authenticated user is missing or does not have the `admin` role, redirects to `/dashboard`.
+ *
+ * @returns An object with `session` (the authenticated session) and `user` (the fetched user record)
  */
 export async function requireAdmin() {
   const session = await requireAuth();
@@ -43,7 +47,9 @@ export async function requireAdmin() {
 }
 
 /**
- * Check if user is admin (doesn't redirect)
+ * Determines whether the current authenticated user has the "admin" role.
+ *
+ * @returns `true` if the current session corresponds to a user whose `role` is `"admin"`, `false` otherwise.
  */
 export async function isAdmin(): Promise<boolean> {
   const session = await getSession();
@@ -59,7 +65,9 @@ export async function isAdmin(): Promise<boolean> {
 }
 
 /**
- * Get current user from session
+ * Retrieves the current authenticated user's record using the active session.
+ *
+ * @returns The user record corresponding to the session's user id, or `null` if no session or user id is present.
  */
 export async function getCurrentUser() {
   const session = await getSession();
@@ -73,4 +81,3 @@ export async function getCurrentUser() {
 
   return user;
 }
-

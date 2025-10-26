@@ -23,6 +23,14 @@ interface LearnspaceNavbarProps {
   isCertification?: boolean;
 }
 
+/**
+ * Render the course navigation bar for a Learnspace, including back navigation, course title, and progress/ certificate controls when applicable.
+ *
+ * @param courseTitle - Display title of the course shown in the navbar
+ * @param courseId - Identifier of the course used to fetch progress and certificate data
+ * @param isCertification - When true, show certification-related progress, grade, and certificate actions
+ * @returns The navbar JSX element for the specified course
+ */
 export function LearnspaceNavbar({ courseTitle, courseId, isCertification }: LearnspaceNavbarProps) {
   const { data: session, status } = useSession();
   

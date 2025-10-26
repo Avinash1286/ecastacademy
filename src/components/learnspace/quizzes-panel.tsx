@@ -17,6 +17,14 @@ interface ExtendedUser {
   image?: string | null
 }
 
+/**
+ * Render and manage a quiz UI, including displaying questions, showing results,
+ * handling restarts, and recording quiz completions for the current user.
+ *
+ * @param questions - The quiz data to render (topic and questions). If null or invalid, no quiz is shown.
+ * @param contentItem - Optional content item metadata (e.g., `id`, `isGraded`, `maxPoints`) used to scope and record attempts.
+ * @returns A React element that displays the quiz interface, the results view, or a fallback message when no quiz is available.
+ */
 export function QuizzesPanel({ 
   questions, 
   contentItem 

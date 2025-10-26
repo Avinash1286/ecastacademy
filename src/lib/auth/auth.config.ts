@@ -35,7 +35,14 @@ console.log('🔍 [AUTH CONFIG] Deploy Key preview:', deployKey ? deployKey.subs
 const convex = createConvexClient();
 
 // Helper to make authenticated requests with deploy key
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+/**
+ * Execute a Convex query function and ensure any failure is logged.
+ *
+ * @param queryFunction - The Convex query function to invoke.
+ * @param args - The arguments object passed to the query function.
+ * @returns The result returned by the Convex query.
+ * @throws The original error from the Convex client if the query fails.
+ */
 async function authenticatedQuery<T>(queryFunction: any, args: Record<string, unknown>): Promise<T> {
   try {
     return await convex.query(queryFunction, args);
@@ -45,7 +52,14 @@ async function authenticatedQuery<T>(queryFunction: any, args: Record<string, un
   }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+/**
+ * Executes a Convex mutation and logs failures.
+ *
+ * @param mutationFunction - The Convex mutation identifier or function to invoke.
+ * @param args - An object of named arguments to pass to the mutation.
+ * @returns The value returned by the Convex mutation.
+ * @throws The error thrown by the Convex client when the mutation fails.
+ */
 async function authenticatedMutation<T>(mutationFunction: any, args: Record<string, unknown>): Promise<T> {
   try {
     return await convex.mutation(mutationFunction, args);
@@ -297,4 +311,3 @@ const authConfig: NextAuthConfig = {
 
 // Export NextAuth instance and handlers
 export const { handlers, auth, signIn, signOut } = NextAuth(authConfig);
-

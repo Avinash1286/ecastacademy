@@ -5,7 +5,17 @@ import { createConvexClient } from '@/lib/convexClient';
 
 const convex = createConvexClient();
 
-// Helper function to retry with exponential backoff
+/**
+ * Execute a provided query function and retry on connection timeouts using exponential backoff.
+ *
+ * The function invokes `queryFn` and, if it throws an error with `code === 'UND_ERR_CONNECT_TIMEOUT'`, retries up to `maxRetries` times with delays that double each attempt starting from `baseDelay` milliseconds.
+ *
+ * @param queryFn - Function that performs the query; its resolved value is returned when successful.
+ * @param maxRetries - Maximum number of retry attempts after the initial try (default: 2).
+ * @param baseDelay - Initial delay in milliseconds used for exponential backoff (default: 1000).
+ * @returns The value returned by `queryFn`.
+ * @throws The error thrown by `queryFn` if a non-timeout error occurs or if timeout retries are exhausted.
+ */
 async function queryWithRetry<T>(
   queryFn: () => Promise<T>,
   maxRetries = 2,

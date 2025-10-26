@@ -7,6 +7,15 @@ import { createConvexClient } from "@/lib/convexClient";
 
 const convex = createConvexClient();
 
+/**
+ * Handles POST requests to initiate a password reset flow for the provided email address.
+ *
+ * @param request - Incoming NextRequest whose JSON body must include an `email` field.
+ * @returns A JSON response:
+ * - `{ success: true, message: string }` when the request is accepted (message is generic to avoid revealing account existence).
+ * - `{ error: string }` with HTTP 400 if `email` is missing.
+ * - `{ error: string }` with HTTP 500 if an internal error occurs.
+ */
 export async function POST(request: NextRequest) {
   try {
     const { email } = await request.json();
@@ -71,4 +80,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

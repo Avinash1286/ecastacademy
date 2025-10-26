@@ -6,7 +6,18 @@ import { createConvexClient } from "@/lib/convexClient";
 
 const convex = createConvexClient();
 
-// GET - List all users (admin only)
+/**
+ * Retrieve a list of users with aggregated stats for administrator accounts.
+ *
+ * Performs an authentication check and returns a JSON response: on success the
+ * response body contains `{ users }`; if the caller is unauthenticated, the
+ * response is a 401 Unauthorized error; if the caller lacks admin privileges,
+ * the response is a 403 Admin access required error; unexpected failures
+ * produce a 500 error.
+ *
+ * @returns A NextResponse containing `{ users }` on success, or a JSON error
+ * message with HTTP status 401, 403, or 500 on failure.
+ */
 export async function GET() {
   try {
     const session = await auth();
@@ -37,7 +48,13 @@ export async function GET() {
   }
 }
 
-// PATCH - Update user role (admin only)
+/**
+ * Update a user's role to either "user" or "admin" (admin only).
+ *
+ * Expects the request body to be JSON with `targetUserId` (the user's Id) and `newRole` (either `"user"` or `"admin"`). Validates inputs and requires the caller to be an authenticated admin; returns the updated user on success.
+ *
+ * @returns `{ user: Object }` containing the updated user on success, or `{ error: string }` describing the failure on error (returned with an appropriate HTTP status code).
+ */
 export async function PATCH(request: NextRequest) {
   try {
     const session = await auth();
@@ -89,7 +106,16 @@ export async function PATCH(request: NextRequest) {
   }
 }
 
-// DELETE - Delete user (admin only)
+/**
+ * Delete a user specified by the `userId` query parameter (admin only).
+ *
+ * @param request - The incoming request whose URL must include a `userId` query parameter.
+ * @returns A JSON NextResponse containing the deletion result on success, or an error object with one of:
+ * - 401 when the caller is not authenticated,
+ * - 400 when `userId` is missing or the operation is invalid (e.g., cannot delete yourself),
+ * - 403 when the caller lacks admin privileges,
+ * - 500 for other unexpected errors.
+ */
 export async function DELETE(request: NextRequest) {
   try {
     const session = await auth();
@@ -133,4 +159,3 @@ export async function DELETE(request: NextRequest) {
     );
   }
 }
-
