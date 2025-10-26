@@ -1,6 +1,5 @@
 import { v } from "convex/values";
-import { mutation, query, MutationCtx } from "./_generated/server";
-import { Id } from "./_generated/dataModel";
+import { mutation, query } from "./_generated/server";
 
 /**
  * @deprecated Prefer mutations in completions.ts.
@@ -125,12 +124,6 @@ export const submitQuizAttempt = mutation({
         progressPercentage: shouldComplete ? 100 : 0,
       });
     }
-
-    // Check if user should receive a certificate
-    if (course.isCertification && passed) {
-      await checkAndIssueCertificate(ctx, user._id, chapter.courseId);
-    }
-
     return {
       attemptId,
       score: args.score,
@@ -241,12 +234,6 @@ export const markItemComplete = mutation({
         }),
       });
     }
-
-    // Check for certificate eligibility
-    if (course.isCertification) {
-      await checkAndIssueCertificate(ctx, user._id, chapter.courseId);
-    }
-
     return { success: true };
   },
 });
@@ -481,121 +468,9 @@ export const getCertificate = query({
       .first();
 
     if (!certificate) {
-      throw new Error("Certificate not found");
+      return null;
     }
 
     return certificate;
   },
 });
-
-/**
- * Helper function to check if user has completed all requirements and issue certificate
- * Internal function called after quiz submission or item completion
- */
-async function checkAndIssueCertificate(
-  ctx: MutationCtx,
-  userId: Id<"users">,
-  courseId: Id<"courses">
-): Promise<void> {
-  // Check if certificate already exists
-  const existingCertificate = await ctx.db
-    .query("certificates")
-    .withIndex("by_userId_courseId", (q) =>
-      q.eq("userId", userId).eq("courseId", courseId)
-    )
-    .first();
-
-  if (existingCertificate) {
-    return; // Certificate already issued
-  }
-
-  const course = await ctx.db.get(courseId);
-  if (!course || !course.isCertification) {
-    return; // Not a certification course
-  }
-
-  // Get all chapters
-  const chapters = await ctx.db
-    .query("chapters")
-    .withIndex("by_courseId", (q) => q.eq("courseId", courseId))
-    .collect();
-
-  // Get all graded content items
-  const allContentItems = await Promise.all(
-    chapters.map((chapter) =>
-      ctx.db
-        .query("contentItems")
-        .withIndex("by_chapterId", (q) => q.eq("chapterId", chapter._id))
-        .collect()
-    )
-  );
-
-  const gradedItems = allContentItems.flat().filter((item) => item.isGraded);
-
-  if (gradedItems.length === 0) {
-    return; // No graded items
-  }
-
-  // Get user's progress on graded items
-  const gradedItemIds = new Set(gradedItems.map((item) => item._id));
-  const progressRecords = await ctx.db
-    .query("progress")
-    .withIndex("by_userId_courseId", (q) =>
-      q.eq("userId", userId).eq("courseId", courseId)
-    )
-    .collect();
-
-  const gradedProgress = progressRecords.filter(
-    (p) => p.contentItemId && gradedItemIds.has(p.contentItemId)
-  );
-
-  // Check if all graded items are completed and passed
-  if (gradedProgress.length !== gradedItems.length) {
-    return; // Not all graded items attempted
-  }
-
-  const allPassed = gradedProgress.every((p) => p.passed);
-  if (!allPassed) {
-    return; // Not all items passed
-  }
-
-  // Calculate overall grade
-  const totalPossiblePoints = gradedProgress.reduce(
-    (sum, p) => sum + (p.maxScore ?? 100),
-    0
-  );
-  const totalEarnedPoints = gradedProgress.reduce(
-    (sum, p) => sum + (p.bestScore ?? p.score ?? 0),
-    0
-  );
-  const overallGrade = (totalEarnedPoints / totalPossiblePoints) * 100;
-
-  const passingGrade = course.passingGrade ?? 70;
-  if (overallGrade < passingGrade) {
-    return; // Overall grade not sufficient
-  }
-
-  // Get user details
-  const user = await ctx.db.get(userId);
-  if (!user) {
-    return;
-  }
-
-  // Generate unique certificate ID
-  const certificateId = `CERT-${courseId}-${userId}-${Date.now()}`;
-
-  // Issue certificate
-  await ctx.db.insert("certificates", {
-    userId: userId,
-    courseId: courseId,
-    certificateId: certificateId,
-    courseName: course.name,
-    userName: user.name ?? user.email,
-    completionDate: Date.now(),
-    overallGrade: overallGrade,
-    issuedAt: Date.now(),
-    totalGradedItems: gradedItems.length,
-    passedItems: gradedProgress.length,
-    averageScore: overallGrade,
-  });
-}

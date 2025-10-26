@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Award, Calendar, GraduationCap, TrendingUp, Eye, AlertCircle } from "lucide-react"
+import { Award, Calendar, GraduationCap, TrendingUp, Eye, AlertCircle, ArrowLeft } from "lucide-react"
 import Link from "next/link"
 
 // Extend session user type to include id
@@ -62,9 +62,17 @@ export default function CertificatesPage() {
   if (!certificates || certificates.length === 0) {
     return (
       <div className="container mx-auto max-w-7xl py-12 px-4 sm:px-6 lg:px-8">
-        <div className="mb-8">
-          <h1 className="text-4xl font-bold mb-2">My Certificates</h1>
-          <p className="text-muted-foreground">View and download your earned certificates</p>
+        <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h1 className="text-4xl font-bold mb-2">My Certificates</h1>
+            <p className="text-muted-foreground">View and download your earned certificates</p>
+          </div>
+          <Link href="/dashboard/profile" className="self-start md:self-auto">
+            <Button variant="ghost" className="flex items-center gap-2">
+              <ArrowLeft className="h-4 w-4" />
+              Back to Profile
+            </Button>
+          </Link>
         </div>
 
         <Card className="border-dashed">
@@ -90,11 +98,19 @@ export default function CertificatesPage() {
 
   return (
     <div className="container mx-auto max-w-7xl py-12 px-4 sm:px-6 lg:px-8">
-      <div className="mb-8">
-        <h1 className="text-4xl font-bold mb-2">My Certificates</h1>
-        <p className="text-muted-foreground">
-          You have earned {certificates.length} certificate{certificates.length !== 1 ? "s" : ""}
-        </p>
+      <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h1 className="text-4xl font-bold mb-2">My Certificates</h1>
+          <p className="text-muted-foreground">
+            You have earned {certificates.length} certificate{certificates.length !== 1 ? "s" : ""}
+          </p>
+        </div>
+        <Link href="/dashboard/profile" className="self-start md:self-auto">
+          <Button variant="ghost" className="flex items-center gap-2">
+            <ArrowLeft className="h-4 w-4" />
+            Back to Profile
+          </Button>
+        </Link>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -186,7 +202,10 @@ function CertificateCard({ certificate }: CertificateCardProps) {
           </div>
 
           <div className="flex gap-2">
-            <Link href={`/dashboard/certificates/${certificate.certificateId}`} className="flex-1">
+            <Link
+              href={`/certificates/${certificate.certificateId}?source=dashboard`}
+              className="flex-1"
+            >
               <Button className="w-full" variant="default">
                 <Eye className="h-4 w-4 mr-2" />
                 View
@@ -197,7 +216,7 @@ function CertificateCard({ certificate }: CertificateCardProps) {
               className="flex-1"
               onClick={() => {
                 navigator.clipboard.writeText(
-                  `${window.location.origin}/dashboard/certificates/${certificate.certificateId}`
+                  `${window.location.origin}/certificates/${certificate.certificateId}`
                 )
                 alert("Certificate link copied to clipboard!")
               }}
@@ -218,9 +237,12 @@ function CertificateCard({ certificate }: CertificateCardProps) {
 function CertificatesSkeleton() {
   return (
     <div className="container mx-auto max-w-7xl py-12 px-4 sm:px-6 lg:px-8">
-      <div className="mb-8">
-        <Skeleton className="h-10 w-64 mb-2" />
-        <Skeleton className="h-6 w-96" />
+      <div className="mb-8 flex items-center justify-between">
+        <div>
+          <Skeleton className="h-10 w-64 mb-2" />
+          <Skeleton className="h-6 w-96" />
+        </div>
+        <Skeleton className="h-10 w-36" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

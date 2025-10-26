@@ -1,6 +1,6 @@
 import { v } from "convex/values";
-import { internalMutation, mutation, query } from "./_generated/server";
-import { internal } from "./_generated/api";
+import { internalMutation, mutation, query, MutationCtx } from "./_generated/server";
+import { Id } from "./_generated/dataModel";
 import { summarizeProgressByContentItem } from "./utils/progressUtils";
 
 /**
@@ -22,137 +22,21 @@ export const checkEligibility = internalMutation({
     courseId: v.id("courses"),
   },
   handler: async (ctx, args) => {
-    // 1. Check if certificate already exists
-    const existingCertificate = await ctx.db
-      .query("certificates")
-      .withIndex("by_userId_courseId", (q) =>
-        q.eq("userId", args.userId).eq("courseId", args.courseId)
-      )
-      .first();
+    return await processCertificateRequest(ctx, args);
+  },
+});
 
-    if (existingCertificate) {
-      return { alreadyIssued: true, certificateId: existingCertificate.certificateId };
-    }
-
-    // 2. Get course
-    const course = await ctx.db.get(args.courseId);
-    if (!course || !course.isCertification) {
-      return { eligible: false, reason: "Not a certification course" };
-    }
-
-    // 3. Get all chapters
-    const chapters = await ctx.db
-      .query("chapters")
-      .withIndex("by_courseId", (q) => q.eq("courseId", args.courseId))
-      .collect();
-
-    // 4. Get all graded content items
-    const allContentItems = await Promise.all(
-      chapters.map((chapter) =>
-        ctx.db
-          .query("contentItems")
-          .withIndex("by_chapterId", (q) => q.eq("chapterId", chapter._id))
-          .collect()
-      )
-    );
-
-    const gradedItems = allContentItems.flat().filter((item) => item.isGraded);
-
-    if (gradedItems.length === 0) {
-      return { eligible: false, reason: "No graded items in course" };
-    }
-
-    // 5. Summarize user's progress on graded items
-    const progressRecords = await ctx.db
-      .query("progress")
-      .withIndex("by_userId_courseId", (q) =>
-        q.eq("userId", args.userId).eq("courseId", args.courseId)
-      )
-      .collect();
-
-    const progressSummaryMap = summarizeProgressByContentItem(progressRecords);
-    const passingGrade = course.passingGrade ?? 70;
-
-    const missingItems: typeof gradedItems = [];
-    const failedItems: { item: typeof gradedItems[number]; bestPercentage: number; passingScore: number }[] = [];
-
-    let totalPossiblePoints = 0;
-    let totalEarnedPoints = 0;
-
-    for (const item of gradedItems) {
-      const summary = progressSummaryMap.get(item._id);
-      if (!summary) {
-        missingItems.push(item);
-        continue;
-      }
-
-      const maxPoints = item.maxPoints ?? 100;
-      const bestPercentage = summary.bestPercentage ?? 0;
-      const itemPassingScore = item.passingScore ?? passingGrade;
-
-      totalPossiblePoints += maxPoints;
-      totalEarnedPoints += (bestPercentage / 100) * maxPoints;
-
-      if (bestPercentage < itemPassingScore) {
-        failedItems.push({ item, bestPercentage, passingScore: itemPassingScore });
-      }
-    }
-
-    if (missingItems.length > 0) {
-      const attemptedCount = gradedItems.length - missingItems.length;
-      return {
-        eligible: false,
-        reason: `Not all graded items attempted (${attemptedCount}/${gradedItems.length})`,
-      };
-    }
-
-    if (failedItems.length > 0) {
-      return {
-        eligible: false,
-        reason: `${failedItems.length} graded item(s) not passed`,
-      };
-    }
-
-    const overallGrade = totalPossiblePoints > 0
-      ? (totalEarnedPoints / totalPossiblePoints) * 100
-      : 0;
-
-    if (overallGrade < passingGrade) {
-      return {
-        eligible: false,
-        reason: `Overall grade ${overallGrade.toFixed(2)}% below passing grade ${passingGrade}%`,
-      };
-    }
-
-    // 10. Get user details
-    const user = await ctx.db.get(args.userId);
-    if (!user) {
-      return { eligible: false, reason: "User not found" };
-    }
-
-    // 11. Issue certificate
-    const certificateId = `${args.courseId}-${args.userId}-${Date.now()}`;
-
-    await ctx.db.insert("certificates", {
-      userId: args.userId,
-      courseId: args.courseId,
-      certificateId: certificateId,
-      courseName: course.name,
-      userName: user.name ?? user.email,
-      completionDate: Date.now(),
-      overallGrade: overallGrade,
-      issuedAt: Date.now(),
-      totalGradedItems: gradedItems.length,
-      passedItems: gradedItems.length,
-      averageScore: overallGrade,
-    });
-
-    return {
-      eligible: true,
-      issued: true,
-      certificateId: certificateId,
-      overallGrade: overallGrade,
-    };
+/**
+ * Client-facing mutation to request certificate issuance on demand.
+ * Validates eligibility and issues the certificate if requirements are met.
+ */
+export const requestCertificate = mutation({
+  args: {
+    userId: v.id("users"),
+    courseId: v.id("courses"),
+  },
+  handler: async (ctx, args) => {
+    return await processCertificateRequest(ctx, args);
   },
 });
 
@@ -195,24 +79,166 @@ export const getCertificate = query({
   },
 });
 
-/**
- * Manual trigger to check certificate eligibility (for testing/admin)
- */
-export const manualCheckEligibility = mutation({
-  args: {
-    userId: v.id("users"),
-    courseId: v.id("courses"),
-  },
-  handler: async (ctx, args) => {
-    // Schedule the internal check
-    await ctx.scheduler.runAfter(0, internal.certificates.checkEligibility, {
-      userId: args.userId,
-      courseId: args.courseId,
-    });
+type CertificateRequestResult = {
+  eligible: boolean;
+  issued: boolean;
+  certificateId?: string;
+  overallGrade?: number;
+  alreadyIssued?: boolean;
+  reason?: string;
+};
 
-    return { scheduled: true };
-  },
-});
+async function processCertificateRequest(
+  ctx: MutationCtx,
+  args: { userId: Id<"users">; courseId: Id<"courses"> }
+): Promise<CertificateRequestResult> {
+  const { userId, courseId } = args;
+
+  const existingCertificate = await ctx.db
+    .query("certificates")
+    .withIndex("by_userId_courseId", (q) =>
+      q.eq("userId", userId).eq("courseId", courseId)
+    )
+    .first();
+
+  if (existingCertificate) {
+    return {
+      eligible: true,
+      issued: false,
+      alreadyIssued: true,
+      certificateId: existingCertificate.certificateId,
+      overallGrade: existingCertificate.overallGrade,
+    };
+  }
+
+  const course = await ctx.db.get(courseId);
+  if (!course || !course.isCertification) {
+    return {
+      eligible: false,
+      issued: false,
+      reason: "Not a certification course",
+    };
+  }
+
+  const chapters = await ctx.db
+    .query("chapters")
+    .withIndex("by_courseId", (q) => q.eq("courseId", courseId))
+    .collect();
+
+  const allContentItems = await Promise.all(
+    chapters.map((chapter) =>
+      ctx.db
+        .query("contentItems")
+        .withIndex("by_chapterId", (q) => q.eq("chapterId", chapter._id))
+        .collect()
+    )
+  );
+
+  const gradedItems = allContentItems.flat().filter((item) => item.isGraded);
+  if (gradedItems.length === 0) {
+    return {
+      eligible: false,
+      issued: false,
+      reason: "No graded items in course",
+    };
+  }
+
+  const progressRecords = await ctx.db
+    .query("progress")
+    .withIndex("by_userId_courseId", (q) =>
+      q.eq("userId", userId).eq("courseId", courseId)
+    )
+    .collect();
+
+  const progressSummaryMap = summarizeProgressByContentItem(progressRecords);
+  const passingGrade = course.passingGrade ?? 70;
+
+  let missingCount = 0;
+  let failedCount = 0;
+  let totalPossiblePoints = 0;
+  let totalEarnedPoints = 0;
+
+  for (const item of gradedItems) {
+    const summary = progressSummaryMap.get(item._id);
+    if (!summary) {
+      missingCount += 1;
+      continue;
+    }
+
+    const maxPoints = item.maxPoints ?? 100;
+    const bestPercentage = summary.bestPercentage ?? 0;
+    const itemPassingScore = item.passingScore ?? passingGrade;
+
+    totalPossiblePoints += maxPoints;
+    totalEarnedPoints += (bestPercentage / 100) * maxPoints;
+
+    if (bestPercentage < itemPassingScore) {
+      failedCount += 1;
+    }
+  }
+
+  if (missingCount > 0) {
+    const attemptedCount = gradedItems.length - missingCount;
+    return {
+      eligible: false,
+      issued: false,
+      reason: `Not all graded items attempted (${attemptedCount}/${gradedItems.length})`,
+    };
+  }
+
+  if (failedCount > 0) {
+    return {
+      eligible: false,
+      issued: false,
+      reason: `${failedCount} graded item(s) not passed`,
+    };
+  }
+
+  const overallGrade = totalPossiblePoints > 0
+    ? (totalEarnedPoints / totalPossiblePoints) * 100
+    : 0;
+
+  if (overallGrade < passingGrade) {
+    return {
+      eligible: false,
+      issued: false,
+      reason: `Overall grade ${overallGrade.toFixed(2)}% below passing grade ${passingGrade}%`,
+    };
+  }
+
+  const user = await ctx.db.get(userId);
+  if (!user) {
+    return {
+      eligible: false,
+      issued: false,
+      reason: "User not found",
+    };
+  }
+
+  const certificateId = `${courseId}-${userId}-${Date.now()}`;
+  const timestamp = Date.now();
+
+  await ctx.db.insert("certificates", {
+    userId,
+    courseId,
+    certificateId,
+    courseName: course.name,
+    userName: user.name ?? user.email,
+    completionDate: timestamp,
+    overallGrade,
+    issuedAt: timestamp,
+    totalGradedItems: gradedItems.length,
+    passedItems: gradedItems.length,
+    averageScore: overallGrade,
+  });
+
+  return {
+    eligible: true,
+    issued: true,
+    certificateId,
+    overallGrade,
+  };
+}
 
 /**
  * Debug query to see detailed certificate eligibility status

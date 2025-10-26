@@ -1,7 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query, MutationCtx, internalMutation } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
-import { internal } from "./_generated/api";
 import { summarizeProgressByContentItem } from "./utils/progressUtils";
 
 /**
@@ -120,14 +119,6 @@ export const recordCompletion = mutation({
       maxScore: args.maxScore,
       progressPercentage: args.progressPercentage,
     });
-
-    // 7. Trigger async certificate check (if certification course)
-    if (course.isCertification) {
-      await ctx.scheduler.runAfter(0, internal.certificates.checkEligibility, {
-        userId: args.userId,
-        courseId: chapter.courseId,
-      });
-    }
 
     return {
       success: true,

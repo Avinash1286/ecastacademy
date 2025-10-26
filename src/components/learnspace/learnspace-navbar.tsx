@@ -1,5 +1,6 @@
 "use client"
 
+import { useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Award, TrendingUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -12,10 +13,12 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import { api } from "../../../convex/_generated/api";
 import { Id } from "../../../convex/_generated/dataModel";
+import { toast } from "sonner";
 
 interface LearnspaceNavbarProps {
   courseTitle: string;
@@ -25,6 +28,9 @@ interface LearnspaceNavbarProps {
 
 export function LearnspaceNavbar({ courseTitle, courseId, isCertification }: LearnspaceNavbarProps) {
   const { data: session, status } = useSession();
+  const router = useRouter();
+  const [isIssuing, setIsIssuing] = useState(false);
+  const requestCertificate = useMutation(api.certificates.requestCertificate);
   
   // Get userId from session
   const userId = session?.user && "id" in session.user
@@ -39,7 +45,9 @@ export function LearnspaceNavbar({ courseTitle, courseId, isCertification }: Lea
 
   const certificateIssued = Boolean(courseProgress?.hasCertificate);
   const certificateRequirementsMet = Boolean(courseProgress?.requirementsMet);
-  const certificateAvailable = Boolean(courseProgress?.eligibleForCertificate);
+  const certificateAvailable = Boolean(
+    courseProgress?.requirementsMet || courseProgress?.hasCertificate
+  );
   const passingThreshold = courseProgress?.passingGrade ?? 70;
   const overallGradeValue = courseProgress?.overallGrade ?? null;
   const gradeMeetsThreshold = overallGradeValue !== null && overallGradeValue >= passingThreshold;
@@ -65,6 +73,47 @@ export function LearnspaceNavbar({ courseTitle, courseId, isCertification }: Lea
       met: gradeMeetsThreshold,
     },
   ];
+
+  const handleCertificateClick = async () => {
+    if (certificateIssued) {
+      router.push("/dashboard/certificates");
+      return;
+    }
+
+    if (!userId) {
+      toast.error("Please sign in to access your certificate");
+      router.push("/auth/signin");
+      return;
+    }
+
+    if (!courseProgress?.requirementsMet) {
+      toast.error("Complete all requirements before generating the certificate");
+      return;
+    }
+
+    setIsIssuing(true);
+    try {
+      const result = await requestCertificate({ userId, courseId });
+
+      if (result.issued || result.alreadyIssued) {
+        toast.success(result.issued ? "Certificate generated!" : "Certificate ready");
+        router.push("/dashboard/certificates");
+        return;
+      }
+
+      if (!result.eligible) {
+        toast.error(result.reason ?? "Certificate requirements not met yet");
+        return;
+      }
+
+      toast.error("Unable to issue certificate. Please try again.");
+    } catch (error) {
+      console.error("Certificate issuance error:", error);
+      toast.error(error instanceof Error ? error.message : "Failed to generate certificate");
+    } finally {
+      setIsIssuing(false);
+    }
+  };
 
   return (
     <nav className="sticky top-0 z-10 flex h-14 w-full items-center justify-between gap-4 border-b border-border bg-background px-4">
@@ -220,8 +269,9 @@ export function LearnspaceNavbar({ courseTitle, courseId, isCertification }: Lea
                   <div>
                     {certificateAvailable ? (
                       <Button
-                        asChild
                         size="sm"
+                        disabled={isIssuing}
+                        onClick={handleCertificateClick}
                         className={cn(
                           "text-white shadow-lg",
                           certificateIssued
@@ -229,10 +279,12 @@ export function LearnspaceNavbar({ courseTitle, courseId, isCertification }: Lea
                             : "bg-green-600 hover:bg-green-700"
                         )}
                       >
-                        <Link href="/dashboard/certificates">
-                          <Award className="h-4 w-4 mr-2" />
-                          {certificateIssued ? "View Certificate" : "Get Certificate"}
-                        </Link>
+                        <Award className="h-4 w-4 mr-2" />
+                        {certificateIssued
+                          ? "View Certificate"
+                          : isIssuing
+                            ? "Generating..."
+                            : "Get Certificate"}
                       </Button>
                     ) : (
                       <Button
