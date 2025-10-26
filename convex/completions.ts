@@ -138,7 +138,20 @@ export const recordCompletion = mutation({
 });
 
 /**
- * Helper: Record a quiz attempt in the quizAttempts table
+ * Create a new quiz attempt record for a user and content item.
+ *
+ * The record includes score, percentage, pass/fail status (determined by the content item's
+ * passingScore or 70 if not set), attempt number, timestamps, answers, and time spent.
+ *
+ * @param ctx - Mutation context (database/transaction handle)
+ * @param args.userId - ID of the user who made the attempt
+ * @param args.contentItemId - ID of the content item (quiz)
+ * @param args.courseId - ID of the course containing the content item
+ * @param args.answers - Submitted answers for the attempt
+ * @param args.score - Raw score achieved on this attempt
+ * @param args.maxScore - Maximum possible score for this attempt
+ * @param args.timeSpent - Time spent on the attempt, in milliseconds
+ * @returns The ID of the newly created `quizAttempts` record
  */
 async function recordQuizAttempt(
   ctx: MutationCtx,
@@ -187,7 +200,18 @@ async function recordQuizAttempt(
 }
 
 /**
- * Helper: Update or create progress record and keep derived state stable across retakes.
+ * Create or update a user's progress record for a content item, preserving derived state (best score, passes, attempts, completion) across retakes.
+ *
+ * This function deduplicates existing progress entries for the same user/course/content item, enforces retake rules, computes percentage/bestScore/Passed state when a score is provided, and either patches the canonical progress record or inserts a new one with the derived fields.
+ *
+ * @param args.contentItem - Partial content item metadata used to determine grading rules (`isGraded`, `maxPoints`, `passingScore`, `allowRetakes`, `type`)
+ * @param args.score - Latest raw score for the attempt; when provided, percentage and best-score calculations are performed
+ * @param args.maxScore - Maximum possible score for this attempt; if omitted, falls back to contentItem.maxPoints or 100
+ * @param args.progressPercentage - Granular progress for the item (e.g., video watch percentage); used to update stored progressPercentage conservatively
+ *
+ * @throws "Course not found while updating progress" if the course cannot be loaded
+ * @throws "Retakes are not allowed for this content item" when an existing progress record exists and retakes are disallowed
+ * @throws "maxScore must be greater than zero" if a provided or derived maxScore is not greater than zero
  */
 async function updateOrCreateProgress(
   ctx: MutationCtx,
@@ -577,14 +601,19 @@ export const getCourseProgress = query({
  */
 
 /**
- * Recalculate progress for a course when it transitions between graded/ungraded
- * This ensures data consistency when course settings change
- * 
- * Use cases:
- * - Course switches from certification to non-certification
- * - Content items change from graded to ungraded or vice versa
- * - Admin needs to fix inconsistent progress data
- */
+   * Recalculate and normalize user progress records for a course after changes to grading or certification settings.
+   *
+   * @param ctx - Mutation context containing the database connection and execution context
+   * @param args.courseId - ID of the course whose progress should be recalculated
+   * @param args.userId - Optional ID of a single user to limit the recalculation to that user
+   * @returns An object summarizing the operation:
+   * - `success`: `true` when the operation completed
+   * - `updatedRecords`: number of progress records patched
+   * - `removedDuplicates`: number of duplicate progress records deleted
+   * - `totalRecords`: total progress records inspected
+   * - `message`: human-readable summary of the action performed
+   * @throws Error if the specified course is not found
+   */
 async function recalcCourseProgressCore(
   ctx: MutationCtx,
   args: {
@@ -733,6 +762,18 @@ export const recalculateCourseProgress = internalMutation({
   },
 });
 
+/**
+ * Recalculate progress for a course and return a summary of applied changes.
+ *
+ * @param args.courseId - ID of the course whose progress should be recalculated
+ * @param args.userId - Optional user ID to limit recalculation to a single user
+ * @returns An object containing:
+ *  - `success`: `true` if the recalculation completed without fatal errors, `false` otherwise.
+ *  - `updatedRecords`: number of progress records that were updated.
+ *  - `removedDuplicates`: number of duplicate progress records removed.
+ *  - `totalRecords`: total number of progress records processed.
+ *  - `message`: a human-readable summary of the operation.
+ */
 export async function recalculateCourseProgressSync(
   ctx: MutationCtx,
   args: {
@@ -742,5 +783,4 @@ export async function recalculateCourseProgressSync(
 ) {
   return await recalcCourseProgressCore(ctx, args);
 }
-
 

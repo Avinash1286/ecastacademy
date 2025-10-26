@@ -123,6 +123,13 @@ type ChapterResponse = {
   } | null;
 };
 
+/**
+ * Retrieve and normalize chapters (with associated videos) for a given course.
+ *
+ * @param courseId - The course identifier; must be a non-empty, non-"undefined", non-"null" string
+ * @returns An array of chapters adapted for frontend use. Each chapter contains `id`, `name`, `order`, a `course` object (including `isCertification` and `passingGrade` with sensible defaults), `contentItems` (each enriched with `isGraded`, `allowRetakes`, `maxPoints`, and `passingScore` defaults), and `video` data.
+ * @throws Error if `courseId` is falsy or equal to `"undefined"` or `"null"`.
+ */
 export async function getCourseChapters(courseId: string): Promise<ChapterResponse[]> {
   // Validate courseId
   if (!courseId || courseId === 'undefined' || courseId === 'null') {

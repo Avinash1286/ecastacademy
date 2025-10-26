@@ -16,7 +16,16 @@ export type ProgressSummary = {
 };
 
 /**
- * Group progress records by content item and capture consolidated stats.
+ * Produce aggregated ProgressSummary objects keyed by content item ID.
+ *
+ * Groups progress records by their `contentItemId` and consolidates metrics
+ * such as best and latest percentages, latest score/passed status, attempts,
+ * completion state and timestamp, progress percentage, last activity timestamp,
+ * entries, and the canonical (earliest) record. Records without a `contentItemId`
+ * are skipped.
+ *
+ * @param progressRecords - The array of progress documents to aggregate.
+ * @returns A Map from content item ID to the aggregated ProgressSummary for that content item.
  */
 export function summarizeProgressByContentItem(
   progressRecords: Doc<"progress">[]
@@ -86,6 +95,12 @@ export function summarizeProgressByContentItem(
   return summaries;
 }
 
+/**
+ * Compute the best percentage value available from a progress record.
+ *
+ * @param record - Progress document which may include `bestScore`, `percentage`, `score`, and `maxScore`
+ * @returns The best percentage: `bestScore` if present, otherwise `percentage`, otherwise `(score / maxScore) * 100` when `maxScore > 0`, or `0` if none are available
+ */
 export function getBestPercentage(record: Doc<"progress">): number {
   if (typeof record.bestScore === "number") {
     return record.bestScore;
@@ -99,6 +114,14 @@ export function getBestPercentage(record: Doc<"progress">): number {
   return 0;
 }
 
+/**
+ * Determine the most recent activity timestamp for a progress record.
+ *
+ * Chooses `lastAttemptAt` if present, otherwise `completedAt`, otherwise `_creationTime`.
+ *
+ * @param record - The progress record to inspect
+ * @returns The timestamp of the latest activity as a number
+ */
 export function getLastActivityTimestamp(record: Doc<"progress">): number {
   return (
     record.lastAttemptAt ??

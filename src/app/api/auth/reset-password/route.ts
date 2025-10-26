@@ -6,6 +6,16 @@ import { createConvexClient } from "@/lib/convexClient";
 
 const convex = createConvexClient();
 
+/**
+ * Handle password reset using a verification token and a new password.
+ *
+ * Expects the request body to be JSON with `token` and `password`. Validates the password,
+ * verifies the token, looks up the user by the token's identifier, updates the user's hashed
+ * password, and removes the used verification token.
+ *
+ * @param request - Next.js request whose JSON body must include `{ token: string, password: string }`
+ * @returns A JSON NextResponse: on success `{ success: true, message: "Password has been reset successfully" }`; on error `{ error: string }` with an appropriate HTTP status (400 for bad input or invalid/expired token, 404 if user not found, 500 for server errors)
+ */
 export async function POST(request: NextRequest) {
   try {
     const { token, password } = await request.json();
@@ -82,4 +92,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

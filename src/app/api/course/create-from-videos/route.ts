@@ -5,6 +5,19 @@ import { createConvexClient } from '@/lib/convexClient';
 
 const convex = createConvexClient();
 
+/**
+ * Creates a new course from a list of video IDs, generating one chapter and a video content item per video and setting the course thumbnail from the first video's thumbnail.
+ *
+ * Expects the request body to be JSON with the following properties:
+ * - `courseName`: the course title (required)
+ * - `courseDescription`: optional course description
+ * - `videoIds`: array of video IDs to include in the course (required, at least one)
+ * - `isCertification`: optional boolean to mark course as a certification
+ * - `passingGrade`: optional number for required passing grade
+ *
+ * @param request - HTTP request whose JSON body contains course creation parameters described above
+ * @returns On success, JSON with `{ courseId, message: 'Course created successfully' }`. Returns a 400 JSON error when required input is missing, or a 500 JSON error if course creation fails.
+ */
 export async function POST(request: Request) {
   try {
     const { courseName, courseDescription, videoIds, isCertification, passingGrade } = await request.json();

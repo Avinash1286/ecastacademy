@@ -6,6 +6,14 @@ import { createConvexClient } from "@/lib/convexClient";
 
 const convex = createConvexClient();
 
+/**
+ * Handle POST requests to generate a quiz from a text content item and update its processing status.
+ *
+ * Validates the request body, fetches the content item, sets its status to "processing", invokes the quiz generator,
+ * and updates the content item to "completed" with the generated quiz on success or "failed" with an error message on failure.
+ *
+ * @returns A NextResponse JSON payload: on success `{ success: true, quiz }`, on error `{ error: string }`.
+ */
 export async function POST(request: NextRequest) {
   try {
     const { contentItemId } = await request.json();

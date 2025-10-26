@@ -5,6 +5,18 @@ import { createConvexClient } from "@/lib/convexClient";
 
 const convex = createConvexClient();
 
+/**
+ * Handle POST requests to create YouTube video records and trigger background processing for newly created entries.
+ *
+ * Expects the request body to be a JSON object with a `videos` array; each video should include at minimum `id`, `title`, `thumbnail`, and `channelTitle`. For each input video the handler:
+ * - returns a 400 response with `{ error: "No videos provided" }` if `videos` is missing, not an array, or empty;
+ * - increments an "existing" counter when a matching video already exists;
+ * - creates a new video record (with pending state) for non-existing videos and collects their IDs;
+ * - attempts to trigger a background sequential processing action for all newly created videos (errors from triggering the action are logged but do not change the success response).
+ *
+ * @param request - The incoming NextRequest whose JSON body must contain a `videos` array of video objects.
+ * @returns On success, a JSON object with `created` (number of videos created), `existing` (number that already existed), `total` (number of input videos), and `message` (human-readable summary). On client error, a 400 JSON `{ error: "No videos provided" }`. On unexpected server error, a 500 JSON `{ error: string }`.
+ */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -77,4 +89,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-
