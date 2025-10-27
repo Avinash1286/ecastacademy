@@ -19,6 +19,7 @@ export async function POST(request: NextRequest) {
 
     let created = 0;
     let existing = 0;
+    let skippedProcessing = 0;
     const createdVideoIds: Id<"videos">[] = [];
 
     // First, create all videos with pending status (don't trigger processing yet)
@@ -31,6 +32,8 @@ export async function POST(request: NextRequest) {
       if (existingVideo) {
         existing++;
       } else {
+        const shouldSkipProcessing = Boolean(video.skipTranscript);
+
         // Create video with pending status
         const videoId = await convex.mutation(api.videos.createVideo, {
           youtubeVideoId: video.id,
@@ -43,10 +46,15 @@ export async function POST(request: NextRequest) {
           transcript: video.transcript || "",
           notes: {},
           quiz: {},
+          status: shouldSkipProcessing ? "completed" : "pending",
         });
 
         created++;
-        createdVideoIds.push(videoId as Id<"videos">);
+        if (shouldSkipProcessing) {
+          skippedProcessing++;
+        } else {
+          createdVideoIds.push(videoId as Id<"videos">);
+        }
       }
     }
 
@@ -65,7 +73,9 @@ export async function POST(request: NextRequest) {
       created,
       existing,
       total: videos.length,
-      message: `Processing ${created} new video(s) in background. ${existing} video(s) already existed.`
+      skippedProcessing,
+      queued: createdVideoIds.length,
+      message: `Submitted ${videos.length} video(s): ${created} new, ${existing} existing. ${createdVideoIds.length} queued for AI processing and ${skippedProcessing} skipped.`
     });
 
   } catch (error) {

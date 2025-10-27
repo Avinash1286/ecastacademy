@@ -14,12 +14,19 @@ export const createVideo = mutation({
     transcript: v.optional(v.string()),
     notes: v.any(),
     quiz: v.any(),
+    status: v.optional(v.union(
+      v.literal("pending"),
+      v.literal("processing"),
+      v.literal("completed"),
+      v.literal("failed")
+    )),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
+    const { status, ...videoData } = args;
     const videoId = await ctx.db.insert("videos", {
-      ...args,
-      status: "pending", // Start as pending, will be updated during processing
+      ...videoData,
+      status: status ?? "pending", // Start as pending unless overridden
       createdAt: now,
       updatedAt: now,
     });

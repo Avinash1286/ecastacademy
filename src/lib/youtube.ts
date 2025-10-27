@@ -56,5 +56,6 @@ export const mapYouTubeItemToVideoInfo = (item: YouTubeVideoItem): VideoInfo => 
     publishedAt: new Date(item.snippet.publishedAt).toISOString(),
     url: `https://www.youtube.com/watch?v=${item.id}`,
     transcript: "",
+    skipTranscript: false,
   };
 };

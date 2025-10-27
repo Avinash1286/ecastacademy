@@ -1,7 +1,8 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { Id } from "./_generated/dataModel";
+import { Doc, Id } from "./_generated/dataModel";
 import { recalculateCourseProgressSync } from "./completions";
+import { isTrackableContentItem, mapVideosById } from "./utils/progressUtils";
 
 // Mutation to create a new course
 export const createCourse = mutation({
@@ -765,18 +766,47 @@ export const getEnrolledCourses = query({
           )
           .collect();
 
-        // Count total content items
-        let totalItems = 0;
-        for (const chapter of chapters) {
-          const items = await ctx.db
-            .query("contentItems")
-            .withIndex("by_chapterId", (q) => q.eq("chapterId", chapter._id))
-            .collect();
-          totalItems += items.length;
-        }
+        const contentItemsByChapter = await Promise.all(
+          chapters.map((chapter) =>
+            ctx.db
+              .query("contentItems")
+              .withIndex("by_chapterId", (q) => q.eq("chapterId", chapter._id))
+              .collect()
+          )
+        );
 
-        const completedItems = progressRecords.filter((p) => p.completed).length;
-        const progressPercentage = totalItems > 0 ? (completedItems / totalItems) * 100 : 0;
+        const contentItems = contentItemsByChapter.flat();
+
+        const videoIds = Array.from(
+          new Set(
+            contentItems
+              .filter((item) => item.type === "video" && item.videoId)
+              .map((item) => item.videoId as Id<"videos">)
+          )
+        );
+
+        const videoDocs = await Promise.all(videoIds.map((videoId) => ctx.db.get(videoId)));
+        const videoLookup = mapVideosById(videoIds, videoDocs as Array<Doc<"videos"> | null>);
+
+        const trackableItems = contentItems.filter((item) =>
+          isTrackableContentItem(item as Doc<"contentItems">, videoLookup)
+        );
+
+        const totalItems = trackableItems.length;
+        const completedItemIds = new Set(
+          progressRecords
+            .filter((p) => p.completed && p.contentItemId)
+            .map((p) => p.contentItemId as Id<"contentItems">)
+        );
+
+        const completedItems = trackableItems.reduce(
+          (count, item) => (completedItemIds.has(item._id) ? count + 1 : count),
+          0
+        );
+
+        const progressPercentage = totalItems > 0
+          ? (completedItems / totalItems) * 100
+          : 100;
 
         return {
           ...course,

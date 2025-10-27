@@ -13,6 +13,8 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Input } from "@/components/ui/input"
 import { Progress } from "@/components/ui/progress"
 import { toast } from 'sonner'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Label } from '@/components/ui/label'
 
 const formSchema = z.object({
   link: z.string().url({ message: "Please enter a valid YouTube URL." }).min(1, {
@@ -25,6 +27,7 @@ const AddVideoInput = () => {
   const { videos, isLoading, progress, loadingText, error, updateTranscript, importFromUrl, removeVideo, clearAllVideos } = useYouTubeImporter();
   
   const [isCreating, setIsCreating] = useState(false);
+  const [noTranscript, setNoTranscript] = useState(false);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -32,7 +35,7 @@ const AddVideoInput = () => {
   });
 
   function onUrlSubmit(values: z.infer<typeof formSchema>) {
-    importFromUrl(values.link);
+    importFromUrl(values.link, { skipTranscript: noTranscript });
     form.reset();
   }
 
@@ -48,7 +51,8 @@ const AddVideoInput = () => {
         channelTitle: v.channelTitle,
         publishedAt: v.publishedAt,
         durationInSeconds: v.durationInSeconds,
-        transcript: v.transcript || ''
+        transcript: v.transcript || '',
+        skipTranscript: v.skipTranscript ?? false,
       }));
 
       const response = await fetch('/api/videos/create', {
@@ -67,12 +71,16 @@ const AddVideoInput = () => {
         throw new Error(data.error || 'Failed to process videos');
       }
 
-      const { created, existing, total } = data;
-      
-      toast.success(
-        `Processing ${total} video(s) in background! ${created} new, ${existing} already existed. Check the Video Library to see progress.`,
-        { duration: 5000 }
-      );
+      const { created, existing, total, skippedProcessing = 0, queued = 0 } = data;
+      const processingCount = Math.max(Number(queued), 0);
+
+      const messageParts = [
+        `${total} video(s) submitted — ${created} added${existing ? `, ${existing} already existed` : ''}.`,
+        processingCount > 0 ? `Processing ${processingCount} video(s) in background. Check the Video Library to see progress.` : undefined,
+        skippedProcessing > 0 ? `AI content generation skipped for ${skippedProcessing} video(s).` : undefined,
+      ].filter(Boolean);
+
+      toast.success(messageParts.join(' '), { duration: 5000 });
       
       // Clear videos after successful creation
       clearAllVideos();
@@ -134,6 +142,23 @@ const AddVideoInput = () => {
               </Button>
             </form>
           </Form>
+
+          <div className="mt-3 flex flex-col gap-1">
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="no-transcript"
+                checked={noTranscript}
+                onCheckedChange={(checked) => setNoTranscript(checked === true)}
+                disabled={isLoading}
+              />
+              <Label htmlFor="no-transcript" className="text-sm font-medium">
+                No Transcript
+              </Label>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              When checked, transcripts are not imported and AI-generated content is skipped.
+            </p>
+          </div>
           
           {isLoading && (
             <div className="mt-4 space-y-2">

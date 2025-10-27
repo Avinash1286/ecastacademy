@@ -50,6 +50,11 @@ export const VideoCard: React.FC<VideoCardProps> = ({ video, onRemove, onTranscr
               className="w-full h-full object-cover"
             />
           </div>
+          {video.skipTranscript && (
+            <Badge variant="secondary" className="absolute top-2 left-2 bg-amber-500/80 text-black">
+              AI Skipped
+            </Badge>
+          )}
           <div className="absolute top-2 right-2">
             <Badge variant="secondary" className="bg-black/60 text-white">
               {video.duration}
@@ -103,7 +108,13 @@ export const VideoCard: React.FC<VideoCardProps> = ({ video, onRemove, onTranscr
               // VIEWING VIEW
               <div className="flex-grow rounded-md border bg-muted/50 p-3">
                 <p className="text-sm text-muted-foreground pr-4 line-clamp-3">
-                  {video.transcript || <span className="italic">No transcript available. Click Add to create one.</span>}
+                  {video.transcript || (
+                    <span className="italic">
+                      {video.skipTranscript
+                        ? 'Transcript import skipped for this video.'
+                        : 'No transcript available. Click Add to create one.'}
+                    </span>
+                  )}
                 </p>
               </div>
             )}

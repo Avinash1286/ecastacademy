@@ -23,6 +23,7 @@ export interface VideoInfo {
   durationInSeconds: number;
   publishedAt: string;
   transcript?: string;
+  skipTranscript?: boolean;
 }
 
 

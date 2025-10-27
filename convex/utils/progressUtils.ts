@@ -106,3 +106,51 @@ export function getLastActivityTimestamp(record: Doc<"progress">): number {
     record._creationTime
   );
 }
+
+function quizHasQuestions(quiz: unknown): boolean {
+  if (!quiz || typeof quiz !== "object") {
+    return false;
+  }
+
+  const maybeQuiz = quiz as { questions?: unknown };
+  if (!Array.isArray(maybeQuiz.questions)) {
+    return false;
+  }
+
+  return maybeQuiz.questions.length > 0;
+}
+
+export function isTrackableContentItem(
+  item: Doc<"contentItems">,
+  videoLookup: Map<Id<"videos">, Doc<"videos"> | null | undefined>
+): boolean {
+  switch (item.type) {
+    case "video": {
+      if (!item.videoId) {
+        return false;
+      }
+
+      const video = videoLookup.get(item.videoId);
+      return quizHasQuestions(video?.quiz);
+    }
+    case "text": {
+      return quizHasQuestions(item.textQuiz);
+    }
+    case "quiz":
+    case "assignment":
+      return true;
+    default:
+      return false;
+  }
+}
+
+export function mapVideosById(
+  videoIds: Id<"videos">[],
+  videos: Array<Doc<"videos"> | null>
+) {
+  const lookup = new Map<Id<"videos">, Doc<"videos"> | null>();
+  videoIds.forEach((id, index) => {
+    lookup.set(id, videos[index] ?? null);
+  });
+  return lookup;
+}

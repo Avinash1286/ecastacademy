@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { mutation, query, MutationCtx, internalMutation } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
-import { summarizeProgressByContentItem } from "./utils/progressUtils";
+import { summarizeProgressByContentItem, isTrackableContentItem, mapVideosById } from "./utils/progressUtils";
 
 /**
  * =============================================================================
@@ -413,14 +413,30 @@ export const calculateCourseProgress = query({
     );
 
     const contentItems = allContentItems.flat();
-    const totalItems = contentItems.length;
+
+    const videoIds = Array.from(
+      new Set(
+        contentItems
+          .filter((item) => item.type === "video" && item.videoId)
+          .map((item) => item.videoId as Id<"videos">)
+      )
+    );
+
+    const videoDocs = await Promise.all(videoIds.map((videoId) => ctx.db.get(videoId)));
+    const videoLookup = mapVideosById(videoIds, videoDocs);
+
+    const trackableItems = contentItems.filter((item) =>
+      isTrackableContentItem(item, videoLookup)
+    );
+
+    const totalItems = trackableItems.length;
 
     if (totalItems === 0) {
       return {
         courseId: args.courseId,
         totalItems: 0,
         completedItems: 0,
-        completionPercentage: 0,
+        completionPercentage: 100,
         isCertification: course.isCertification,
         gradedItems: 0,
         passedGradedItems: 0,
@@ -442,11 +458,13 @@ export const calculateCourseProgress = query({
 
     const progressSummaryMap = summarizeProgressByContentItem(progressRecords);
 
-    const completedItems = contentItems.reduce((count, item) => {
+    const completedItems = trackableItems.reduce((count, item) => {
       const summary = progressSummaryMap.get(item._id);
       return summary?.completed ? count + 1 : count;
     }, 0);
-    const completionPercentage = (completedItems / totalItems) * 100;
+    const completionPercentage = totalItems > 0
+      ? (completedItems / totalItems) * 100
+      : 100;
 
     const existingCertificate = await ctx.db
       .query("certificates")
@@ -467,7 +485,7 @@ export const calculateCourseProgress = query({
     };
 
     if (course.isCertification) {
-      const gradedContentItems = contentItems.filter((item) => item.isGraded);
+  const gradedContentItems = trackableItems.filter((item) => item.isGraded);
       gradingInfo.gradedItems = gradedContentItems.length;
 
       let totalPossiblePoints = 0;

@@ -18,7 +18,7 @@ export const useYouTubeImporter = () => {
     setLoadingText(text);
   };
 
-  const importFromUrl = async (url: string) => {
+  const importFromUrl = async (url: string, options?: { skipTranscript?: boolean }) => {
     if (!apiKey) {
       toast.error("Configuration Error: YouTube API key is missing.");
       return;
@@ -27,6 +27,8 @@ export const useYouTubeImporter = () => {
     setIsLoading(true);
     setError(null);
     handleProgress(5, "Analyzing URL...");
+
+    const skipTranscript = options?.skipTranscript ?? false;
 
     const playlistId = extractPlaylistId(url);
     const videoId = extractVideoId(url);
@@ -52,18 +54,32 @@ export const useYouTubeImporter = () => {
         return;
       }
 
-      handleProgress(85, `Fetching transcripts for ${fetchedVideos.length} video(s)...`);
+      if (skipTranscript) {
+        handleProgress(85, "Skipping transcript fetch (No Transcript selected)...");
+      } else {
+        handleProgress(85, `Fetching transcripts for ${fetchedVideos.length} video(s)...`);
+      }
 
-      const videoPromises = fetchedVideos.map(async (video) => {
-        const transcript = await fetchTranscript(video.id);
-        return { ...video, transcript };
-      });
+      let videosWithTranscripts: VideoInfo[];
 
-      const videosWithTranscripts = await Promise.all(videoPromises);
+      if (skipTranscript) {
+        videosWithTranscripts = fetchedVideos.map((video) => ({
+          ...video,
+          transcript: '',
+          skipTranscript: true,
+        }));
+      } else {
+        const videoPromises = fetchedVideos.map(async (video) => {
+          const transcript = await fetchTranscript(video.id);
+          return { ...video, transcript, skipTranscript: false };
+        });
+
+        videosWithTranscripts = await Promise.all(videoPromises);
+      }
       
-      handleProgress(95, "Finalizing import...");
+      handleProgress(95, skipTranscript ? "Finalizing import without transcripts..." : "Finalizing import...");
       setVideos(prevVideos => [...prevVideos, ...videosWithTranscripts]); 
-      toast.success(`Successfully imported ${videosWithTranscripts.length} video(s)!`);
+      toast.success(`Successfully imported ${videosWithTranscripts.length} video(s)!${skipTranscript ? ' Transcript import skipped.' : ''}`);
 
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "An unknown error occurred.";
