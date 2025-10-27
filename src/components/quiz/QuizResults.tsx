@@ -22,6 +22,11 @@ export const QuizResults = ({
   const passingScore = contentItem?.passingScore ?? 70;
   const passed = percentage >= passingScore;
   const allowRetakes = contentItem?.allowRetakes ?? true;
+  const historyPercentages = attemptHistory?.map((attempt) => attempt.percentage) ?? [];
+  const bestPercentage = historyPercentages.length > 0
+    ? Math.max(...historyPercentages)
+    : percentage;
+  const hasPerfectScore = Math.round(bestPercentage) >= 100;
   
   const getScoreColor = () => {
     if (!isGraded) {
@@ -253,18 +258,37 @@ export const QuizResults = ({
             {/* Graded Quiz: Check if retakes are allowed */}
             {passed ? (
               <div className="space-y-2">
-                <Button 
-                  onClick={onRestart} 
-                  size="lg" 
-                  variant="outline" 
-                  className="min-w-[200px]"
-                >
-                  <RefreshCw className="mr-2 h-5 w-5" />
-                  Retake to Improve Score
-                </Button>
-                <p className="text-xs text-muted-foreground">
-                  You&apos;ve already passed, but you can retake to improve your grade
-                </p>
+                {hasPerfectScore ? (
+                  <>
+                    <Button
+                      size="lg"
+                      variant="outline"
+                      className="min-w-[200px]"
+                      disabled
+                    >
+                      <Trophy className="mr-2 h-5 w-5" />
+                      Perfect Score Achieved
+                    </Button>
+                    <p className="text-xs text-muted-foreground">
+                      You&apos;ve achieved a perfect score, so retakes are no longer needed.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <Button 
+                      onClick={onRestart} 
+                      size="lg" 
+                      variant="outline" 
+                      className="min-w-[200px]"
+                    >
+                      <RefreshCw className="mr-2 h-5 w-5" />
+                      Retake to Improve Score
+                    </Button>
+                    <p className="text-xs text-muted-foreground">
+                      You&apos;ve already passed, but you can retake to improve your grade
+                    </p>
+                  </>
+                )}
               </div>
             ) : (
               <>
@@ -302,16 +326,29 @@ export const QuizResults = ({
             )}
           </>
         ) : (
-          /* Ungraded Quiz: Always allow retakes */
-          <Button 
-            onClick={onRestart} 
-            size="lg" 
-            variant="outline" 
-            className="min-w-[200px]"
-          >
-            <RefreshCw className="mr-2 h-5 w-5" />
-            {isPreviousAttempt ? 'Take Quiz Again' : 'Restart Quiz'}
-          </Button>
+          <div className="space-y-2">
+            <Button 
+              onClick={onRestart} 
+              size="lg" 
+              variant="outline" 
+              className="min-w-[200px]"
+              disabled={hasPerfectScore}
+            >
+              {hasPerfectScore ? (
+                <Trophy className="mr-2 h-5 w-5" />
+              ) : (
+                <RefreshCw className="mr-2 h-5 w-5" />
+              )}
+              {hasPerfectScore
+                ? 'Perfect Score Achieved'
+                : isPreviousAttempt ? 'Take Quiz Again' : 'Restart Quiz'}
+            </Button>
+            {hasPerfectScore && (
+              <p className="text-xs text-muted-foreground">
+                You&apos;ve already scored 100%. Feel free to revisit the content, but retakes are disabled.
+              </p>
+            )}
+          </div>
         )}
       </div>
     </div>

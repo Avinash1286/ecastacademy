@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import { Id } from "./_generated/dataModel";
 import { recalculateCourseProgressSync } from "./completions";
 
 // Mutation to create a new course
@@ -114,19 +115,67 @@ export const deleteCourse = mutation({
     id: v.id("courses"),
   },
   handler: async (ctx, args) => {
+    const courseId = args.id;
+
+    // Track content items so we can clean up related quiz attempts afterwards
+    const contentItemIds: Id<"contentItems">[] = [];
+
     // First, delete all chapters associated with this course
     const chapters = await ctx.db
       .query("chapters")
-      .withIndex("by_courseId", (q) => q.eq("courseId", args.id))
+      .withIndex("by_courseId", (q) => q.eq("courseId", courseId))
       .collect();
     
     for (const chapter of chapters) {
+      // Delete content items within each chapter and remember them for related cleanup
+      const contentItems = await ctx.db
+        .query("contentItems")
+        .withIndex("by_chapterId", (q) => q.eq("chapterId", chapter._id))
+        .collect();
+
+      for (const item of contentItems) {
+        contentItemIds.push(item._id);
+        await ctx.db.delete(item._id);
+      }
+
       await ctx.db.delete(chapter._id);
     }
-    
+
+    // Remove quiz attempts tied to the deleted content items
+    for (const contentItemId of contentItemIds) {
+      const attempts = await ctx.db
+        .query("quizAttempts")
+        .withIndex("by_contentItemId", (q) => q.eq("contentItemId", contentItemId))
+        .collect();
+
+      for (const attempt of attempts) {
+        await ctx.db.delete(attempt._id);
+      }
+    }
+
+    // Delete progress records for this course
+    const progressRecords = await ctx.db
+      .query("progress")
+      .withIndex("by_courseId", (q) => q.eq("courseId", courseId))
+      .collect();
+
+    for (const record of progressRecords) {
+      await ctx.db.delete(record._id);
+    }
+
+    // Delete enrollments associated with this course
+    const enrollments = await ctx.db
+      .query("enrollments")
+      .withIndex("by_courseId", (q) => q.eq("courseId", courseId))
+      .collect();
+
+    for (const enrollment of enrollments) {
+      await ctx.db.delete(enrollment._id);
+    }
+
     // Then delete the course
-    await ctx.db.delete(args.id);
-    return { id: args.id };
+    await ctx.db.delete(courseId);
+    return { id: courseId };
   },
 });
 

@@ -5,14 +5,15 @@ import { useQuery } from 'convex/react';
 import { useSession } from 'next-auth/react';
 import { api } from '../../../../convex/_generated/api';
 import { Id } from '../../../../convex/_generated/dataModel';
-import type { Course } from '@/lib/types';
 
-import { CourseGrid } from '@/components/dashboard/CourseGrid';
 import { CourseGridSkeleton } from '@/components/dashboard/CourseGridSkeleton';
 import { useDashboard } from '@/context/DashboardContext';
-import { GraduationCap } from 'lucide-react';
+import { ArrowRight, Award, GraduationCap } from 'lucide-react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { Button } from '@/components/ui/button';
+import { Progress } from '@/components/ui/progress';
+import { Badge } from '@/components/ui/badge';
 
 // Extend session user type to include id
 interface ExtendedUser {
@@ -48,19 +49,6 @@ const MyLearningsPage = () => {
     );
   }, [enrolledCourses, searchTerm]);
 
-  // Transform to Course type for display
-  const enrolledCoursesForGrid: Course[] = useMemo(() => {
-    return filteredEnrolledCourses.map(course => ({
-      id: course._id,
-      name: course.name,
-      description: course.description || '',
-      thumbnailUrl: course.thumbnailUrl || '',
-      createdAt: new Date(course.createdAt).toISOString(),
-      isCertification: course.isCertification,
-      passingGrade: course.passingGrade,
-    }));
-  }, [filteredEnrolledCourses]);
-
   return (
     <main className="bg-background min-h-screen">
       <div className="container mx-auto max-w-7xl py-12 px-4 sm:px-6 lg:px-8">
@@ -74,18 +62,18 @@ const MyLearningsPage = () => {
           </div>
 
           {/* Enrolled Courses Count */}
-          {!loading && enrolledCoursesForGrid.length > 0 && (
+          {!loading && filteredEnrolledCourses.length > 0 && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <GraduationCap className="h-5 w-5" />
               <span>
-                {enrolledCoursesForGrid.length} course{enrolledCoursesForGrid.length !== 1 ? 's' : ''} enrolled
+                {filteredEnrolledCourses.length} course{filteredEnrolledCourses.length !== 1 ? 's' : ''} enrolled
               </span>
             </div>
           )}
           
           {loading ? (
             <CourseGridSkeleton />
-          ) : enrolledCoursesForGrid.length === 0 ? (
+          ) : filteredEnrolledCourses.length === 0 ? (
             <div className="text-center py-16 px-4">
               <div className="mx-auto max-w-md">
                 <div className="rounded-full bg-muted/50 w-20 h-20 flex items-center justify-center mx-auto mb-6">
@@ -109,7 +97,78 @@ const MyLearningsPage = () => {
               </div>
             </div>
           ) : (
-            <CourseGrid courses={enrolledCoursesForGrid} />
+            <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+              {filteredEnrolledCourses.map((course) => {
+                const progressValue = Math.round(course.progressPercentage ?? 0);
+
+                return (
+                  <article
+                    key={course._id}
+                    className="flex h-full flex-col overflow-hidden rounded-lg border border-border bg-card shadow-sm transition hover:-translate-y-1 hover:shadow-lg"
+                  >
+                    <div className="relative w-full aspect-video bg-muted">
+                      {course.thumbnailUrl ? (
+                        <>
+                          <Image
+                            src={course.thumbnailUrl}
+                            alt={`Thumbnail for ${course.name}`}
+                            fill
+                            sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+                            style={{ objectFit: 'cover' }}
+                            className="transition-transform duration-500 hover:scale-105"
+                          />
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+                        </>
+                      ) : (
+                        <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-primary/20 to-secondary/20">
+                          <BookOpen className="w-20 h-20 text-muted-foreground/40" />
+                        </div>
+                      )}
+
+                      {course.isCertification && (
+                        <div className="absolute top-3 right-3">
+                          <Badge className="bg-amber-500/90 text-white shadow-lg">
+                            <Award className="h-3 w-3 mr-1" />
+                            Certificate
+                          </Badge>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex flex-1 flex-col gap-4 p-5">
+                      <div className="space-y-2">
+                        <h3 className="text-xl font-semibold text-card-foreground line-clamp-2">
+                          {course.name}
+                        </h3>
+                        <p className="text-sm text-muted-foreground line-clamp-3">
+                          {course.description || 'No description available for this course.'}
+                        </p>
+                      </div>
+
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-xs font-medium text-muted-foreground">
+                          <span>Progress</span>
+                          <span>{progressValue}%</span>
+                        </div>
+                        <Progress value={progressValue} className="h-2" />
+                      </div>
+
+                      <div className="mt-auto flex items-center justify-between gap-2">
+                        <div className="text-xs text-muted-foreground">
+                          {course.totalChapters ?? 0} chapter{(course.totalChapters ?? 0) === 1 ? '' : 's'}
+                        </div>
+                        <Button asChild className="gap-2">
+                          <Link href={`/learnspace/${course._id}`}>
+                            Continue
+                            <ArrowRight className="h-4 w-4" />
+                          </Link>
+                        </Button>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
           )}
         </div>
       </div>
