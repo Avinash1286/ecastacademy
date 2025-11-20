@@ -89,12 +89,12 @@ export default defineSchema({
     )),
     createdBy: v.optional(v.string()), // User ID who created the course
     isPublished: v.optional(v.boolean()),
-    
+
     // Certification and grading fields
     isCertification: v.optional(v.boolean()), // Is this a certification course?
     passingGrade: v.optional(v.number()), // Minimum grade to pass (default: 70)
     certificateTemplate: v.optional(v.string()), // Template for certificate
-    
+
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -126,16 +126,16 @@ export default defineSchema({
     ),
     title: v.string(),
     order: v.number(),
-    
+
     // Grading fields
     isGraded: v.optional(v.boolean()), // Is this item graded?
     maxPoints: v.optional(v.number()), // Maximum points for graded items
     passingScore: v.optional(v.number()), // Minimum score to pass (percentage)
     allowRetakes: v.optional(v.boolean()), // Allow multiple attempts
-    
+
     // For video type
     videoId: v.optional(v.id("videos")),
-    
+
     // For text type
     textContent: v.optional(v.string()),
     textQuiz: v.optional(v.any()), // Quiz generated from text content
@@ -146,17 +146,17 @@ export default defineSchema({
       v.literal("failed")
     )),
     textQuizError: v.optional(v.string()),
-    
+
     // For quiz type
     quizData: v.optional(v.any()),
-    
+
     // For assignment type
     assignmentData: v.optional(v.any()),
-    
+
     // For resource type
     resourceUrl: v.optional(v.string()),
     resourceTitle: v.optional(v.string()),
-    
+
     createdAt: v.number(),
   })
     .index("by_chapterId", ["chapterId"])
@@ -173,7 +173,7 @@ export default defineSchema({
     progressPercentage: v.optional(v.number()),
     attempted: v.optional(v.boolean()),
     attemptedAt: v.optional(v.number()),
-    
+
     // Grading and scoring fields
     isGradedItem: v.optional(v.boolean()), // Is this a graded item?
     score: v.optional(v.number()), // Score achieved (points)
@@ -195,17 +195,17 @@ export default defineSchema({
     userId: v.id("users"),
     courseId: v.id("courses"),
     certificateId: v.string(), // Unique certificate ID
-    
+
     // Certificate details
     courseName: v.string(),
     userName: v.string(),
     completionDate: v.number(),
     overallGrade: v.number(), // Overall grade percentage
-    
+
     // Certificate data
     certificateUrl: v.optional(v.string()), // Generated certificate PDF/image
     issuedAt: v.number(),
-    
+
     // Metadata
     totalGradedItems: v.number(),
     passedItems: v.number(),
@@ -221,7 +221,7 @@ export default defineSchema({
     userId: v.id("users"),
     contentItemId: v.id("contentItems"),
     courseId: v.id("courses"),
-    
+
     // Attempt details
     attemptNumber: v.number(),
     answers: v.any(), // User's answers
@@ -229,7 +229,7 @@ export default defineSchema({
     maxScore: v.number(), // Maximum possible score
     percentage: v.number(), // Score as percentage
     passed: v.boolean(), // Did this attempt pass?
-    
+
     // Timing
     startedAt: v.number(),
     completedAt: v.number(),
@@ -264,10 +264,20 @@ export default defineSchema({
     contentItemId: v.optional(v.string()),
     courseId: v.optional(v.string()),
     title: v.optional(v.string()),
-    messages: v.any(),
+    messages: v.optional(v.any()), // Deprecated: moving to messages table
     createdAt: v.number(),
     lastMessageAt: v.number(),
   })
     .index("by_userId_chatId", ["userId", "chatId"])
     .index("by_userId_lastMessageAt", ["userId", "lastMessageAt"]),
+
+  messages: defineTable({
+    sessionId: v.id("chatSessions"),
+    userId: v.id("users"),
+    role: v.union(v.literal("user"), v.literal("assistant")),
+    content: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_sessionId", ["sessionId"])
+    .index("by_sessionId_createdAt", ["sessionId", "createdAt"]),
 });

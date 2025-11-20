@@ -31,11 +31,12 @@ export function QuizzesPanel({
   const [showPreviousAttempt, setShowPreviousAttempt] = useState(false);
   
   const { data: session } = useSession();
+  const sessionUser = session?.user as unknown as ExtendedUser | undefined;
   // Use the new unified recordCompletion mutation
   const recordCompletion = useMutation(api.completions.recordCompletion);
   
   // Fetch attempt history for ALL quizzes (not just graded)
-  const userId = session?.user ? (session.user as ExtendedUser).id : undefined;
+  const userId = sessionUser?.id;
   const attemptHistory = useQuery(
     api.completions.getQuizAttemptHistory,
     contentItem?.id && userId
@@ -116,7 +117,7 @@ export function QuizzesPanel({
     setShowPreviousAttempt(false); // This is a new attempt
     
     // Get userId from session
-    const userId = session?.user ? (session.user as ExtendedUser).id : undefined;
+  const userId = sessionUser?.id;
     
     console.log('Extracted userId:', userId, 'Type:', typeof userId);
     

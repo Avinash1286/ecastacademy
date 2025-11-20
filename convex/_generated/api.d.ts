@@ -17,6 +17,7 @@ import type * as completions from "../completions.js";
 import type * as contentItems from "../contentItems.js";
 import type * as courses from "../courses.js";
 import type * as debug from "../debug.js";
+import type * as messages from "../messages.js";
 import type * as migration from "../migration.js";
 import type * as migrations from "../migrations.js";
 import type * as progress from "../progress.js";
@@ -51,6 +52,7 @@ declare const fullApi: ApiFromModules<{
   contentItems: typeof contentItems;
   courses: typeof courses;
   debug: typeof debug;
+  messages: typeof messages;
   migration: typeof migration;
   migrations: typeof migrations;
   progress: typeof progress;

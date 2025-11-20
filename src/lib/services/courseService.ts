@@ -162,13 +162,26 @@ export async function getCourseChapters(courseId: string): Promise<ChapterRespon
       isCertification: chapter.course.isCertification ?? false,
       passingGrade: chapter.course.passingGrade ?? undefined,
     },
-    contentItems: chapter.contentItems?.map((item: ContentItem & { allowRetakes?: boolean }) => ({
-      ...item,
-      isGraded: item.isGraded ?? false,
-      allowRetakes: item.allowRetakes ?? true,
-      maxPoints: item.maxPoints ?? undefined,
-      passingScore: item.passingScore ?? undefined,
-    })),
+    contentItems: chapter.contentItems?.map((item) => {
+      const normalizedVideoDetails =
+        item.type === 'video' && item.videoDetails
+          ? {
+              ...item.videoDetails,
+              thumbnailUrl: item.videoDetails.thumbnailUrl ?? null,
+              durationInSeconds: item.videoDetails.durationInSeconds ?? null,
+              transcript: item.videoDetails.transcript ?? null,
+            }
+          : item.videoDetails ?? null;
+
+      return {
+        ...(item as ContentItem),
+        videoDetails: normalizedVideoDetails,
+        isGraded: item.isGraded ?? false,
+        allowRetakes: (item as ContentItem & { allowRetakes?: boolean }).allowRetakes ?? true,
+        maxPoints: item.maxPoints ?? undefined,
+        passingScore: item.passingScore ?? undefined,
+      } as ContentItem;
+    }) ?? [],
     video: chapter.video,
   }));
 }

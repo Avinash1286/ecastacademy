@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { SignInForm } from "@/components/auth/SignInForm";
@@ -8,7 +8,7 @@ import { OAuthButtons } from "@/components/auth/OAuthButtons";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { CheckCircle2 } from "lucide-react";
 
-export default function SignInPage() {
+function SignInPageContent() {
   const searchParams = useSearchParams();
   const [resetSuccess, setResetSuccess] = useState(false);
 
@@ -81,6 +81,14 @@ export default function SignInPage() {
         </p>
       </div>
     </div>
+  );
+}
+
+export default function SignInPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center">Loading...</div>}>
+      <SignInPageContent />
+    </Suspense>
   );
 }
 

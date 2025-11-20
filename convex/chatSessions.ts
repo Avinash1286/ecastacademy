@@ -10,7 +10,7 @@ export const saveChatHistory = mutation({
     contentItemId: v.optional(v.string()),
     courseId: v.optional(v.string()),
     title: v.optional(v.string()),
-    messages: v.any(),
+    messages: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
@@ -38,6 +38,39 @@ export const saveChatHistory = mutation({
       chatId: args.chatId,
       createdAt: now,
       ...payload,
+    });
+  },
+});
+
+export const getOrCreateSession = mutation({
+  args: {
+    userId: v.id("users"),
+    chatId: v.string(),
+    chapterId: v.optional(v.string()),
+    contentItemId: v.optional(v.string()),
+    courseId: v.optional(v.string()),
+    title: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("chatSessions")
+      .withIndex("by_userId_chatId", (q) => q.eq("userId", args.userId).eq("chatId", args.chatId))
+      .first();
+
+    if (existing) {
+      return existing._id;
+    }
+
+    const now = Date.now();
+    return await ctx.db.insert("chatSessions", {
+      userId: args.userId,
+      chatId: args.chatId,
+      chapterId: args.chapterId,
+      contentItemId: args.contentItemId,
+      courseId: args.courseId,
+      title: args.title,
+      createdAt: now,
+      lastMessageAt: now,
     });
   },
 });

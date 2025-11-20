@@ -28,7 +28,8 @@ const MyLearningsPage = () => {
   const { data: session, status } = useSession();
   
   // Get userId from session
-  const userId = session?.user ? (session.user as ExtendedUser).id : undefined;
+  const sessionUser = session?.user as unknown as ExtendedUser | undefined;
+  const userId = sessionUser?.id;
   
   // Fetch enrolled courses with progress
   const enrolledCourses = useQuery(

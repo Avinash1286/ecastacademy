@@ -3,10 +3,10 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useChat } from '@ai-sdk/react';
 import { useSession } from 'next-auth/react';
-import { useMutation, useQuery } from 'convex/react';
+import { useMutation, usePaginatedQuery } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
 import type { Id } from '../../../convex/_generated/dataModel';
-import type { UIMessage } from 'ai';
+import { DefaultChatTransport, type UIMessage } from 'ai';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
@@ -31,6 +31,8 @@ type QuizPayload = {
   options: string[];
   correctIndex: number;
   explanation: string;
+  // Add index signature to allow for other properties if needed
+  [key: string]: unknown;
 };
 
 type ExtendedUser = {
@@ -41,12 +43,8 @@ type ExtendedUser = {
 };
 
 export function ChatPanel({ activeChapter, activeContentItem }: ChatPanelProps) {
-  const [input, setInput] = useState('');
   const [manualError, setManualError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  const [loadedChatId, setLoadedChatId] = useState<string | null>(null);
-  const lastSavedSnapshotRef = useRef<string>('');
-  const lastSavedAtRef = useRef<number>(0);
 
   const hasTranscript = useMemo(() => {
     if (activeContentItem?.type === 'video') {
@@ -68,10 +66,10 @@ export function ChatPanel({ activeChapter, activeContentItem }: ChatPanelProps) 
   const transcriptReady = hasTranscript;
   const welcomeMessage = useMemo(() => ({
     id: 'welcome',
-    role: 'assistant',
-    content: [
+    role: 'assistant' as const,
+    parts: [
       {
-        type: 'text',
+        type: 'text' as const,
         text: `Hey there! 👋 I'm your AI tutor for this lesson.\n\nFeel free to ask me anything about **${videoTitle}** - whether you want me to:\n\n- Explain a concept in simpler terms\n- Walk through a formula step-by-step  \n- Quiz you on what you've learned\n- Clarify something that's confusing\n\nI'm here to help you truly understand the material. What would you like to explore?`,
       },
     ],
@@ -99,18 +97,121 @@ export function ChatPanel({ activeChapter, activeContentItem }: ChatPanelProps) 
   }, [chapterKey, transcriptReady]);
 
   const { data: session } = useSession();
-  const userId = session?.user ? (session.user as ExtendedUser).id : undefined;
-  const saveChatHistory = useMutation(api.chatSessions.saveChatHistory);
-  const savedChatSession = useQuery(
-    api.chatSessions.getChatHistory,
-    userId ? { userId, chatId } : 'skip'
+  const sessionUser = session?.user as unknown as ExtendedUser | undefined;
+  const userId = sessionUser?.id;
+
+  const transport = useMemo(() => new DefaultChatTransport({ api: '/api/ai/tutor-chat' }), []);
+
+  // New State for Session ID
+  const [sessionId, setSessionId] = useState<Id<"chatSessions"> | null>(null);
+  const getOrCreateSession = useMutation(api.chatSessions.getOrCreateSession);
+  const saveMessage = useMutation(api.messages.send);
+
+  // Fetch Session ID
+  useEffect(() => {
+    if (!userId || !chatId) return;
+
+    const initSession = async () => {
+      try {
+        const id = await getOrCreateSession({
+          userId,
+          chatId,
+          chapterId: activeChapter.id,
+          contentItemId: activeContentItem?.id,
+          courseId: activeChapter.course?.id,
+          title: videoTitle,
+        });
+        setSessionId(id);
+      } catch (error) {
+        console.error("Failed to init session:", error);
+      }
+    };
+
+    initSession();
+  }, [userId, chatId, activeChapter.id, activeChapter.course?.id, activeContentItem?.id, videoTitle, getOrCreateSession]);
+
+  // Paginated Query for Messages
+  const { results: historicalMessages, status: queryStatus, loadMore } = usePaginatedQuery(
+    api.messages.list,
+    sessionId ? { sessionId } : "skip",
+    { initialNumItems: 20 }
   );
 
-  const { messages, setMessages, sendMessage, status, error: chatError, stop } = useChat({
+  // Refs for accessing latest state in callbacks
+  const sessionIdRef = useRef(sessionId);
+  const userIdRef = useRef(userId);
+
+  useEffect(() => {
+    sessionIdRef.current = sessionId;
+  }, [sessionId]);
+
+  useEffect(() => {
+    userIdRef.current = userId;
+  }, [userId]);
+
+  const { messages, setMessages, sendMessage, status, error: chatError } = useChat<UIMessage>({
     id: chatId,
-    api: '/api/ai/tutor-chat',
-    initialMessages: [welcomeMessage],
+    messages: [welcomeMessage],
+    transport,
+    onFinish: async ({ message }) => {
+      const currentSessionId = sessionIdRef.current;
+      const currentUserId = userIdRef.current;
+
+      if (!currentSessionId || !currentUserId) {
+        console.warn('[TUTOR_CHAT_SAVE_SKIP] Missing session or user ID', { sessionId: currentSessionId, userId: currentUserId });
+        return;
+      }
+
+      try {
+        const savedId = await saveMessage({
+          sessionId: currentSessionId,
+          userId: currentUserId,
+          role: 'assistant',
+          content: messageToPlainText(message),
+        });
+
+        console.log('[TUTOR_CHAT_SAVE_SUCCESS]', { savedId });
+
+        setMessages((current) =>
+          current.map((currentMessage) =>
+            currentMessage.id === message.id ? { ...currentMessage, id: savedId } : currentMessage
+          )
+        );
+      } catch (error) {
+        console.error('[TUTOR_CHAT_SAVE_ASSISTANT_ERROR]', error);
+      }
+    },
   });
+
+  const [input, setInput] = useState('');
+
+  // Sync Historical Messages to useChat
+  useEffect(() => {
+    if (queryStatus === "LoadingFirstPage" || !historicalMessages?.length) return;
+
+    const convertedMessages: UIMessage[] = [...historicalMessages].reverse().map((msg) => ({
+      id: msg._id,
+      role: msg.role as 'user' | 'assistant',
+      parts: [
+        {
+          type: 'text' as const,
+          text: msg.content,
+        },
+      ],
+    }));
+
+    if (convertedMessages.length === 0) {
+      return;
+    }
+
+    setMessages((currentMessages) => {
+      const currentWithoutWelcome = currentMessages.filter((message) => message.id !== 'welcome');
+
+      const merged = mergePersistedAndPendingMessages(convertedMessages, currentWithoutWelcome);
+
+      return messagesAreEqual(merged, currentMessages) ? currentMessages : merged;
+    });
+  }, [historicalMessages, queryStatus, setMessages]);
 
   const isSending = status !== 'ready';
   const isThinking = status === 'streaming' || status === 'submitted';
@@ -127,100 +228,82 @@ export function ChatPanel({ activeChapter, activeContentItem }: ChatPanelProps) 
     return combinedError;
   }, [combinedError]);
 
-  useEffect(() => {
-    setManualError(null);
-    setInput('');
-    stop();
-  }, [chatId, stop]);
+  // Scroll handling
+  const loadMoreRef = useRef<HTMLDivElement>(null);
+  const previousScrollHeightRef = useRef<number>(0);
+  const [isAutoScrolling, setIsAutoScrolling] = useState(false);
 
   useEffect(() => {
-    setLoadedChatId(null);
-    lastSavedSnapshotRef.current = '';
-    lastSavedAtRef.current = 0;
-  }, [chatId]);
+    if (status === 'streaming') {
+      setIsAutoScrolling(true);
+    } else {
+      const timer = setTimeout(() => setIsAutoScrolling(false), 100);
+      return () => clearTimeout(timer);
+    }
+  }, [status]);
+
+  useEffect(() => {
+    if (isAutoScrolling && scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages, isAutoScrolling]);
+
+  // Restore scroll position after loading more messages
+  useEffect(() => {
+    if (queryStatus !== "LoadingFirstPage" && previousScrollHeightRef.current > 0 && scrollRef.current) {
+      const newScrollHeight = scrollRef.current.scrollHeight;
+      const scrollDiff = newScrollHeight - previousScrollHeightRef.current;
+
+      // Only adjust if content grew
+      if (scrollDiff > 0) {
+        scrollRef.current.scrollTop = scrollDiff;
+      }
+
+      previousScrollHeightRef.current = 0;
+    }
+  }, [historicalMessages, queryStatus]);
+
+  // Infinite Scroll Observer
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && queryStatus === "CanLoadMore") {
+          // Capture current scroll height before loading
+          if (scrollRef.current) {
+            previousScrollHeightRef.current = scrollRef.current.scrollHeight;
+            loadMore(20);
+          }
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    if (loadMoreRef.current) {
+      observer.observe(loadMoreRef.current);
+    }
+
+    return () => observer.disconnect();
+  }, [queryStatus, loadMore]);
 
   const conversationalMessages = useMemo(
     () => messages.filter((message) => message.role === 'assistant' || message.role === 'user'),
     [messages]
   );
 
-  useEffect(() => {
-    if (!savedChatSession || !savedChatSession.messages) {
-      return;
-    }
-    if (savedChatSession.chatId !== chatId) {
-      return;
-    }
-    if (loadedChatId === chatId) {
-      return;
-    }
-    if (messages.length > 1) {
-      return;
-    }
-
-    setMessages(savedChatSession.messages as UIMessage[]);
-    setLoadedChatId(chatId);
-  }, [savedChatSession, chatId, loadedChatId, messages.length, setMessages]);
-
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [conversationalMessages]);
-
-  useEffect(() => {
-    if (!userId || messages.length === 0) {
-      return;
-    }
-
-    const serializedMessages = JSON.stringify(messages);
-    const snapshotKey = `${status}:${chatId}:${serializedMessages}`;
-    if (snapshotKey === lastSavedSnapshotRef.current) {
-      return;
-    }
-
-    const now = Date.now();
-    const isStreaming = status !== 'ready';
-    if (isStreaming && now - lastSavedAtRef.current < 1500) {
-      return;
-    }
-
-    lastSavedSnapshotRef.current = snapshotKey;
-    lastSavedAtRef.current = now;
-
-    saveChatHistory({
-      userId,
-      chatId,
-      chapterId: activeChapter.id,
-      contentItemId: activeContentItem?.id,
-      courseId: activeChapter.course?.id,
-      title: videoTitle,
-      messages,
-    }).catch((error) => {
-      if (process.env.NODE_ENV === 'development') {
-        console.error('[CHAT_HISTORY_SAVE_ERROR]', error);
-      }
-    });
-  }, [
-    userId,
-    chatId,
-    messages,
-    status,
-    saveChatHistory,
-    activeChapter.id,
-    activeChapter.course?.id,
-    activeContentItem?.id,
-    videoTitle,
-  ]);
-
   const handleSend = async () => {
     if (!input.trim() || isSending || !transcriptReady) {
+      return;
+    }
+
+    if (!sessionId || !userId) {
+      setManualError('Tutor session is still starting up. Please try again in a moment.');
       return;
     }
 
     const question = input.trim();
     setInput('');
     setManualError(null);
+    setIsAutoScrolling(true);
 
     if (process.env.NODE_ENV === 'development') {
       console.log('[CHAT_PANEL_SEND]', {
@@ -231,7 +314,26 @@ export function ChatPanel({ activeChapter, activeContentItem }: ChatPanelProps) 
     }
 
     try {
-      await sendMessage({ text: question }, { body: chatBody });
+      const savedMessageId = await saveMessage({
+        sessionId,
+        userId,
+        role: 'user',
+        content: question,
+      });
+
+      await sendMessage(
+        {
+          id: savedMessageId,
+          role: 'user',
+          parts: [
+            {
+              type: 'text',
+              text: question,
+            },
+          ],
+        },
+        { body: chatBody }
+      );
     } catch (error) {
       console.error('[TUTOR_CHAT_SEND_ERROR]', error);
       const friendlyMessage =
@@ -261,10 +363,19 @@ export function ChatPanel({ activeChapter, activeContentItem }: ChatPanelProps) 
   return (
     <div className="flex h-full w-full flex-col bg-background">
       {/* Messages Area */}
-      <div 
-        ref={scrollRef} 
+      <div
+        ref={scrollRef}
         className="chat-scroll-area flex-1 space-y-6 overflow-y-auto px-6 py-8"
       >
+        {/* Load More Trigger */}
+        <div ref={loadMoreRef} className="h-1 w-full" />
+
+        {queryStatus === "LoadingMore" && (
+          <div className="flex justify-center py-2">
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          </div>
+        )}
+
         <ChatMessagesList messages={conversationalMessages} status={status} />
       </div>
 
@@ -337,7 +448,77 @@ const ChatMessagesList = memo(function ChatMessagesList({ messages, status }: Ch
   );
 });
 
-type TextMessagePart = Extract<UIMessage['parts'][number], { type: 'text'; text: string }>;
+type TextMessagePart = { type: 'text'; text: string };
+
+type MessageWithOptionalParts = UIMessage & {
+  parts?: Array<{ type?: string; text?: string }>;
+  content?: string | Array<{ type?: string; text?: string }>;
+};
+
+function isTextPart(part: { type?: string; text?: unknown } | null | undefined): part is TextMessagePart {
+  return Boolean(part && part.type === 'text' && typeof part.text === 'string');
+}
+
+function getMessageTextParts(message: UIMessage): TextMessagePart[] {
+  const candidate = message as MessageWithOptionalParts;
+
+  if (Array.isArray(candidate.parts)) {
+    return candidate.parts.filter(isTextPart).map((part) => ({ type: 'text', text: part.text }));
+  }
+
+  if (Array.isArray(candidate.content)) {
+    return candidate.content.filter(isTextPart).map((part) => ({ type: 'text', text: part.text }));
+  }
+
+  if (typeof candidate.content === 'string') {
+    return [{ type: 'text', text: candidate.content }];
+  }
+
+  return [];
+}
+
+function messageToPlainText(message: UIMessage): string {
+  const parts = getMessageTextParts(message);
+  if (parts.length === 0) {
+    const candidate = message as MessageWithOptionalParts;
+    return typeof candidate.content === 'string' ? candidate.content : '';
+  }
+  return parts.map((part) => part.text).join('\n\n').trim();
+}
+
+function mergePersistedAndPendingMessages(persisted: UIMessage[], current: UIMessage[]): UIMessage[] {
+  if (persisted.length === 0) {
+    return current;
+  }
+
+  const merged: UIMessage[] = [...persisted];
+  const seenIds = new Set(persisted.map((message) => message.id).filter(Boolean) as string[]);
+
+  current.forEach((message) => {
+    if (!message.id || !seenIds.has(message.id)) {
+      merged.push(message);
+      if (message.id) {
+        seenIds.add(message.id);
+      }
+    }
+  });
+
+  return merged;
+}
+
+function messagesAreEqual(a: UIMessage[], b: UIMessage[]): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+
+  for (let index = 0; index < a.length; index += 1) {
+    if (a[index]?.id !== b[index]?.id) {
+      return false;
+    }
+  }
+
+  return true;
+}
 
 function ChatBubble({ message, isStreaming }: { message: UIMessage; isStreaming: boolean }) {
   if (message.role !== 'user' && message.role !== 'assistant') {
@@ -345,7 +526,7 @@ function ChatBubble({ message, isStreaming }: { message: UIMessage; isStreaming:
   }
 
   const isUser = message.role === 'user';
-  const textParts = message.parts.filter((part): part is TextMessagePart => part.type === 'text');
+  const textParts = getMessageTextParts(message);
 
   const extracted = textParts.reduce(
     (
@@ -380,8 +561,8 @@ function ChatBubble({ message, isStreaming }: { message: UIMessage; isStreaming:
       <div
         className={cn(
           'max-w-[80%] rounded-2xl px-4 py-3.5 text-sm shadow-sm',
-          isUser 
-            ? 'bg-primary text-primary-foreground shadow-primary/10' 
+          isUser
+            ? 'bg-primary text-primary-foreground shadow-primary/10'
             : 'bg-card text-card-foreground border border-border/40'
         )}
       >
@@ -579,9 +760,9 @@ function extractQuizPayload(text: string): { quiz: QuizPayload | null; markdown:
     const explanation = typeof parsed?.explanation === 'string' ? parsed.explanation.trim() : '';
     const options = Array.isArray(parsed?.options)
       ? parsed.options
-          .filter((option: unknown): option is string => typeof option === 'string')
-          .map((option) => option.trim())
-          .filter(Boolean)
+        .filter((option: unknown): option is string => typeof option === 'string')
+        .map((option: string) => option.trim())
+        .filter(Boolean)
       : [];
     const correctIndex = typeof parsed?.correctIndex === 'number' ? parsed.correctIndex : 0;
 

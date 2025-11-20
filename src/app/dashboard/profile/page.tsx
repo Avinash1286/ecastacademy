@@ -26,7 +26,8 @@ export default function ProfilePage() {
   const { data: session, status } = useSession()
   
   // Get userId from session
-  const userId = session?.user ? (session.user as ExtendedUser).id : undefined
+  const sessionUser = session?.user as unknown as ExtendedUser | undefined
+  const userId = sessionUser?.id
   
   // Query certificates with userId
   const certificates = useQuery(
@@ -56,7 +57,7 @@ export default function ProfilePage() {
     )
   }
 
-  const user = session.user as ExtendedUser
+  const user = sessionUser as ExtendedUser
   const initials = user.name
     ? user.name.split(" ").map((n) => n[0]).join("").toUpperCase()
     : user.email?.charAt(0).toUpperCase() || "U"

@@ -23,7 +23,8 @@ export default function CertificatesPage() {
   const { data: session, status } = useSession()
   
   // Get userId from session - must be valid Convex ID
-  const userId = session?.user ? (session.user as ExtendedUser).id : undefined
+  const sessionUser = session?.user as unknown as ExtendedUser | undefined
+  const userId = sessionUser?.id
   
   // Only query certificates if we have a valid userId
   const certificates = useQuery(

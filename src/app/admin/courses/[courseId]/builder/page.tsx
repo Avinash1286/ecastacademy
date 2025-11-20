@@ -89,6 +89,7 @@ export default function CourseBuilderPage() {
   const [selectedChapterId, setSelectedChapterId] = useState<Id<"chapters"> | null>(null);
   const [contentType, setContentType] = useState<ContentType>("video");
   const [generatingQuizForContentId, setGeneratingQuizForContentId] = useState<Id<"contentItems"> | null>(null);
+  const [generatingNotesForContentId, setGeneratingNotesForContentId] = useState<Id<"contentItems"> | null>(null);
   // Loading states for DB operations
   const [creatingChapter, setCreatingChapter] = useState(false);
   const [updatingChapter, setUpdatingChapter] = useState(false);
@@ -459,6 +460,37 @@ export default function CourseBuilderPage() {
     await handleGenerateTextQuiz(contentItemId);
   };
 
+  const handleGenerateVideoNotes = async (contentItemId: Id<"contentItems">) => {
+    setGeneratingNotesForContentId(contentItemId);
+    toast.info("Generating AI notes...");
+    try {
+      const response = await fetch("/api/ai/generate-notes", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ contentItemId }),
+      });
+
+      const data = await response
+        .json()
+        .catch(() => ({}));
+
+      if (!response.ok) {
+        const errorMessage = (data as { error?: string })?.error ?? "Failed to generate notes";
+        throw new Error(errorMessage);
+      }
+
+      toast.success("Notes generated successfully!");
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Failed to generate notes";
+      toast.error(errorMessage);
+      console.error("Generate notes error:", error);
+    } finally {
+      setGeneratingNotesForContentId(null);
+    }
+  };
+
   // Drag and drop handlers for chapters
   const handleChapterDragStart = (index: number) => {
     setDraggedChapterIndex(index);
@@ -677,6 +709,7 @@ export default function CourseBuilderPage() {
                       const videoDetails = item.type === "video" && "video" in item ? item.video : null;
                       const isGeneratingQuiz = generatingQuizForContentId === item._id;
                       const textQuizStatus = item.type === "text" ? item.textQuizStatus : null;
+                      const isGeneratingNotes = item.type === "video" && generatingNotesForContentId === item._id;
                       
                       return (
                       <div
@@ -698,6 +731,19 @@ export default function CourseBuilderPage() {
                                 <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950 dark:text-amber-400 dark:border-amber-800">
                                   Graded
                                 </Badge>
+                              )}
+                              {item.type === "video" && (
+                                videoDetails?.notes ? (
+                                  <Badge variant="outline" className="text-green-600">
+                                    <CheckCircle className="h-3 w-3 mr-1" />
+                                    Notes Ready
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="outline" className="text-yellow-600">
+                                    <AlertCircle className="h-3 w-3 mr-1" />
+                                    Notes Missing
+                                  </Badge>
+                                )
                               )}
                               {item.type === "text" && textQuizStatus && (
                                 <>
@@ -736,6 +782,23 @@ export default function CourseBuilderPage() {
                           </div>
                         </div>
                         <div className="flex gap-2">
+                          {item.type === "video" && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleGenerateVideoNotes(item._id)}
+                              disabled={isGeneratingNotes}
+                              title={videoDetails?.notes ? "Regenerate notes" : "Generate notes"}
+                            >
+                              {isGeneratingNotes ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : videoDetails?.notes ? (
+                                <RotateCcw className="h-4 w-4" />
+                              ) : (
+                                <Sparkles className="h-4 w-4" />
+                              )}
+                            </Button>
+                          )}
                           {item.type === "text" && (
                             <>
                               {!textQuizStatus || textQuizStatus === "failed" ? (
