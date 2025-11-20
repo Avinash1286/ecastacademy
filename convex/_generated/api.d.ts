@@ -9,6 +9,7 @@
  */
 
 import type * as admin from "../admin.js";
+import type * as ai from "../ai.js";
 import type * as auth from "../auth.js";
 import type * as certificates from "../certificates.js";
 import type * as chapters from "../chapters.js";
@@ -44,6 +45,7 @@ import type {
  */
 declare const fullApi: ApiFromModules<{
   admin: typeof admin;
+  ai: typeof ai;
   auth: typeof auth;
   certificates: typeof certificates;
   chapters: typeof chapters;

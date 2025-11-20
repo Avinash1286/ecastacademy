@@ -1,12 +1,12 @@
 'use client';
 
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
-import { useChat } from '@ai-sdk/react';
+// import { useChat } from '@ai-sdk/react'; // Removed
 import { useSession } from 'next-auth/react';
-import { useMutation, usePaginatedQuery } from 'convex/react';
+import { useMutation, usePaginatedQuery, useAction } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
 import type { Id } from '../../../convex/_generated/dataModel';
-import { DefaultChatTransport, type UIMessage } from 'ai';
+import { type UIMessage } from 'ai'; // Removed DefaultChatTransport
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
@@ -45,6 +45,7 @@ type ExtendedUser = {
 export function ChatPanel({ activeChapter, activeContentItem }: ChatPanelProps) {
   const [manualError, setManualError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const [isThinking, setIsThinking] = useState(false);
 
   const hasTranscript = useMemo(() => {
     if (activeContentItem?.type === 'video') {
@@ -64,33 +65,19 @@ export function ChatPanel({ activeChapter, activeContentItem }: ChatPanelProps) 
   const courseTitle = activeChapter.course?.name ?? 'Current course';
   const chapterKey = `${activeChapter.id}-${activeContentItem?.id ?? 'chapter'}`;
   const transcriptReady = hasTranscript;
-  const welcomeMessage = useMemo(() => ({
+
+  // Welcome message is now just a static item we can prepend if history is empty
+  const welcomeMessage: UIMessage = useMemo(() => ({
     id: 'welcome',
-    role: 'assistant' as const,
+    role: 'assistant',
     parts: [
       {
-        type: 'text' as const,
+        type: 'text',
         text: `Hey there! 👋 I'm your AI tutor for this lesson.\n\nFeel free to ask me anything about **${videoTitle}** - whether you want me to:\n\n- Explain a concept in simpler terms\n- Walk through a formula step-by-step  \n- Quiz you on what you've learned\n- Clarify something that's confusing\n\nI'm here to help you truly understand the material. What would you like to explore?`,
       },
     ],
+    content: '', // Legacy field for type compatibility
   }), [videoTitle]);
-
-  const chatBody = useMemo(
-    () => ({
-      videoTitle,
-      courseTitle,
-      chapterTitle: activeChapter.name,
-      chapterId: activeChapter.id,
-      contentItemId: activeContentItem?.id,
-    }),
-    [
-      videoTitle,
-      courseTitle,
-      activeChapter.name,
-      activeChapter.id,
-      activeContentItem?.id,
-    ]
-  );
 
   const chatId = useMemo(() => {
     return `${chapterKey}-${transcriptReady ? 'ready' : 'pending'}`;
@@ -100,12 +87,11 @@ export function ChatPanel({ activeChapter, activeContentItem }: ChatPanelProps) 
   const sessionUser = session?.user as unknown as ExtendedUser | undefined;
   const userId = sessionUser?.id;
 
-  const transport = useMemo(() => new DefaultChatTransport({ api: '/api/ai/tutor-chat' }), []);
-
   // New State for Session ID
   const [sessionId, setSessionId] = useState<Id<"chatSessions"> | null>(null);
   const getOrCreateSession = useMutation(api.chatSessions.getOrCreateSession);
   const saveMessage = useMutation(api.messages.send);
+  const generateResponse = useAction(api.ai.generateTutorResponse);
 
   // Fetch Session ID
   useEffect(() => {
@@ -134,99 +120,25 @@ export function ChatPanel({ activeChapter, activeContentItem }: ChatPanelProps) 
   const { results: historicalMessages, status: queryStatus, loadMore } = usePaginatedQuery(
     api.messages.list,
     sessionId ? { sessionId } : "skip",
-    { initialNumItems: 20 }
+    { initialNumItems: 50 }
   );
 
-  // Refs for accessing latest state in callbacks
-  const sessionIdRef = useRef(sessionId);
-  const userIdRef = useRef(userId);
+  // Combine history with welcome message
+  const messages: UIMessage[] = useMemo(() => {
+    if (!historicalMessages) return [welcomeMessage];
 
-  useEffect(() => {
-    sessionIdRef.current = sessionId;
-  }, [sessionId]);
-
-  useEffect(() => {
-    userIdRef.current = userId;
-  }, [userId]);
-
-  const { messages, setMessages, sendMessage, status, error: chatError } = useChat<UIMessage>({
-    id: chatId,
-    messages: [welcomeMessage],
-    transport,
-    onFinish: async ({ message }) => {
-      const currentSessionId = sessionIdRef.current;
-      const currentUserId = userIdRef.current;
-
-      if (!currentSessionId || !currentUserId) {
-        console.warn('[TUTOR_CHAT_SAVE_SKIP] Missing session or user ID', { sessionId: currentSessionId, userId: currentUserId });
-        return;
-      }
-
-      try {
-        const savedId = await saveMessage({
-          sessionId: currentSessionId,
-          userId: currentUserId,
-          role: 'assistant',
-          content: messageToPlainText(message),
-        });
-
-        console.log('[TUTOR_CHAT_SAVE_SUCCESS]', { savedId });
-
-        setMessages((current) =>
-          current.map((currentMessage) =>
-            currentMessage.id === message.id ? { ...currentMessage, id: savedId } : currentMessage
-          )
-        );
-      } catch (error) {
-        console.error('[TUTOR_CHAT_SAVE_ASSISTANT_ERROR]', error);
-      }
-    },
-  });
-
-  const [input, setInput] = useState('');
-
-  // Sync Historical Messages to useChat
-  useEffect(() => {
-    if (queryStatus === "LoadingFirstPage" || !historicalMessages?.length) return;
-
-    const convertedMessages: UIMessage[] = [...historicalMessages].reverse().map((msg) => ({
+    const converted = [...historicalMessages].reverse().map((msg) => ({
       id: msg._id,
       role: msg.role as 'user' | 'assistant',
-      parts: [
-        {
-          type: 'text' as const,
-          text: msg.content,
-        },
-      ],
+      parts: [{ type: 'text' as const, text: msg.content }],
+      content: msg.content,
     }));
 
-    if (convertedMessages.length === 0) {
-      return;
-    }
+    if (converted.length === 0) return [welcomeMessage];
+    return converted;
+  }, [historicalMessages, welcomeMessage]);
 
-    setMessages((currentMessages) => {
-      const currentWithoutWelcome = currentMessages.filter((message) => message.id !== 'welcome');
-
-      const merged = mergePersistedAndPendingMessages(convertedMessages, currentWithoutWelcome);
-
-      return messagesAreEqual(merged, currentMessages) ? currentMessages : merged;
-    });
-  }, [historicalMessages, queryStatus, setMessages]);
-
-  const isSending = status !== 'ready';
-  const isThinking = status === 'streaming' || status === 'submitted';
-  const combinedError = manualError ?? chatError?.message ?? null;
-  const friendlyError = useMemo(() => {
-    if (!combinedError) return null;
-    const trimmed = combinedError.trim();
-    if (trimmed.startsWith('<!DOCTYPE') || trimmed.startsWith('<html')) {
-      return 'The AI tutor endpoint returned an HTML error page. Please verify the development server is running and the tutor chat API is accessible.';
-    }
-    if (trimmed.toLowerCase().includes('404: this page could not be found')) {
-      return 'Tutor chat endpoint responded with 404. Restarting the dev server usually fixes this.';
-    }
-    return combinedError;
-  }, [combinedError]);
+  const [input, setInput] = useState('');
 
   // Scroll handling
   const loadMoreRef = useRef<HTMLDivElement>(null);
@@ -234,13 +146,13 @@ export function ChatPanel({ activeChapter, activeContentItem }: ChatPanelProps) 
   const [isAutoScrolling, setIsAutoScrolling] = useState(false);
 
   useEffect(() => {
-    if (status === 'streaming') {
+    if (isThinking) {
       setIsAutoScrolling(true);
     } else {
       const timer = setTimeout(() => setIsAutoScrolling(false), 100);
       return () => clearTimeout(timer);
     }
-  }, [status]);
+  }, [isThinking]);
 
   useEffect(() => {
     if (isAutoScrolling && scrollRef.current) {
@@ -285,13 +197,8 @@ export function ChatPanel({ activeChapter, activeContentItem }: ChatPanelProps) 
     return () => observer.disconnect();
   }, [queryStatus, loadMore]);
 
-  const conversationalMessages = useMemo(
-    () => messages.filter((message) => message.role === 'assistant' || message.role === 'user'),
-    [messages]
-  );
-
   const handleSend = async () => {
-    if (!input.trim() || isSending || !transcriptReady) {
+    if (!input.trim() || isThinking || !transcriptReady) {
       return;
     }
 
@@ -303,37 +210,39 @@ export function ChatPanel({ activeChapter, activeContentItem }: ChatPanelProps) 
     const question = input.trim();
     setInput('');
     setManualError(null);
+    setIsThinking(true);
     setIsAutoScrolling(true);
 
-    if (process.env.NODE_ENV === 'development') {
-      console.log('[CHAT_PANEL_SEND]', {
-        transcriptReady,
-        hasTranscript,
-        body: chatBody,
-      });
-    }
-
     try {
-      const savedMessageId = await saveMessage({
+      // 1. Save User Message
+      await saveMessage({
         sessionId,
         userId,
         role: 'user',
         content: question,
       });
 
-      await sendMessage(
-        {
-          id: savedMessageId,
-          role: 'user',
-          parts: [
-            {
-              type: 'text',
-              text: question,
-            },
-          ],
-        },
-        { body: chatBody }
-      );
+      // 2. Generate AI Response
+      // Prepare context from recent messages (last 10)
+      const recentMessages = messages.slice(-10).map(m => ({
+        role: m.role as "user" | "assistant",
+        content: messageToPlainText(m)
+      }));
+
+      // Add the new user message to the context if it's not already there (it might be if optimistic update happened, but here we just grab from state)
+      // Actually, `messages` comes from DB. The DB update for user message might not have propagated yet.
+      // So we should append the current question manually to the context.
+      recentMessages.push({ role: "user", content: question });
+
+      await generateResponse({
+        chatId: chatId, // The action uses chatId to find the session again, or we could pass sessionId if we updated the action. 
+        // The action `generateTutorResponse` takes `chatId`.
+        messages: recentMessages,
+        context: `Course: ${courseTitle}\nChapter: ${activeChapter.name}\nVideo: ${videoTitle}\nTranscript: ${(activeChapter.video as VideoWithTranscript)?.transcript || "Not available"}`,
+      });
+
+      // The action saves the response, so the UI will update automatically via subscription
+
     } catch (error) {
       console.error('[TUTOR_CHAT_SEND_ERROR]', error);
       const friendlyMessage =
@@ -341,7 +250,9 @@ export function ChatPanel({ activeChapter, activeContentItem }: ChatPanelProps) 
           ? error.message
           : 'Something went wrong while contacting the AI tutor.';
       setManualError(friendlyMessage);
-      setInput(question);
+      setInput(question); // Restore input
+    } finally {
+      setIsThinking(false);
     }
   };
 
@@ -376,7 +287,7 @@ export function ChatPanel({ activeChapter, activeContentItem }: ChatPanelProps) 
           </div>
         )}
 
-        <ChatMessagesList messages={conversationalMessages} status={status} />
+        <ChatMessagesList messages={messages} status={isThinking ? 'streaming' : 'ready'} />
       </div>
 
       {/* Thinking Indicator */}
@@ -387,9 +298,9 @@ export function ChatPanel({ activeChapter, activeContentItem }: ChatPanelProps) 
       )}
 
       {/* Error Message */}
-      {friendlyError && (
+      {manualError && (
         <div className="mx-6 mb-4 rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3">
-          <p className="text-sm text-red-400">{friendlyError}</p>
+          <p className="text-sm text-red-400">{manualError}</p>
         </div>
       )}
 
@@ -398,7 +309,7 @@ export function ChatPanel({ activeChapter, activeContentItem }: ChatPanelProps) 
         value={input}
         onChange={setInput}
         onSubmit={handleSend}
-        isSending={isSending}
+        isSending={isThinking}
         placeholder="Ask anything..."
         disabled={!transcriptReady}
       />
@@ -408,7 +319,7 @@ export function ChatPanel({ activeChapter, activeContentItem }: ChatPanelProps) 
 
 type ChatMessagesListProps = {
   messages: UIMessage[];
-  status: ReturnType<typeof useChat>['status'];
+  status: 'streaming' | 'ready';
 };
 
 const ChatMessagesList = memo(function ChatMessagesList({ messages, status }: ChatMessagesListProps) {

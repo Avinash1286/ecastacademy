@@ -30,8 +30,8 @@ export const recordCompletion = mutation({
     userId: v.id("users"),
     contentItemId: v.id("contentItems"),
     // For quizzes and assignments
-    score: v.optional(v.number()),
-    maxScore: v.optional(v.number()),
+    score: v.optional(v.number()), // Deprecated: Calculated on server for quizzes
+    maxScore: v.optional(v.number()), // Deprecated: Calculated on server for quizzes
     answers: v.optional(v.any()), // Quiz answers for quizAttempts table
     // For tracking time (optional)
     timeSpent: v.optional(v.number()),
@@ -76,28 +76,80 @@ export const recordCompletion = mutation({
       throw new Error("User is not enrolled in this course");
     }
 
-    // 4. Validate score if provided
-    if (args.score !== undefined) {
-      const maxScore = args.maxScore ?? contentItem.maxPoints ?? 100;
-      
-      if (args.score < 0) {
-        throw new Error("Score cannot be negative");
+    // 4. Calculate score on server if answers are provided
+    let calculatedScore: number | undefined = args.score;
+    let calculatedMaxScore: number | undefined = args.maxScore;
+
+    // Check if this is a quiz-like item and we have answers
+    if (Array.isArray(args.answers)) {
+      let score = 0;
+      let maxScore = 0;
+      let isQuiz = false;
+
+      if (contentItem.type === "quiz" && contentItem.quizData) {
+        isQuiz = true;
+        const questions = contentItem.quizData.questions || [];
+        maxScore = questions.length;
+
+        args.answers.forEach((answerIndex: number, questionIndex: number) => {
+          if (questions[questionIndex] && questions[questionIndex].correctIndex === answerIndex) {
+            score++;
+          }
+        });
+      } else if (contentItem.type === "text" && contentItem.textQuiz) {
+        isQuiz = true;
+        const questions = contentItem.textQuiz.questions || [];
+        maxScore = questions.length;
+
+        args.answers.forEach((answerIndex: number, questionIndex: number) => {
+          if (questions[questionIndex] && questions[questionIndex].correctIndex === answerIndex) {
+            score++;
+          }
+        });
+      } else if (contentItem.type === "video" && contentItem.videoId) {
+        const video = await ctx.db.get(contentItem.videoId);
+        if (video && video.quiz) {
+          isQuiz = true;
+          const questions = video.quiz.questions || [];
+          maxScore = questions.length;
+
+          args.answers.forEach((answerIndex: number, questionIndex: number) => {
+            if (questions[questionIndex] && questions[questionIndex].correctIndex === answerIndex) {
+              score++;
+            }
+          });
+        }
       }
-      
-      if (args.score > maxScore) {
-        throw new Error(`Score (${args.score}) cannot exceed maxScore (${maxScore})`);
+
+      if (isQuiz) {
+        calculatedScore = score;
+        calculatedMaxScore = maxScore;
       }
     }
 
-    // 5. Record quiz attempt whenever we have answer data and a score
+    // Validate score if explicitly provided and NOT calculated (e.g. manual grading or non-quiz types)
+    if (calculatedScore !== undefined) {
+      const maxScore = calculatedMaxScore ?? contentItem.maxPoints ?? 100;
+
+      if (calculatedScore < 0) {
+        throw new Error("Score cannot be negative");
+      }
+
+      // Only enforce maxScore check if it wasn't calculated by us (trust our own calculation)
+      if (!Array.isArray(args.answers) && calculatedScore > maxScore) {
+        throw new Error(`Score (${calculatedScore}) cannot exceed maxScore (${maxScore})`);
+      }
+    }
+
+    // 5. Record quiz attempt whenever we have answer data
     let attemptId: Id<"quizAttempts"> | undefined;
     const hasAnswersArray = Array.isArray(args.answers) && args.answers.length > 0;
-    const hasScore = args.score !== undefined;
+    const hasScore = calculatedScore !== undefined;
 
     if (hasAnswersArray && hasScore) {
       const answerCount = (args.answers as unknown[]).length;
-      const maxScoreForAttempt = args.maxScore ?? contentItem.maxPoints ?? (answerCount > 0 ? answerCount : 100);
-      const attemptScore = args.score ?? 0;
+      const maxScoreForAttempt = calculatedMaxScore ?? contentItem.maxPoints ?? (answerCount > 0 ? answerCount : 100);
+      const attemptScore = calculatedScore ?? 0;
 
       attemptId = await recordQuizAttempt(ctx, {
         userId: args.userId,
@@ -117,8 +169,8 @@ export const recordCompletion = mutation({
       chapterId: chapter._id,
       contentItemId: args.contentItemId,
       contentItem: contentItem,
-      score: args.score,
-      maxScore: args.maxScore,
+      score: calculatedScore,
+      maxScore: calculatedMaxScore,
       progressPercentage: args.progressPercentage,
     });
 
@@ -299,8 +351,8 @@ async function updateOrCreateProgress(
       passed: isGraded ? everPassed : (existingProgress.passed ?? true),
       latestPassed: isGraded
         ? (typeof latestPassed === "boolean"
-            ? latestPassed
-            : existingProgress.latestPassed ?? summary?.latestPassed)
+          ? latestPassed
+          : existingProgress.latestPassed ?? summary?.latestPassed)
         : existingProgress.latestPassed,
       bestScore: bestPercentage,
       attempted: true,
@@ -408,14 +460,14 @@ export const calculateCourseProgress = query({
   handler: async (ctx, args) => {
     // If userId is provided, use it; otherwise get from auth
     let targetUserId: Id<"users">;
-    
+
     if (args.userId) {
       targetUserId = args.userId;
     } else {
       const { user } = await requireAuthenticatedUser(ctx);
       targetUserId = user._id;
     }
-    
+
     return await buildCourseProgress(ctx, args.courseId, targetUserId);
   },
 });
@@ -637,136 +689,136 @@ async function recalcCourseProgressCore(
     userId?: Id<"users">;
   }
 ) {
-    const course = await ctx.db.get(args.courseId);
-    if (!course) {
-      throw new Error("Course not found");
-    }
+  const course = await ctx.db.get(args.courseId);
+  if (!course) {
+    throw new Error("Course not found");
+  }
 
-    // Get all chapters
-    const chapters = await ctx.db
-      .query("chapters")
+  // Get all chapters
+  const chapters = await ctx.db
+    .query("chapters")
+    .withIndex("by_courseId", (q) => q.eq("courseId", args.courseId))
+    .collect();
+
+  // Get all content items
+  const allContentItems = await Promise.all(
+    chapters.map((chapter) =>
+      ctx.db
+        .query("contentItems")
+        .withIndex("by_chapterId", (q) => q.eq("chapterId", chapter._id))
+        .collect()
+    )
+  );
+  const contentItems = allContentItems.flat();
+
+  // Get users to recalculate for
+  let progressRecords;
+  if (args.userId) {
+    progressRecords = await ctx.db
+      .query("progress")
+      .withIndex("by_userId_courseId", (q) =>
+        q.eq("userId", args.userId as Id<"users">).eq("courseId", args.courseId)
+      )
+      .collect();
+  } else {
+    progressRecords = await ctx.db
+      .query("progress")
       .withIndex("by_courseId", (q) => q.eq("courseId", args.courseId))
       .collect();
-
-    // Get all content items
-    const allContentItems = await Promise.all(
-      chapters.map((chapter) =>
-        ctx.db
-          .query("contentItems")
-          .withIndex("by_chapterId", (q) => q.eq("chapterId", chapter._id))
-          .collect()
-      )
-    );
-    const contentItems = allContentItems.flat();
-
-    // Get users to recalculate for
-    let progressRecords;
-    if (args.userId) {
-      progressRecords = await ctx.db
-        .query("progress")
-        .withIndex("by_userId_courseId", (q) =>
-          q.eq("userId", args.userId as Id<"users">).eq("courseId", args.courseId)
-        )
-        .collect();
-    } else {
-      progressRecords = await ctx.db
-        .query("progress")
-        .withIndex("by_courseId", (q) => q.eq("courseId", args.courseId))
-        .collect();
-    }
-
-    let updatedCount = 0;
-    let dedupedCount = 0;
-
-    const progressByUser = new Map<Id<"users">, typeof progressRecords>();
-    for (const record of progressRecords) {
-      const list = progressByUser.get(record.userId);
-      if (list) {
-        list.push(record);
-      } else {
-        progressByUser.set(record.userId, [record]);
-      }
-    }
-
-    const isCertificationCourse = course.isCertification ?? false;
-    const coursePassingGrade = course.passingGrade ?? 70;
-
-    for (const records of progressByUser.values()) {
-      const summaries = summarizeProgressByContentItem(records);
-
-      for (const summary of summaries.values()) {
-        const contentItem = contentItems.find((item) => item._id === summary.contentItemId);
-        if (!contentItem) {
-          continue;
-        }
-
-        const isGraded = contentItem.isGraded ?? false;
-        const passingScore = contentItem.passingScore ?? coursePassingGrade;
-        const bestPercentage = summary.bestPercentage ?? 0;
-        const everPassed = isGraded ? bestPercentage >= passingScore : true;
-
-        const shouldBeCompleted = isGraded && isCertificationCourse
-          ? (summary.canonical.completed || everPassed)
-          : summary.completed || summary.attempts > 0;
-
-        const desiredCompletedAt = shouldBeCompleted
-          ? summary.canonical.completedAt ?? summary.completedAt ?? summary.lastActivityAt ?? Date.now()
-          : undefined;
-
-        const duplicates = summary.entries.filter((entry) => entry._id !== summary.canonical._id);
-        for (const duplicate of duplicates) {
-          await ctx.db.delete(duplicate._id);
-          dedupedCount++;
-        }
-
-        const updates: Partial<Doc<"progress">> = {
-          completed: shouldBeCompleted,
-          completedAt: shouldBeCompleted ? desiredCompletedAt : undefined,
-          isGradedItem: isGraded,
-          passed: isGraded ? everPassed : (summary.canonical.passed ?? true),
-          latestPassed: isGraded ? summary.latestPassed ?? (everPassed ? true : false) : summary.canonical.latestPassed,
-          bestScore: bestPercentage,
-          attempts: summary.attempts,
-          progressPercentage: summary.progressPercentage,
-          lastAttemptAt: summary.lastActivityAt,
-        };
-
-        if (summary.latestScore !== undefined) {
-          updates.score = summary.latestScore;
-        }
-
-        if (summary.latestPercentage !== undefined) {
-          updates.percentage = summary.latestPercentage;
-        }
-
-        const needsUpdate =
-          updates.completed !== summary.canonical.completed ||
-          (updates.completedAt ?? null) !== (summary.canonical.completedAt ?? null) ||
-          (updates.isGradedItem ?? null) !== (summary.canonical.isGradedItem ?? null) ||
-          (updates.passed ?? null) !== (summary.canonical.passed ?? null) ||
-          (updates.latestPassed ?? null) !== (summary.canonical.latestPassed ?? null) ||
-          (updates.bestScore ?? null) !== (summary.canonical.bestScore ?? null) ||
-          (updates.attempts ?? null) !== (summary.canonical.attempts ?? null) ||
-          (updates.progressPercentage ?? null) !== (summary.canonical.progressPercentage ?? null) ||
-          (updates.lastAttemptAt ?? null) !== (summary.canonical.lastAttemptAt ?? null) ||
-          (summary.latestScore !== undefined && (updates.score ?? null) !== (summary.canonical.score ?? null)) ||
-          (summary.latestPercentage !== undefined && (updates.percentage ?? null) !== (summary.canonical.percentage ?? null));
-
-        if (needsUpdate) {
-          await ctx.db.patch(summary.canonical._id, updates);
-          updatedCount++;
-        }
-      }
-    }
-
-    return {
-      success: true,
-      updatedRecords: updatedCount,
-      removedDuplicates: dedupedCount,
-      totalRecords: progressRecords.length,
-      message: `Recalculated progress for ${updatedCount} records (removed ${dedupedCount} duplicates)`,
-    };
   }
+
+  let updatedCount = 0;
+  let dedupedCount = 0;
+
+  const progressByUser = new Map<Id<"users">, typeof progressRecords>();
+  for (const record of progressRecords) {
+    const list = progressByUser.get(record.userId);
+    if (list) {
+      list.push(record);
+    } else {
+      progressByUser.set(record.userId, [record]);
+    }
+  }
+
+  const isCertificationCourse = course.isCertification ?? false;
+  const coursePassingGrade = course.passingGrade ?? 70;
+
+  for (const records of progressByUser.values()) {
+    const summaries = summarizeProgressByContentItem(records);
+
+    for (const summary of summaries.values()) {
+      const contentItem = contentItems.find((item) => item._id === summary.contentItemId);
+      if (!contentItem) {
+        continue;
+      }
+
+      const isGraded = contentItem.isGraded ?? false;
+      const passingScore = contentItem.passingScore ?? coursePassingGrade;
+      const bestPercentage = summary.bestPercentage ?? 0;
+      const everPassed = isGraded ? bestPercentage >= passingScore : true;
+
+      const shouldBeCompleted = isGraded && isCertificationCourse
+        ? (summary.canonical.completed || everPassed)
+        : summary.completed || summary.attempts > 0;
+
+      const desiredCompletedAt = shouldBeCompleted
+        ? summary.canonical.completedAt ?? summary.completedAt ?? summary.lastActivityAt ?? Date.now()
+        : undefined;
+
+      const duplicates = summary.entries.filter((entry) => entry._id !== summary.canonical._id);
+      for (const duplicate of duplicates) {
+        await ctx.db.delete(duplicate._id);
+        dedupedCount++;
+      }
+
+      const updates: Partial<Doc<"progress">> = {
+        completed: shouldBeCompleted,
+        completedAt: shouldBeCompleted ? desiredCompletedAt : undefined,
+        isGradedItem: isGraded,
+        passed: isGraded ? everPassed : (summary.canonical.passed ?? true),
+        latestPassed: isGraded ? summary.latestPassed ?? (everPassed ? true : false) : summary.canonical.latestPassed,
+        bestScore: bestPercentage,
+        attempts: summary.attempts,
+        progressPercentage: summary.progressPercentage,
+        lastAttemptAt: summary.lastActivityAt,
+      };
+
+      if (summary.latestScore !== undefined) {
+        updates.score = summary.latestScore;
+      }
+
+      if (summary.latestPercentage !== undefined) {
+        updates.percentage = summary.latestPercentage;
+      }
+
+      const needsUpdate =
+        updates.completed !== summary.canonical.completed ||
+        (updates.completedAt ?? null) !== (summary.canonical.completedAt ?? null) ||
+        (updates.isGradedItem ?? null) !== (summary.canonical.isGradedItem ?? null) ||
+        (updates.passed ?? null) !== (summary.canonical.passed ?? null) ||
+        (updates.latestPassed ?? null) !== (summary.canonical.latestPassed ?? null) ||
+        (updates.bestScore ?? null) !== (summary.canonical.bestScore ?? null) ||
+        (updates.attempts ?? null) !== (summary.canonical.attempts ?? null) ||
+        (updates.progressPercentage ?? null) !== (summary.canonical.progressPercentage ?? null) ||
+        (updates.lastAttemptAt ?? null) !== (summary.canonical.lastAttemptAt ?? null) ||
+        (summary.latestScore !== undefined && (updates.score ?? null) !== (summary.canonical.score ?? null)) ||
+        (summary.latestPercentage !== undefined && (updates.percentage ?? null) !== (summary.canonical.percentage ?? null));
+
+      if (needsUpdate) {
+        await ctx.db.patch(summary.canonical._id, updates);
+        updatedCount++;
+      }
+    }
+  }
+
+  return {
+    success: true,
+    updatedRecords: updatedCount,
+    removedDuplicates: dedupedCount,
+    totalRecords: progressRecords.length,
+    message: `Recalculated progress for ${updatedCount} records (removed ${dedupedCount} duplicates)`,
+  };
+}
 
 export const recalculateCourseProgress = internalMutation({
   args: {

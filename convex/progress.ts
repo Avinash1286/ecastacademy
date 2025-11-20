@@ -11,9 +11,7 @@ export const submitQuizAttempt = mutation({
   args: {
     userId: v.id("users"),
     contentItemId: v.id("contentItems"),
-    answers: v.any(), // Quiz answers array
-    score: v.number(), // Score achieved (0-100)
-    maxScore: v.optional(v.number()), // Maximum possible score (default 100)
+    answers: v.any(), // Quiz answers array (indices)
   },
   handler: async (ctx, args) => {
     // Get user
@@ -40,10 +38,67 @@ export const submitQuizAttempt = mutation({
       throw new Error("Course not found");
     }
 
-    const maxScore = args.maxScore ?? contentItem.maxPoints ?? 100;
-    const percentage = (args.score / maxScore) * 100;
+    // Calculate score on server
+    let score = 0;
+    let maxScore = 0;
+    let passed = false;
+    let percentage = 0;
+
+    if (contentItem.type === "quiz" && contentItem.quizData) {
+      // Handle standard quiz type
+      const questions = contentItem.quizData.questions || [];
+      maxScore = questions.length; // 1 point per question for now
+
+      // Calculate score
+      if (Array.isArray(args.answers)) {
+        args.answers.forEach((answerIndex: number, questionIndex: number) => {
+          if (questions[questionIndex] && questions[questionIndex].correctIndex === answerIndex) {
+            score++;
+          }
+        });
+      }
+    } else if (contentItem.type === "text" && contentItem.textQuiz) {
+      // Handle text quiz type
+      const questions = contentItem.textQuiz.questions || [];
+      maxScore = questions.length;
+
+      if (Array.isArray(args.answers)) {
+        args.answers.forEach((answerIndex: number, questionIndex: number) => {
+          if (questions[questionIndex] && questions[questionIndex].correctIndex === answerIndex) {
+            score++;
+          }
+        });
+      }
+    } else if (contentItem.type === "video" && contentItem.videoId) {
+      // Handle video quiz
+      const video = await ctx.db.get(contentItem.videoId);
+      if (video && video.quiz) {
+        const questions = video.quiz.questions || [];
+        maxScore = questions.length;
+
+        if (Array.isArray(args.answers)) {
+          args.answers.forEach((answerIndex: number, questionIndex: number) => {
+            if (questions[questionIndex] && questions[questionIndex].correctIndex === answerIndex) {
+              score++;
+            }
+          });
+        }
+      } else {
+        // Fallback if no quiz data found but it's a graded video
+        // This shouldn't happen for properly set up quizzes
+        maxScore = contentItem.maxPoints ?? 100;
+        score = 0; // Fail by default if we can't verify
+      }
+    } else {
+      // Fallback for other types or missing data
+      maxScore = contentItem.maxPoints ?? 100;
+      score = 0;
+    }
+
+    // Calculate percentage
+    percentage = maxScore > 0 ? (score / maxScore) * 100 : 0;
     const passingScore = contentItem.passingScore ?? 70;
-    const passed = percentage >= passingScore;
+    passed = percentage >= passingScore;
 
     // Get existing attempts count for this content item
     const existingAttempts = await ctx.db
@@ -62,7 +117,7 @@ export const submitQuizAttempt = mutation({
       contentItemId: args.contentItemId,
       attemptNumber: attemptNumber,
       answers: args.answers,
-      score: args.score,
+      score: score,
       maxScore: maxScore,
       percentage: percentage,
       passed: passed,
@@ -92,7 +147,7 @@ export const submitQuizAttempt = mutation({
       const now = Date.now();
 
       await ctx.db.patch(existingProgress._id, {
-        score: args.score,
+        score: score,
         maxScore: maxScore,
         percentage: percentage,
         passed: everPassed,
@@ -113,7 +168,7 @@ export const submitQuizAttempt = mutation({
         chapterId: chapter._id,
         contentItemId: args.contentItemId,
         isGradedItem: contentItem.isGraded ?? false,
-        score: args.score,
+        score: score,
         maxScore: maxScore,
         percentage: percentage,
         passed: contentItem.isGraded ? passed : true,
@@ -127,7 +182,7 @@ export const submitQuizAttempt = mutation({
     }
     return {
       attemptId,
-      score: args.score,
+      score: score,
       maxScore: maxScore,
       percentage: percentage,
       passed: passed,
@@ -170,7 +225,7 @@ export const markItemComplete = mutation({
     // Calculate scoring if provided
     let percentage: number | undefined;
     let passed: boolean | undefined;
-    
+
     if (args.score !== undefined) {
       const maxScore = args.maxScore ?? contentItem.maxPoints ?? 100;
       percentage = (args.score / maxScore) * 100;

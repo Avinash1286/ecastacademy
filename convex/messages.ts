@@ -44,3 +44,52 @@ export const list = query({
         return messages;
     },
 });
+
+export const saveAIResponse = mutation({
+    args: {
+        chatId: v.string(),
+        content: v.string(),
+    },
+    handler: async (ctx, args) => {
+        const identity = await ctx.auth.getUserIdentity();
+        if (!identity) {
+            throw new Error("Unauthorized");
+        }
+
+        const user = await ctx.db
+            .query("users")
+            .withIndex("by_email", (q) => q.eq("email", identity.email!))
+            .first();
+
+        if (!user) {
+            throw new Error("User not found");
+        }
+
+        // Find the session
+        const session = await ctx.db
+            .query("chatSessions")
+            .withIndex("by_userId_chatId", (q) =>
+                q.eq("userId", user._id).eq("chatId", args.chatId)
+            )
+            .first();
+
+        if (!session) {
+            throw new Error("Session not found");
+        }
+
+        // Insert the message
+        await ctx.db.insert("messages", {
+            sessionId: session._id,
+            userId: user._id, // Technically the AI is speaking, but we associate it with the user's session. 
+            // Ideally we should have a 'role' field which we do.
+            role: "assistant",
+            content: args.content,
+            createdAt: Date.now(),
+        });
+
+        // Update last message time
+        await ctx.db.patch(session._id, {
+            lastMessageAt: Date.now(),
+        });
+    },
+});
