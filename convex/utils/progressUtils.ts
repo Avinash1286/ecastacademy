@@ -13,6 +13,8 @@ export type ProgressSummary = {
   completedAt?: number;
   progressPercentage: number;
   lastActivityAt: number;
+  attempted: boolean;
+  attemptedAt?: number;
 };
 
 /**
@@ -47,6 +49,8 @@ export function summarizeProgressByContentItem(
         completedAt: record.completedAt,
         progressPercentage: record.progressPercentage ?? 0,
         lastActivityAt: recordLastActivity,
+  attempted: record.attempted ?? ((record.attempts ?? 0) > 0 || record.completed),
+        attemptedAt: record.attemptedAt ?? record.lastAttemptAt ?? record.completedAt,
       };
       summaries.set(contentItemId, summary);
       continue;
@@ -65,6 +69,13 @@ export function summarizeProgressByContentItem(
     if (record.completed && !summary.completed) {
       summary.completed = true;
       summary.completedAt = record.completedAt ?? summary.completedAt;
+    }
+
+    if ((record.attempted ?? false) && !summary.attempted) {
+      summary.attempted = true;
+      summary.attemptedAt = record.attemptedAt ?? record.lastAttemptAt ?? summary.attemptedAt;
+    } else if (record.attemptedAt && (summary.attemptedAt ?? 0) < record.attemptedAt) {
+      summary.attemptedAt = record.attemptedAt;
     }
 
     if ((record.progressPercentage ?? 0) > summary.progressPercentage) {

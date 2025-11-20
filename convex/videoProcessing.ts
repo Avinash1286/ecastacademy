@@ -1,8 +1,14 @@
 import { v } from "convex/values";
 import { action, internalAction, internalMutation, internalQuery, query, mutation } from "./_generated/server";
 import { internal } from "./_generated/api";
-
-const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent";
+import { generateNotes, generateQuiz } from "@shared/ai/generation";
+import { validateAndCorrectJson } from "@shared/ai/structuredValidation";
+import {
+  generatedQuizSchema,
+  generatedQuizSchemaDescription,
+  interactiveNotesSchema,
+  interactiveNotesSchemaDescription,
+} from "@/lib/validators/generatedContentSchemas";
 
 const RATE_LIMIT_DELAY = 5000; // 5 seconds between videos
 
@@ -106,123 +112,38 @@ export const processVideoInternal = internalAction({
         throw new Error("Video not found");
       }
 
-      const geminiApiKey = process.env.GEMINI_API_KEY;
-
-      if (!geminiApiKey) {
+      if (!process.env.GEMINI_API_KEY) {
         throw new Error("GEMINI_API_KEY not configured. Please set it in Convex environment variables.");
       }
 
-      // Notes generation prompt
-      const notesPrompt = `You are an expert educator creating comprehensive, interactive study notes. Generate detailed notes for the provided youtube transcript.
+      const rawTranscript = typeof video.transcript === "string" ? video.transcript : "";
+      if (!rawTranscript) {
+        throw new Error("Transcript missing for video. Unable to generate notes.");
+      }
 
-Structure your response as a JSON object with this exact format:
-{
-  "topic": "Topic Name",
-  "sections": [
-    {
-      "title": "Section Title",
-      "content": "Detailed explanation in paragraph form",
-      "keyPoints": ["Key point 1", "Key point 2", "Key point 3"],
-      "examples": ["Example 1", "Example 2"],
-      "callouts": [],
-      "codeBlocks": [],
-      "highlights": [],
-      "definitions": [],
-      "quiz": []
-    }
-  ]
-}
-
-Video Title: ${video.title}
-
-Transcript:
-${video.transcript}
-
-Respond ONLY with valid JSON - no other text or markdown formatting.`;
-
-      // Generate notes using Gemini API directly
-      const notesResponse = await fetch(`${GEMINI_API_URL}?key=${geminiApiKey}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{
-            parts: [{ text: notesPrompt }]
-          }]
-        }),
+      let notesJson = await generateNotes(rawTranscript, { videoTitle: video.title });
+      notesJson = await validateAndCorrectJson(notesJson, {
+        schema: interactiveNotesSchema,
+        schemaName: "InteractiveNotes",
+        schemaDescription: interactiveNotesSchemaDescription,
+        originalInput: rawTranscript,
+        format: "interactive-notes",
       });
-
-      if (!notesResponse.ok) {
-        const errorText = await notesResponse.text();
-        throw new Error(`Failed to generate notes: ${notesResponse.status} - ${errorText}`);
-      }
-
-      const notesResult = await notesResponse.json();
-      const notesText = notesResult.candidates?.[0]?.content?.parts?.[0]?.text;
-      
-      if (!notesText) {
-        throw new Error("No notes generated from AI");
-      }
-
-      // Parse the JSON response (remove markdown code blocks if present)
-      const cleanNotesText = notesText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-      const notes = JSON.parse(cleanNotesText);
+      const notes = JSON.parse(notesJson);
 
       // Wait 5 seconds before making the next API call to avoid rate limits
       await new Promise(resolve => setTimeout(resolve, 5000));
 
-      // Quiz generation prompt
-      const quizPrompt = `Generate a quiz about the provided content with 5-8 multiple-choice questions. 
-Format the response as a JSON object with this exact structure:
-{
-  "topic": "Topic name",
-  "questions": [
-    {
-      "question": "Question text here?",
-      "options": ["Option A", "Option B", "Option C", "Option D"],
-      "correct": 0,
-      "explanation": "Brief explanation of why this is correct"
-    }
-  ]
-}
-
-Make sure:
-- Each question has exactly 4 options
-- The "correct" field is the index (0-3) of the correct answer
-- Questions test understanding of key concepts
-
-Video Title: ${video.title}
-
-Content:
-${JSON.stringify(notes)}
-
-Respond ONLY with valid JSON - no other text or markdown formatting.`;
-
-      // Generate quiz using Gemini API
-      const quizResponse = await fetch(`${GEMINI_API_URL}?key=${geminiApiKey}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{
-            parts: [{ text: quizPrompt }]
-          }]
-        }),
+      const notesContext = JSON.stringify(notes);
+      let quizJson = await generateQuiz(notesContext);
+      quizJson = await validateAndCorrectJson(quizJson, {
+        schema: generatedQuizSchema,
+        schemaName: "InteractiveQuiz",
+        schemaDescription: generatedQuizSchemaDescription,
+        originalInput: notesContext,
+        format: "interactive-quiz",
       });
-
-      if (!quizResponse.ok) {
-        const errorText = await quizResponse.text();
-        throw new Error(`Failed to generate quiz: ${quizResponse.status} - ${errorText}`);
-      }
-
-      const quizResult = await quizResponse.json();
-      const quizText = quizResult.candidates?.[0]?.content?.parts?.[0]?.text;
-
-      if (!quizText) {
-        throw new Error("No quiz generated from AI");
-      }
-
-      // Parse the JSON response (remove markdown code blocks if present)
-      const cleanQuizText = quizText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-      const quiz = JSON.parse(cleanQuizText);
+      const quiz = JSON.parse(quizJson);
 
       // Update video with generated content
       await ctx.runMutation(internal.videoProcessing.updateVideoContent, {

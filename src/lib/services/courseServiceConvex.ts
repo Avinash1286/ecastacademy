@@ -5,6 +5,12 @@ import { validateAndCorrectJson } from "@/lib/utils";
 import { TCreateCourseSchema, TUpdateCourseSchema } from "@/lib/validators/courseValidator";
 import { formatDuration } from "@/lib/youtube";
 import { createConvexClient } from "@/lib/convexClient";
+import {
+  generatedQuizSchema,
+  generatedQuizSchemaDescription,
+  interactiveNotesSchema,
+  interactiveNotesSchemaDescription,
+} from "@/lib/validators/generatedContentSchemas";
 
 const convex = createConvexClient();
 
@@ -44,20 +50,31 @@ export async function createCourseWithProgress(
         progress: videoProgress,
       });
     } else {
-      onProgress({ message: `Generating notes for: ${video.title}`, progress: videoProgress });
-      let notes = await generateNotes(video.transcript ?? "");
-      notes = await validateAndCorrectJson(notes);
+  onProgress({ message: `Generating notes for: ${video.title}`, progress: videoProgress });
+  let notes = await generateNotes(video.transcript ?? "", { videoTitle: video.title });
+      notes = await validateAndCorrectJson(notes, {
+        schema: interactiveNotesSchema,
+        schemaName: "InteractiveNotes",
+        schemaDescription: interactiveNotesSchemaDescription,
+        originalInput: video.transcript ?? "",
+        format: "interactive-notes",
+      });
+      const notesObject = JSON.parse(notes);
 
       onProgress({
         message: `Generating quiz for: ${video.title}`,
         progress: videoProgress + 5 / totalVideos,
       });
-      let quiz = await generateQuiz(JSON.stringify(notes));
-      quiz = await validateAndCorrectJson(quiz);
-
-      // Parse the JSON strings to objects before saving
-      const notesObject = JSON.parse(notes);
-      const quizObject = JSON.parse(quiz);
+      const notesContext = JSON.stringify(notesObject);
+      let quiz = await generateQuiz(notesContext);
+      quiz = await validateAndCorrectJson(quiz, {
+        schema: generatedQuizSchema,
+        schemaName: "InteractiveQuiz",
+        schemaDescription: generatedQuizSchemaDescription,
+        originalInput: notesContext,
+        format: "interactive-quiz",
+      });
+  const quizObject = JSON.parse(quiz);
 
       videoId = await convex.mutation(api.videos.createVideo, {
         youtubeVideoId: video.id,

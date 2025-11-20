@@ -171,6 +171,8 @@ export default defineSchema({
     completed: v.boolean(),
     completedAt: v.optional(v.number()),
     progressPercentage: v.optional(v.number()),
+    attempted: v.optional(v.boolean()),
+    attemptedAt: v.optional(v.number()),
     
     // Grading and scoring fields
     isGradedItem: v.optional(v.boolean()), // Is this a graded item?
@@ -254,4 +256,18 @@ export default defineSchema({
     .index("by_courseId", ["courseId"])
     .index("by_userId_courseId", ["userId", "courseId"])
     .index("by_status", ["status"]),
+
+  chatSessions: defineTable({
+    userId: v.id("users"),
+    chatId: v.string(),
+    chapterId: v.optional(v.string()),
+    contentItemId: v.optional(v.string()),
+    courseId: v.optional(v.string()),
+    title: v.optional(v.string()),
+    messages: v.any(),
+    createdAt: v.number(),
+    lastMessageAt: v.number(),
+  })
+    .index("by_userId_chatId", ["userId", "chatId"])
+    .index("by_userId_lastMessageAt", ["userId", "lastMessageAt"]),
 });

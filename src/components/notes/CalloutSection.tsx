@@ -75,7 +75,9 @@ export function CalloutSection({ type, title, content, bullets }: CalloutSection
   return (
     <Card className={cn("my-6 p-4 border-l-4", config.className)}>
       <div className="flex items-center gap-3">
-        <Icon className={cn("w-5 h-5", config.headerClassName)} />
+        <div className="rounded-full bg-current/10 p-1">
+          <Icon className={cn("w-6 h-6 drop-shadow-sm", config.headerClassName)} />
+        </div>
         <h4 className={cn("font-semibold", config.headerClassName)}>
           {displayTitle}
         </h4>

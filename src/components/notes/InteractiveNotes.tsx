@@ -1,5 +1,5 @@
 import { Button } from '@/components/ui/button';
-import { Copy, FlaskConical } from 'lucide-react';
+import { Copy, FlaskConical, Lightbulb, Sparkles, ClipboardList, Target } from 'lucide-react';
 import { QuizQuestion } from '@/components/notes/QuizQuestion';
 import { CalloutSection } from '@/components/notes/CalloutSection';
 import { CodeBlock } from '@/components/notes/CodeBlock';
@@ -10,7 +10,7 @@ import { InteractiveNotesProps } from '@/lib/types';
 
 
 
-export function InteractiveNotes({ topic, sections }: InteractiveNotesProps) {
+export function InteractiveNotes({ topic, sections, learningObjectives, summary }: InteractiveNotesProps) {
 
   const copyToClipboard = async (content: string) => {
     try {
@@ -34,6 +34,23 @@ export function InteractiveNotes({ topic, sections }: InteractiveNotesProps) {
         </div>
       </div>
 
+      {learningObjectives && learningObjectives.length > 0 && (
+        <div className="rounded-xl border border-primary/10 bg-primary/5 p-6">
+          <div className="flex items-center gap-3 mb-4">
+            <Target className="h-5 w-5 text-primary" />
+            <h2 className="text-lg font-semibold text-foreground">Learning Objectives</h2>
+          </div>
+          <ul className="grid gap-3 md:grid-cols-2">
+            {learningObjectives.map((objective, index) => (
+              <li key={index} className="flex items-start gap-2 text-sm text-foreground">
+                <span className="mt-1 inline-flex h-2 w-2 rounded-full bg-primary" />
+                <span>{objective}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <div className="space-y-8">
         {sections.map((section, sectionIndex) => (
           <div key={sectionIndex} className="space-y-6">
@@ -55,11 +72,34 @@ export function InteractiveNotes({ topic, sections }: InteractiveNotesProps) {
                   </div>
                 </div>
 
+                {section.introHook && (
+                  <div className="mb-4 flex items-start gap-3 rounded-lg border border-yellow-200 bg-yellow-50 p-4 dark:border-yellow-800 dark:bg-yellow-950/40">
+                    <Sparkles className="mt-1 h-4 w-4 text-yellow-600 dark:text-yellow-300" />
+                    <p className="text-sm text-muted-foreground">
+                      {section.introHook}
+                    </p>
+                  </div>
+                )}
+
                 <div className="prose prose-gray dark:prose-invert max-w-none mb-6">
                   <p className="text-foreground leading-relaxed whitespace-pre-line">
                     {section.content}
                   </p>
                 </div>
+
+                {section.microSummary && (
+                  <div className="mb-6 rounded-lg border border-blue-200 bg-blue-50 p-4 dark:border-blue-900 dark:bg-blue-950/40">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Lightbulb className="h-4 w-4 text-blue-600 dark:text-blue-300" />
+                      <span className="text-sm font-semibold text-blue-700 dark:text-blue-200">
+                        Quick Recap
+                      </span>
+                    </div>
+                    <p className="text-sm text-blue-800 dark:text-blue-100">
+                      {section.microSummary}
+                    </p>
+                  </div>
+                )}
 
                 {section.keyPoints && section.keyPoints.length > 0 && (
                   <div className="mb-6">
@@ -157,6 +197,48 @@ export function InteractiveNotes({ topic, sections }: InteractiveNotesProps) {
                     ))}
                   </div>
                 )}
+
+                {section.interactivePrompts && section.interactivePrompts.length > 0 && (
+                  <div className="mb-6 space-y-4">
+                    <h3 className="text-lg font-semibold text-foreground">Try It Yourself</h3>
+                    {section.interactivePrompts.map((activity, activityIndex) => (
+                      <div
+                        key={activityIndex}
+                        className="rounded-lg border border-purple-200 bg-purple-50 p-4 dark:border-purple-900 dark:bg-purple-950/40"
+                      >
+                        <div className="flex items-center gap-2 mb-2">
+                          <Sparkles className="h-4 w-4 text-purple-600 dark:text-purple-300" />
+                          <span className="text-sm font-semibold uppercase tracking-wide text-purple-700 dark:text-purple-200">
+                            {activity.type.replace('-', ' ')}
+                          </span>
+                        </div>
+                        <h4 className="text-base font-semibold text-foreground">{activity.title}</h4>
+                        <p className="mt-2 text-sm text-muted-foreground">{activity.prompt}</p>
+                        {activity.steps && (
+                          <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm text-foreground">
+                            {activity.steps.map((step, stepIndex) => (
+                              <li key={stepIndex}>{step}</li>
+                            ))}
+                          </ol>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {section.reflectionQuestions && section.reflectionQuestions.length > 0 && (
+                  <div className="mb-6 rounded-lg border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900 dark:bg-emerald-950/40">
+                    <div className="flex items-center gap-2 mb-3">
+                      <ClipboardList className="h-4 w-4 text-emerald-600 dark:text-emerald-300" />
+                      <h3 className="text-sm font-semibold text-emerald-700 dark:text-emerald-200">Reflection Prompts</h3>
+                    </div>
+                    <ul className="space-y-2 text-sm text-emerald-800 dark:text-emerald-100">
+                      {section.reflectionQuestions.map((question, questionIndex) => (
+                        <li key={questionIndex}>• {question}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -179,6 +261,29 @@ export function InteractiveNotes({ topic, sections }: InteractiveNotesProps) {
           </div>
         ))}
       </div>
+
+      {summary && (
+        <div className="rounded-xl border border-muted bg-muted/40 p-6">
+          <div className="flex items-center gap-3 mb-4">
+            <ClipboardList className="h-5 w-5 text-foreground" />
+            <h2 className="text-lg font-semibold text-foreground">Session Wrap-up</h2>
+          </div>
+          <p className="mb-3 text-sm text-muted-foreground">{summary.recap}</p>
+          {summary.keyTakeaway && (
+            <p className="mb-3 text-sm font-semibold text-foreground">Key Takeaway: {summary.keyTakeaway}</p>
+          )}
+          {summary.nextSteps && summary.nextSteps.length > 0 && (
+            <div>
+              <h3 className="mb-2 text-sm font-semibold text-foreground">Next Steps</h3>
+              <ul className="space-y-1 text-sm text-muted-foreground">
+                {summary.nextSteps.map((step, index) => (
+                  <li key={index}>• {step}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

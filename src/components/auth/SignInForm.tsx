@@ -36,7 +36,8 @@ export function SignInForm() {
         router.push("/dashboard");
         router.refresh();
       }
-    } catch (err) {
+    } catch (error) {
+      console.error("Failed to sign in", error);
       setError("An error occurred. Please try again.");
     } finally {
       setIsLoading(false);

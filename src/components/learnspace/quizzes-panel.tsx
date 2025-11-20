@@ -40,7 +40,7 @@ export function QuizzesPanel({
     api.completions.getQuizAttemptHistory,
     contentItem?.id && userId
       ? { 
-          userId: userId,
+          userId,
           contentItemId: contentItem.id as Id<"contentItems"> 
         }
       : "skip"

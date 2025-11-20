@@ -71,7 +71,8 @@ export function ResetPasswordForm({ token }: ResetPasswordFormProps) {
         // Redirect to signin with success message
         router.push("/auth/signin?reset=success");
       }
-    } catch (err) {
+    } catch (error) {
+      console.error("Failed to reset password", error);
       setError("An error occurred. Please try again.");
     } finally {
       setIsLoading(false);

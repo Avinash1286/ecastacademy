@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internalMutation, mutation, query, MutationCtx } from "./_generated/server";
 import { Id } from "./_generated/dataModel";
 import { summarizeProgressByContentItem } from "./utils/progressUtils";
+import { calculateStudentGrade } from "./utils/grading";
 
 /**
  * =============================================================================
@@ -153,32 +154,14 @@ async function processCertificateRequest(
   const progressSummaryMap = summarizeProgressByContentItem(progressRecords);
   const passingGrade = course.passingGrade ?? 70;
 
-  let missingCount = 0;
-  let failedCount = 0;
-  let totalPossiblePoints = 0;
-  let totalEarnedPoints = 0;
-
-  for (const item of gradedItems) {
-    const summary = progressSummaryMap.get(item._id);
-    if (!summary) {
-      missingCount += 1;
-      continue;
-    }
-
-    const maxPoints = item.maxPoints ?? 100;
-    const bestPercentage = summary.bestPercentage ?? 0;
-    const itemPassingScore = item.passingScore ?? passingGrade;
-
-    totalPossiblePoints += maxPoints;
-    totalEarnedPoints += (bestPercentage / 100) * maxPoints;
-
-    if (bestPercentage < itemPassingScore) {
-      failedCount += 1;
-    }
-  }
+  const {
+    missingCount,
+    failedCount,
+    overallGrade,
+    attemptedCount
+  } = calculateStudentGrade(gradedItems, progressSummaryMap, passingGrade);
 
   if (missingCount > 0) {
-    const attemptedCount = gradedItems.length - missingCount;
     return {
       eligible: false,
       issued: false,
@@ -193,10 +176,6 @@ async function processCertificateRequest(
       reason: `${failedCount} graded item(s) not passed`,
     };
   }
-
-  const overallGrade = totalPossiblePoints > 0
-    ? (totalEarnedPoints / totalPossiblePoints) * 100
-    : 0;
 
   if (overallGrade < passingGrade) {
     return {
@@ -284,40 +263,16 @@ export const debugCertificateEligibility = query({
     const progressSummaryMap = summarizeProgressByContentItem(progressRecords);
     const passingGrade = course.passingGrade ?? 70;
 
+    const {
+      overallGrade,
+      attemptedCount: attemptedGradedCount,
+      passedCount: passedGradedItems,
+    } = calculateStudentGrade(gradedContentItems, progressSummaryMap, passingGrade);
+
     const gradedSummaries = gradedContentItems.map((item) => ({
       item,
       summary: progressSummaryMap.get(item._id),
     }));
-
-    const attemptedGradedCount = gradedSummaries.filter(({ summary }) => !!summary).length;
-    const passedGradedItems = gradedSummaries.reduce((count, { item, summary }) => {
-      if (!summary) {
-        return count;
-      }
-      const bestPercentage = summary.bestPercentage ?? 0;
-      const itemPassingScore = item.passingScore ?? passingGrade;
-      return bestPercentage >= itemPassingScore ? count + 1 : count;
-    }, 0);
-
-    let overallGrade: number | null = null;
-    if (attemptedGradedCount > 0) {
-      let totalPossiblePoints = 0;
-      let totalEarnedPoints = 0;
-
-      for (const { item, summary } of gradedSummaries) {
-        if (!summary) {
-          continue;
-        }
-        const maxPoints = item.maxPoints ?? 100;
-        const bestPercentage = summary.bestPercentage ?? 0;
-        totalPossiblePoints += maxPoints;
-        totalEarnedPoints += (bestPercentage / 100) * maxPoints;
-      }
-
-      if (totalPossiblePoints > 0) {
-        overallGrade = (totalEarnedPoints / totalPossiblePoints) * 100;
-      }
-    }
 
     const hasGradedItems = gradedContentItems.length > 0;
     const allGradedItemsAttempted = hasGradedItems && attemptedGradedCount === gradedContentItems.length;

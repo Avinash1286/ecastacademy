@@ -22,14 +22,14 @@ export function UserButton() {
     return null;
   }
 
-  const user = session.user as any;
+    const user = session.user;
   const initials = user.name
-    ? user.name
-        .split(" ")
-        .map((n: string) => n[0])
-        .join("")
-        .toUpperCase()
-        .slice(0, 2)
+  ? user.name
+    .split(" ")
+    .map((n) => n[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2)
     : user.email?.[0]?.toUpperCase() || "U";
 
   const handleSignOut = () => {

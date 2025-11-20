@@ -61,6 +61,7 @@ export type ContentItem = {
     notes: InteractiveNotesProps;
     quiz: Quiz;
     transcript: string | null;
+    hasTranscript?: boolean;
   } | null;
   resourceUrl?: string;
   resourceTitle?: string;
@@ -112,16 +113,27 @@ export interface DefinitionCard {
   example?: string;
 }
 
+export interface InteractivePrompt {
+  type: 'thought-experiment' | 'hands-on' | 'self-check';
+  title: string;
+  prompt: string;
+  steps?: string[];
+}
+
 
 export interface NoteSection {
   title: string;
+  introHook?: string;
   content: string;
+  microSummary?: string;
   keyPoints?: string[];
   examples?: string[];
   callouts?: CalloutSection[];
   codeBlocks?: CodeBlock[];
   highlights?: HighlightBox[];
   definitions?: DefinitionCard[];
+  interactivePrompts?: InteractivePrompt[];
+  reflectionQuestions?: string[];
   quiz?: {
     type: 'mcq' | 'true-false' | 'fill-blank';
     question: string;
@@ -133,6 +145,12 @@ export interface NoteSection {
 
 export interface InteractiveNotesProps {
   topic: string;
+  learningObjectives?: string[];
+  summary?: {
+    recap: string;
+    nextSteps?: string[];
+    keyTakeaway?: string;
+  };
   sections: NoteSection[];
 }
 

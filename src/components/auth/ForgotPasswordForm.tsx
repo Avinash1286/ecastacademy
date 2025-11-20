@@ -34,7 +34,8 @@ export function ForgotPasswordForm() {
         setSuccess(true);
         setEmail("");
       }
-    } catch (err) {
+    } catch (error) {
+      console.error("Failed to request password reset", error);
       setError("An error occurred. Please try again.");
     } finally {
       setIsLoading(false);

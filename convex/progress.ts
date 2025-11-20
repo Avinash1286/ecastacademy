@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import { Id } from "./_generated/dataModel";
 
 /**
  * @deprecated Prefer mutations in completions.ts.
@@ -408,26 +409,36 @@ export const getCourseProgress = query({
 export const getQuizAttemptHistory = query({
   args: {
     contentItemId: v.id("contentItems"),
+    userId: v.optional(v.id("users")),
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
-      throw new Error("Not authenticated");
-    }
+    let targetUserId: Id<"users">;
 
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_email", (q) => q.eq("email", identity.email!))
-      .first();
+    if (args.userId) {
+      targetUserId = args.userId;
+    } else {
+      const identity = await ctx.auth.getUserIdentity();
+      if (!identity?.email) {
+        throw new Error("Not authenticated");
+      }
+      const identityEmail = identity.email;
 
-    if (!user) {
-      throw new Error("User not found");
+      const user = await ctx.db
+        .query("users")
+        .withIndex("by_email", (q) => q.eq("email", identityEmail))
+        .first();
+
+      if (!user) {
+        throw new Error("User not found");
+      }
+
+      targetUserId = user._id;
     }
 
     const attempts = await ctx.db
       .query("quizAttempts")
       .withIndex("by_userId_contentItemId", (q) =>
-        q.eq("userId", user._id).eq("contentItemId", args.contentItemId)
+        q.eq("userId", targetUserId).eq("contentItemId", args.contentItemId)
       )
       .collect();
 

@@ -15,13 +15,13 @@ export const createContentItem = mutation({
     ),
     title: v.string(),
     order: v.number(),
-    
+
     // Grading fields (optional, will be auto-determined if not provided)
     isGraded: v.optional(v.boolean()),
     maxPoints: v.optional(v.number()),
     passingScore: v.optional(v.number()),
     allowRetakes: v.optional(v.boolean()),
-    
+
     videoId: v.optional(v.id("videos")),
     textContent: v.optional(v.string()),
     quizData: v.optional(v.any()),
@@ -31,22 +31,22 @@ export const createContentItem = mutation({
   },
   handler: async (ctx, args) => {
     const now = Date.now();
-    
+
     // Get chapter to find courseId
     const chapter = await ctx.db.get(args.chapterId);
     if (!chapter) {
       throw new Error("Chapter not found");
     }
-    
+
     // Get course to check if it's a certification course
     const course = await ctx.db.get(chapter.courseId);
     if (!course) {
       throw new Error("Course not found");
     }
-    
+
     // Auto-determine grading based on course type and content type
     let isGraded = args.isGraded;
-    
+
     if (isGraded === undefined) {
       if (course.isCertification) {
         // For certification courses, auto-grade certain types
@@ -63,19 +63,19 @@ export const createContentItem = mutation({
         isGraded = false; // Non-certification courses default to non-graded
       }
     }
-    
+
     const contentItemId = await ctx.db.insert("contentItems", {
       chapterId: args.chapterId,
       type: args.type,
       title: args.title,
       order: args.order,
-      
+
       // Grading configuration
       isGraded,
       maxPoints: args.maxPoints ?? (isGraded ? 100 : undefined),
       passingScore: args.passingScore ?? (isGraded ? (course.passingGrade ?? 70) : undefined),
       allowRetakes: args.allowRetakes ?? true,
-      
+
       videoId: args.videoId,
       textContent: args.textContent,
       quizData: args.quizData,
@@ -84,7 +84,7 @@ export const createContentItem = mutation({
       resourceTitle: args.resourceTitle,
       createdAt: now,
     });
-    
+
     return contentItemId;
   },
 });
@@ -108,7 +108,7 @@ export const updateContentItem = mutation({
   },
   handler: async (ctx, args) => {
     const { id, ...updates } = args;
-    
+
     await ctx.db.patch(id, updates);
     return await ctx.db.get(id);
   },
@@ -128,18 +128,18 @@ export const toggleContentItemGrading = mutation({
     if (!contentItem) {
       throw new Error("Content item not found");
     }
-    
+
     // Get chapter and course for default values
     const chapter = await ctx.db.get(contentItem.chapterId);
     if (!chapter) {
       throw new Error("Chapter not found");
     }
-    
+
     const course = await ctx.db.get(chapter.courseId);
     if (!course) {
       throw new Error("Course not found");
     }
-    
+
     await ctx.db.patch(args.contentItemId, {
       isGraded: args.isGraded,
       maxPoints: args.maxPoints ?? (args.isGraded ? 100 : undefined),
@@ -174,10 +174,10 @@ export const getContentItemsByChapter = query({
       .query("contentItems")
       .withIndex("by_chapterId", (q) => q.eq("chapterId", args.chapterId))
       .collect();
-    
+
     // Sort by order
     contentItems.sort((a, b) => a.order - b.order);
-    
+
     // Enrich video content items with video details
     const enrichedItems = await Promise.all(
       contentItems.map(async (item) => {
@@ -192,6 +192,7 @@ export const getContentItemsByChapter = query({
               thumbnailUrl: video.thumbnailUrl,
               durationInSeconds: video.durationInSeconds,
               status: video.status,
+              hasTranscript: !!(video.transcript && video.transcript.trim().length > 0),
             } : null,
           };
         }
@@ -201,7 +202,7 @@ export const getContentItemsByChapter = query({
         };
       })
     );
-    
+
     return enrichedItems;
   },
 });
@@ -239,7 +240,7 @@ export const updateTextQuizStatus = mutation({
   },
   handler: async (ctx, args) => {
     const { contentItemId, status, textQuiz, textQuizError } = args;
-    
+
     const updates: {
       textQuizStatus: "pending" | "processing" | "completed" | "failed";
       textQuiz?: unknown;
@@ -247,15 +248,15 @@ export const updateTextQuizStatus = mutation({
     } = {
       textQuizStatus: status,
     };
-    
+
     if (textQuiz !== undefined) {
       updates.textQuiz = textQuiz;
     }
-    
+
     if (textQuizError !== undefined) {
       updates.textQuizError = textQuizError;
     }
-    
+
     await ctx.db.patch(contentItemId, updates);
     return await ctx.db.get(contentItemId);
   },
@@ -268,6 +269,34 @@ export const getContentItemById = query({
   },
   handler: async (ctx, args) => {
     return await ctx.db.get(args.id);
+  },
+});
+
+// Get content item with full details (including video transcript)
+export const getContentItemWithDetails = query({
+  args: {
+    id: v.id("contentItems"),
+  },
+  handler: async (ctx, args) => {
+    const item = await ctx.db.get(args.id);
+    if (!item) return null;
+
+    if (item.type === "video" && item.videoId) {
+      const video = await ctx.db.get(item.videoId);
+      return {
+        ...item,
+        videoDetails: video ? {
+          title: video.title,
+          url: video.url,
+          thumbnailUrl: video.thumbnailUrl,
+          durationInSeconds: video.durationInSeconds,
+          status: video.status,
+          transcript: video.transcript,
+        } : null,
+      };
+    }
+
+    return item;
   },
 });
 

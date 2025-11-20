@@ -1,42 +1,62 @@
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { AtSign, Mic, Search, Sparkles } from 'lucide-react';
+'use client';
 
-export function TutorInput() {
+import { Button } from '@/components/ui/button';
+import { Loader2, SendHorizonal } from 'lucide-react';
+import { Textarea } from '@/components/ui/textarea';
+
+type TutorInputProps = {
+  value: string;
+  onChange: (value: string) => void;
+  onSubmit: () => void | Promise<void>;
+  isSending: boolean;
+  disabled?: boolean;
+  placeholder?: string;
+};
+
+export function TutorInput({
+  value,
+  onChange,
+  onSubmit,
+  isSending,
+  disabled,
+  placeholder = 'Ask anything',
+}: TutorInputProps) {
+  const handleSubmit = () => {
+    if (disabled || !value.trim()) return;
+    onSubmit();
+  };
+
   return (
-    <div className="shrink-0 space-y-3 border-t border-border p-4">
-      <div className="flex items-center gap-2">
-        <div className="relative flex-grow">
-          <Input placeholder="Ask anything" />
-        </div>
-        <Button type="button" variant="secondary">
-          <Mic className="mr-2 h-5 w-5" /><span className="hidden sm:inline">Voice</span>
-        </Button>
-      </div>
-      <div className="flex items-center gap-2">
-        <Select defaultValue="default">
-          <SelectTrigger className="h-8 w-auto text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="default">Default</SelectItem>
-            <SelectItem value="expert">Expert</SelectItem>
-          </SelectContent>
-        </Select>
-        <Button 
-          type="button" 
-          variant="outline" 
-          size="sm" 
-          className="h-8 border-secondary text-secondary hover:bg-secondary hover:text-secondary-foreground"
+    <div className="border-t bg-background p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+        <Textarea
+          value={value}
+          placeholder={placeholder}
+          disabled={disabled || isSending}
+          onChange={(event) => onChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && !event.shiftKey) {
+              event.preventDefault();
+              handleSubmit();
+            }
+          }}
+          aria-label="Ask the AI tutor"
+          rows={2}
+          className="min-h-[52px] flex-1 resize-none border border-border/60 bg-background text-sm leading-6"
+        />
+        <Button
+          type="button"
+          size="icon"
+          className="h-12 w-12 shrink-0 disabled:opacity-50"
+          disabled={disabled || isSending || !value.trim()}
+          onClick={handleSubmit}
+          aria-label="Send message"
         >
-          <Sparkles className="mr-1 h-3 w-3" /> Learn+
-        </Button>
-        <Button type="button" variant="outline" size="icon" className="h-8 w-8" aria-label="Search">
-          <Search className="h-4 w-4" />
-        </Button>
-        <Button type="button" variant="outline" size="icon" className="h-8 w-8" aria-label="Mention User">
-          <AtSign className="h-4 w-4" />
+          {isSending ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <SendHorizonal className="h-4 w-4" />
+          )}
         </Button>
       </div>
     </div>

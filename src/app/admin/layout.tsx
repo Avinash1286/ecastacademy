@@ -10,18 +10,15 @@ import { useSession } from "next-auth/react";
 export default function AdminLayout({ children }: { children: ReactNode }) {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const userRole = session?.user?.role;
 
   useEffect(() => {
-    // Check if user is admin
-    if (status === "authenticated") {
-      const user = session?.user as any;
-      if (user?.role !== "admin") {
-        router.push("/dashboard");
-      }
+    if (status === "authenticated" && userRole !== "admin") {
+      router.push("/dashboard");
     } else if (status === "unauthenticated") {
       router.push("/auth/signin");
     }
-  }, [status, session, router]);
+  }, [status, userRole, router]);
 
   // Show loading while checking auth
   if (status === "loading") {
@@ -33,8 +30,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   }
 
   // Don't render admin content if not admin
-  const user = session?.user as any;
-  if (user?.role !== "admin") {
+  if (userRole !== "admin") {
     return null;
   }
 

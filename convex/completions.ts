@@ -1,7 +1,9 @@
 import { v } from "convex/values";
-import { mutation, query, MutationCtx, internalMutation } from "./_generated/server";
+import { mutation, query, MutationCtx, QueryCtx, internalMutation } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
 import { summarizeProgressByContentItem, isTrackableContentItem, mapVideosById } from "./utils/progressUtils";
+import { calculateStudentGrade } from "./utils/grading";
+import { requireAuthenticatedUser, requireAdminUser } from "./utils/auth";
 
 /**
  * =============================================================================
@@ -267,10 +269,11 @@ async function updateOrCreateProgress(
   const previousProgressPercentage =
     summary?.progressPercentage ?? existingProgress?.progressPercentage ?? 0;
   const itemProgressPercentage = args.progressPercentage ?? 100;
+  const attemptedNow = true;
 
   const newCompletedStatus =
     isGraded && isCertificationCourse
-      ? (summary?.completed ?? existingProgress?.completed ?? false) || everPassed
+      ? (summary?.completed ?? existingProgress?.completed ?? false) || attemptedNow
       : true;
 
   const progressPercentageValue = Math.max(
@@ -281,6 +284,7 @@ async function updateOrCreateProgress(
   );
 
   const updatedAttempts = (existingProgress?.attempts ?? summary?.attempts ?? 0) + 1;
+  const attemptedAtValue = now;
 
   if (existingProgress) {
     const updates: Partial<Doc<"progress">> = {
@@ -299,6 +303,8 @@ async function updateOrCreateProgress(
             : existingProgress.latestPassed ?? summary?.latestPassed)
         : existingProgress.latestPassed,
       bestScore: bestPercentage,
+      attempted: true,
+      attemptedAt: attemptedAtValue,
     };
 
     if (args.score !== undefined) {
@@ -328,6 +334,8 @@ async function updateOrCreateProgress(
       passed: isGraded ? everPassed : true,
       latestPassed: isGraded ? latestPassed : undefined,
       bestScore: bestPercentage,
+      attempted: attemptedNow,
+      attemptedAt: attemptedAtValue,
     });
   }
 }
@@ -343,14 +351,23 @@ async function updateOrCreateProgress(
  */
 export const getQuizAttemptHistory = query({
   args: {
-    userId: v.id("users"),
     contentItemId: v.id("contentItems"),
+    userId: v.optional(v.id("users")),
   },
   handler: async (ctx, args) => {
+    let targetUserId: Id<"users">;
+
+    if (args.userId) {
+      targetUserId = args.userId;
+    } else {
+      const { user } = await requireAuthenticatedUser(ctx);
+      targetUserId = user._id;
+    }
+
     const attempts = await ctx.db
       .query("quizAttempts")
       .withIndex("by_userId_contentItemId", (q) =>
-        q.eq("userId", args.userId).eq("contentItemId", args.contentItemId)
+        q.eq("userId", targetUserId).eq("contentItemId", args.contentItemId)
       )
       .collect();
 
@@ -386,157 +403,31 @@ export const getContentItemProgress = query({
 export const calculateCourseProgress = query({
   args: {
     courseId: v.id("courses"),
+    userId: v.optional(v.id("users")),
+  },
+  handler: async (ctx, args) => {
+    // If userId is provided, use it; otherwise get from auth
+    let targetUserId: Id<"users">;
+    
+    if (args.userId) {
+      targetUserId = args.userId;
+    } else {
+      const { user } = await requireAuthenticatedUser(ctx);
+      targetUserId = user._id;
+    }
+    
+    return await buildCourseProgress(ctx, args.courseId, targetUserId);
+  },
+});
+
+export const adminCalculateCourseProgress = query({
+  args: {
+    courseId: v.id("courses"),
     userId: v.id("users"),
   },
   handler: async (ctx, args) => {
-    const course = await ctx.db.get(args.courseId);
-    if (!course) {
-      throw new Error("Course not found");
-    }
-
-    const coursePassingGrade = course.passingGrade ?? 70;
-
-    // Get all chapters for this course
-    const chapters = await ctx.db
-      .query("chapters")
-      .withIndex("by_courseId", (q) => q.eq("courseId", args.courseId))
-      .collect();
-
-    // Get all content items for these chapters
-    const allContentItems = await Promise.all(
-      chapters.map((chapter) =>
-        ctx.db
-          .query("contentItems")
-          .withIndex("by_chapterId", (q) => q.eq("chapterId", chapter._id))
-          .collect()
-      )
-    );
-
-    const contentItems = allContentItems.flat();
-
-    const videoIds = Array.from(
-      new Set(
-        contentItems
-          .filter((item) => item.type === "video" && item.videoId)
-          .map((item) => item.videoId as Id<"videos">)
-      )
-    );
-
-    const videoDocs = await Promise.all(videoIds.map((videoId) => ctx.db.get(videoId)));
-    const videoLookup = mapVideosById(videoIds, videoDocs);
-
-    const trackableItems = contentItems.filter((item) =>
-      isTrackableContentItem(item, videoLookup)
-    );
-
-    const totalItems = trackableItems.length;
-
-    if (totalItems === 0) {
-      return {
-        courseId: args.courseId,
-        totalItems: 0,
-        completedItems: 0,
-        completionPercentage: 100,
-        isCertification: course.isCertification,
-        gradedItems: 0,
-        passedGradedItems: 0,
-        overallGrade: null,
-        eligibleForCertificate: false,
-        hasCertificate: false,
-        requirementsMet: false,
-        passingGrade: coursePassingGrade,
-      };
-    }
-
-    // Get user's progress for all items
-    const progressRecords = await ctx.db
-      .query("progress")
-      .withIndex("by_userId_courseId", (q) =>
-        q.eq("userId", args.userId).eq("courseId", args.courseId)
-      )
-      .collect();
-
-    const progressSummaryMap = summarizeProgressByContentItem(progressRecords);
-
-    const completedItems = trackableItems.reduce((count, item) => {
-      const summary = progressSummaryMap.get(item._id);
-      return summary?.completed ? count + 1 : count;
-    }, 0);
-    const completionPercentage = totalItems > 0
-      ? (completedItems / totalItems) * 100
-      : 100;
-
-    const existingCertificate = await ctx.db
-      .query("certificates")
-      .withIndex("by_userId_courseId", (q) =>
-        q.eq("userId", args.userId).eq("courseId", args.courseId)
-      )
-      .first();
-
-    const hasCertificate = !!existingCertificate;
-
-    const gradingInfo = {
-      gradedItems: 0,
-      passedGradedItems: 0,
-      overallGrade: null as number | null,
-      eligibleForCertificate: hasCertificate,
-      hasCertificate,
-      requirementsMet: false,
-    };
-
-    if (course.isCertification) {
-  const gradedContentItems = trackableItems.filter((item) => item.isGraded);
-      gradingInfo.gradedItems = gradedContentItems.length;
-
-      let totalPossiblePoints = 0;
-      let totalEarnedPoints = 0;
-      let attemptedGradedItems = 0;
-      let passedGradedItems = 0;
-
-      for (const item of gradedContentItems) {
-        const summary = progressSummaryMap.get(item._id);
-        if (!summary) {
-          continue;
-        }
-
-        attemptedGradedItems += 1;
-
-        const maxPoints = item.maxPoints ?? 100;
-        const bestPercentage = summary.bestPercentage ?? 0;
-        totalPossiblePoints += maxPoints;
-        totalEarnedPoints += (bestPercentage / 100) * maxPoints;
-
-        const itemPassingScore = item.passingScore ?? course.passingGrade ?? 70;
-        if (bestPercentage >= itemPassingScore) {
-          passedGradedItems += 1;
-        }
-      }
-
-      gradingInfo.passedGradedItems = passedGradedItems;
-
-      if (totalPossiblePoints > 0) {
-        gradingInfo.overallGrade = (totalEarnedPoints / totalPossiblePoints) * 100;
-      }
-
-      const requirementsMet =
-        gradingInfo.gradedItems > 0 &&
-        attemptedGradedItems === gradingInfo.gradedItems &&
-        passedGradedItems === gradingInfo.gradedItems &&
-        (gradingInfo.overallGrade ?? 0) >= coursePassingGrade;
-
-      gradingInfo.requirementsMet = requirementsMet;
-      gradingInfo.eligibleForCertificate = hasCertificate || requirementsMet;
-    }
-
-    return {
-      courseId: args.courseId,
-      totalItems,
-      completedItems,
-      completionPercentage,
-      isCertification: course.isCertification,
-      ...gradingInfo,
-      passingGrade: coursePassingGrade,
-    };
+    await requireAdminUser(ctx);
+    return await buildCourseProgress(ctx, args.courseId, args.userId);
   },
 });
 
@@ -578,6 +469,151 @@ export const getCourseProgress = query({
     };
   },
 });
+
+type CourseProgressResult = {
+  courseId: Id<"courses">;
+  totalItems: number;
+  completedItems: number;
+  completionPercentage: number;
+  isCertification?: boolean;
+  gradedItems?: number;
+  passedGradedItems?: number;
+  overallGrade?: number | null;
+  eligibleForCertificate?: boolean;
+  hasCertificate?: boolean;
+  requirementsMet?: boolean;
+  passingGrade: number;
+};
+
+async function buildCourseProgress(
+  ctx: QueryCtx | MutationCtx,
+  courseId: Id<"courses">,
+  userId: Id<"users">
+): Promise<CourseProgressResult> {
+  const course = await ctx.db.get(courseId);
+  if (!course) {
+    throw new Error("Course not found");
+  }
+
+  const coursePassingGrade = course.passingGrade ?? 70;
+
+  const chapters = await ctx.db
+    .query("chapters")
+    .withIndex("by_courseId", (q) => q.eq("courseId", courseId))
+    .collect();
+
+  const allContentItems = await Promise.all(
+    chapters.map((chapter) =>
+      ctx.db
+        .query("contentItems")
+        .withIndex("by_chapterId", (q) => q.eq("chapterId", chapter._id))
+        .collect()
+    )
+  );
+
+  const contentItems = allContentItems.flat();
+
+  const videoIds = Array.from(
+    new Set(
+      contentItems
+        .filter((item) => item.type === "video" && item.videoId)
+        .map((item) => item.videoId as Id<"videos">)
+    )
+  );
+
+  const videoDocs = await Promise.all(videoIds.map((videoId) => ctx.db.get(videoId)));
+  const videoLookup = mapVideosById(videoIds, videoDocs);
+
+  const trackableItems = contentItems.filter((item) =>
+    isTrackableContentItem(item, videoLookup)
+  );
+
+  const totalItems = trackableItems.length;
+
+  if (totalItems === 0) {
+    return {
+      courseId,
+      totalItems: 0,
+      completedItems: 0,
+      completionPercentage: 100,
+      isCertification: course.isCertification,
+      gradedItems: 0,
+      passedGradedItems: 0,
+      overallGrade: null,
+      eligibleForCertificate: false,
+      hasCertificate: false,
+      requirementsMet: false,
+      passingGrade: coursePassingGrade,
+    };
+  }
+
+  const progressRecords = await ctx.db
+    .query("progress")
+    .withIndex("by_userId_courseId", (q) =>
+      q.eq("userId", userId).eq("courseId", courseId)
+    )
+    .collect();
+
+  const progressSummaryMap = summarizeProgressByContentItem(progressRecords);
+
+  const completedItems = trackableItems.reduce((count, item) => {
+    const summary = progressSummaryMap.get(item._id);
+    return summary?.attempted ? count + 1 : count;
+  }, 0);
+
+  const completionPercentage = totalItems > 0 ? (completedItems / totalItems) * 100 : 100;
+
+  const existingCertificate = await ctx.db
+    .query("certificates")
+    .withIndex("by_userId_courseId", (q) =>
+      q.eq("userId", userId).eq("courseId", courseId)
+    )
+    .first();
+
+  const hasCertificate = !!existingCertificate;
+
+  const gradingInfo = {
+    gradedItems: 0,
+    passedGradedItems: 0,
+    overallGrade: null as number | null,
+    eligibleForCertificate: hasCertificate,
+    hasCertificate,
+    requirementsMet: false,
+  };
+
+  if (course.isCertification) {
+    const gradedContentItems = trackableItems.filter((item) => item.isGraded);
+    gradingInfo.gradedItems = gradedContentItems.length;
+
+    const {
+      passedCount,
+      overallGrade,
+      attemptedCount,
+    } = calculateStudentGrade(gradedContentItems, progressSummaryMap, coursePassingGrade);
+
+    gradingInfo.passedGradedItems = passedCount;
+    gradingInfo.overallGrade = attemptedCount > 0 ? overallGrade : null;
+
+    const requirementsMet =
+      gradingInfo.gradedItems > 0 &&
+      attemptedCount === gradingInfo.gradedItems &&
+      passedCount === gradingInfo.gradedItems &&
+      (gradingInfo.overallGrade ?? 0) >= coursePassingGrade;
+
+    gradingInfo.requirementsMet = requirementsMet;
+    gradingInfo.eligibleForCertificate = hasCertificate || requirementsMet;
+  }
+
+  return {
+    courseId,
+    totalItems,
+    completedItems,
+    completionPercentage,
+    isCertification: course.isCertification,
+    ...gradingInfo,
+    passingGrade: coursePassingGrade,
+  };
+}
 
 /**
  * =============================================================================

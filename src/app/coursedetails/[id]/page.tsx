@@ -51,8 +51,16 @@ const Page = () => {
     )
   }
 
-  const totalChapters = chapters?.length || 0
-  const totalContentItems = chapters?.reduce((acc: number, chapter: any) => acc + (chapter.contentItems?.length || 0), 0) || 0
+  type ChapterSummary = {
+    _id: Id<'chapters'>
+    name: string
+    contentItems?: Array<{ _id: string }> | null
+  }
+
+  const chapterSummaries = (chapters ?? []) as ChapterSummary[]
+
+  const totalChapters = chapterSummaries.length
+  const totalContentItems = chapterSummaries.reduce((acc, chapter) => acc + (chapter.contentItems?.length ?? 0), 0)
 
   return (
     <>
@@ -142,7 +150,7 @@ const Page = () => {
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
-                {chapters?.map((chapter: any, index: number) => (
+                {chapterSummaries.map((chapter, index) => (
                   <div key={chapter._id} className="flex items-start gap-3 p-3 rounded-lg border hover:bg-muted/50 transition-colors">
                     <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-sm font-semibold text-primary">
                       {index + 1}

@@ -84,6 +84,7 @@ export default function AdminUsersPage() {
         toast.error(data.error || "Failed to fetch users");
       }
     } catch (error) {
+      console.error("Failed to fetch users", error);
       toast.error("An error occurred while fetching users");
     } finally {
       setIsLoading(false);
@@ -107,6 +108,7 @@ export default function AdminUsersPage() {
         toast.error(data.error || "Failed to update user role");
       }
     } catch (error) {
+      console.error("Failed to update user role", error);
       toast.error("An error occurred while updating user role");
     } finally {
       setActionUserId(null);
@@ -129,6 +131,7 @@ export default function AdminUsersPage() {
         toast.error(data.error || "Failed to delete user");
       }
     } catch (error) {
+      console.error("Failed to delete user", error);
       toast.error("An error occurred while deleting user");
     } finally {
       setActionUserId(null);
@@ -136,7 +139,7 @@ export default function AdminUsersPage() {
     }
   };
 
-  const currentUserId = (session?.user as any)?.id;
+  const currentUserId = session?.user?.id;
 
   return (
     <div className="container mx-auto px-4 py-8">
