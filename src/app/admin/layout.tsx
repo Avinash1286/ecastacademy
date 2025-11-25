@@ -2,7 +2,7 @@
 
 import { ReactNode, useEffect } from "react";
 import Link from "next/link";
-import { Video, BookOpen, LayoutDashboard, LucideIcon, Users } from "lucide-react";
+import { Video, BookOpen, LayoutDashboard, LucideIcon, Users, Bot } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { usePathname, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
@@ -45,7 +45,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
                 <LayoutDashboard className="w-5 h-5" />
                 Admin Panel
               </Link>
-              
+
               <nav className="hidden md:flex gap-6">
                 <AdminNavLink href="/admin/videos" icon={Video}>
                   Video Library
@@ -56,11 +56,14 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
                 <AdminNavLink href="/admin/users" icon={Users}>
                   Users
                 </AdminNavLink>
+                <AdminNavLink href="/admin/ai" icon={Bot}>
+                  AI Models
+                </AdminNavLink>
               </nav>
             </div>
 
-            <Link 
-              href="/dashboard" 
+            <Link
+              href="/dashboard"
               className="text-sm text-muted-foreground hover:text-foreground transition-colors"
             >
               Back to Dashboard
@@ -78,6 +81,9 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
             <AdminNavLink href="/admin/users" icon={Users} mobile>
               Users
             </AdminNavLink>
+            <AdminNavLink href="/admin/ai" icon={Bot} mobile>
+              AI Models
+            </AdminNavLink>
           </nav>
         </div>
       </header>
@@ -90,30 +96,30 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   );
 }
 
-function AdminNavLink({ 
-  href, 
-  icon: Icon, 
+function AdminNavLink({
+  href,
+  icon: Icon,
   children,
-  mobile = false 
-}: { 
-  href: string; 
-  icon: LucideIcon; 
+  mobile = false
+}: {
+  href: string;
+  icon: LucideIcon;
   children: ReactNode;
   mobile?: boolean;
 }) {
   const pathname = usePathname();
   const isActive = pathname?.startsWith(href);
-  
+
   return (
     <Link
       href={href}
       className={cn(
         "flex items-center gap-2 transition-colors",
-        mobile 
+        mobile
           ? "text-sm px-3 py-1.5 rounded-md whitespace-nowrap"
           : "text-sm",
-        isActive 
-          ? "text-foreground font-medium" 
+        isActive
+          ? "text-foreground font-medium"
           : "text-muted-foreground hover:text-foreground",
         mobile && isActive && "bg-accent"
       )}

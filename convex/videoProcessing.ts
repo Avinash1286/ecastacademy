@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { action, internalAction, internalMutation, internalQuery, query, mutation } from "./_generated/server";
-import { internal } from "./_generated/api";
+import { internal, api } from "./_generated/api";
 import { generateNotes, generateQuiz } from "@shared/ai/generation";
 import { validateAndCorrectJson } from "@shared/ai/structuredValidation";
 import {
@@ -24,7 +24,7 @@ export const processVideosSequentially = action({
       videoIds: args.videoIds,
       currentIndex: 0,
     });
-    
+
     return { success: true, message: `Sequential processing started for ${args.videoIds.length} video(s)` };
   },
 });
@@ -85,7 +85,7 @@ export const processVideo = action({
     await ctx.scheduler.runAfter(0, internal.videoProcessing.processVideoInternal, {
       videoId: args.videoId,
     });
-    
+
     return { success: true, message: "Video processing started" };
   },
 });
@@ -112,16 +112,35 @@ export const processVideoInternal = internalAction({
         throw new Error("Video not found");
       }
 
-      if (!process.env.GEMINI_API_KEY) {
-        throw new Error("GEMINI_API_KEY not configured. Please set it in Convex environment variables.");
-      }
-
       const rawTranscript = typeof video.transcript === "string" ? video.transcript : "";
       if (!rawTranscript) {
         throw new Error("Transcript missing for video. Unable to generate notes.");
       }
 
-      let notesJson = await generateNotes(rawTranscript, { videoTitle: video.title });
+      // Fetch AI Configs
+      const notesConfig = await ctx.runQuery(api.aiConfig.getFeatureModel, {
+        featureKey: "notes_generation",
+      });
+
+      const quizConfig = await ctx.runQuery(api.aiConfig.getFeatureModel, {
+        featureKey: "quiz_generation",
+      });
+
+      const notesModelConfig = notesConfig ? {
+        provider: notesConfig.provider,
+        modelId: notesConfig.modelId,
+      } : undefined;
+
+      const quizModelConfig = quizConfig ? {
+        provider: quizConfig.provider,
+        modelId: quizConfig.modelId,
+      } : undefined;
+
+      let notesJson = await generateNotes(rawTranscript, {
+        videoTitle: video.title,
+        modelConfig: notesModelConfig
+      });
+
       notesJson = await validateAndCorrectJson(notesJson, {
         schema: interactiveNotesSchema,
         schemaName: "InteractiveNotes",
@@ -135,7 +154,8 @@ export const processVideoInternal = internalAction({
       await new Promise(resolve => setTimeout(resolve, 5000));
 
       const notesContext = JSON.stringify(notes);
-      let quizJson = await generateQuiz(notesContext);
+      let quizJson = await generateQuiz(notesContext, quizModelConfig);
+
       quizJson = await validateAndCorrectJson(quizJson, {
         schema: generatedQuizSchema,
         schemaName: "InteractiveQuiz",
@@ -156,7 +176,7 @@ export const processVideoInternal = internalAction({
       return { success: true };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      
+
       // Check if it's a rate limit error
       if (errorMessage.includes("429") || errorMessage.includes("quota") || errorMessage.includes("RESOURCE_EXHAUSTED")) {
         console.error("Rate limit exceeded. Video will remain in processing state.");
@@ -271,27 +291,27 @@ export const retryFailedVideo = mutation({
   },
   handler: async (ctx, args) => {
     const video = await ctx.db.get(args.videoId);
-    
+
     if (!video) {
       throw new Error("Video not found");
     }
-    
+
     if (video.status !== "failed" && video.status !== "completed") {
       throw new Error("Can only retry failed or completed videos");
     }
-    
+
     // Reset status to pending
     await ctx.db.patch(args.videoId, {
       status: "pending",
       errorMessage: undefined,
       updatedAt: Date.now(),
     });
-    
+
     // Trigger processing for this single video
     await ctx.scheduler.runAfter(0, internal.videoProcessing.processVideoInternal, {
       videoId: args.videoId,
     });
-    
+
     return { success: true };
   },
 });

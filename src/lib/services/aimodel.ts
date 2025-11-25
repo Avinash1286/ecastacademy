@@ -15,12 +15,18 @@ export async function generateNotes(
 	return sharedGenerateNotes(rawTranscript, options);
 }
 
-export async function generateQuiz(input: Parameters<typeof sharedGenerateQuiz>[0]) {
-	return sharedGenerateQuiz(input);
+export async function generateQuiz(
+	input: Parameters<typeof sharedGenerateQuiz>[0],
+	modelConfig?: Parameters<typeof sharedGenerateQuiz>[1]
+) {
+	return sharedGenerateQuiz(input, modelConfig);
 }
 
-export async function repairStructuredJson(payload: StructuredRepairRequest) {
-	return sharedRepairStructuredJson(payload);
+export async function repairStructuredJson(
+	payload: StructuredRepairRequest,
+	modelConfig?: Parameters<typeof sharedRepairStructuredJson>[1]
+) {
+	return sharedRepairStructuredJson(payload, modelConfig);
 }
 
 export async function generateTutorResponse(

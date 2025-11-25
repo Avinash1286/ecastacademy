@@ -280,4 +280,252 @@ export default defineSchema({
   })
     .index("by_sessionId", ["sessionId"])
     .index("by_sessionId_createdAt", ["sessionId", "createdAt"]),
+
+  // Capsule - AI-generated mini-courses from PDFs or topics
+  capsules: defineTable({
+    userId: v.id("users"),
+    title: v.string(),
+    description: v.optional(v.string()),
+    userPrompt: v.optional(v.string()),
+
+    // Source information
+    sourceType: v.union(v.literal("pdf"), v.literal("topic")),
+    sourcePdfStorageId: v.optional(v.id("_storage")), // Convex file storage ID for large PDFs
+    sourcePdfData: v.optional(v.string()), // Legacy: Base64 PDF data (for small files < 1MB)
+    sourcePdfName: v.optional(v.string()),
+    sourcePdfMime: v.optional(v.string()),
+    sourcePdfSize: v.optional(v.number()),
+    sourceTopic: v.optional(v.string()), // User-entered topic
+
+    // Generation status
+    status: v.union(
+      v.literal("pending"),
+      v.literal("processing"),
+      v.literal("completed"),
+      v.literal("failed")
+    ),
+    errorMessage: v.optional(v.string()),
+
+    // Metadata
+    thumbnailUrl: v.optional(v.string()),
+    estimatedDuration: v.optional(v.number()), // in minutes
+    moduleCount: v.optional(v.number()),
+
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    completedAt: v.optional(v.number()),
+  })
+    .index("by_userId", ["userId"])
+    .index("by_userId_status", ["userId", "status"])
+    .index("by_status", ["status"]),
+
+  // Capsule modules - main sections of a capsule
+  capsuleModules: defineTable({
+    capsuleId: v.id("capsules"),
+    title: v.string(),
+    description: v.optional(v.string()),
+    order: v.number(),
+
+    createdAt: v.number(),
+  })
+    .index("by_capsuleId", ["capsuleId"])
+    .index("by_capsuleId_order", ["capsuleId", "order"]),
+
+  // Capsule lessons - individual interactive lessons
+  capsuleLessons: defineTable({
+    moduleId: v.id("capsuleModules"),
+    capsuleId: v.id("capsules"),
+    title: v.string(),
+    description: v.optional(v.string()),
+    order: v.number(),
+
+    // Lesson type and content
+    type: v.union(
+      v.literal("concept"), // Concept explanation
+      v.literal("mcq"), // Multiple choice quiz
+      v.literal("dragDrop"), // Drag and drop activity
+      v.literal("fillBlanks"), // Fill in the blanks
+      v.literal("simulation"), // Interactive simulation (HTML/CSS/JS/p5.js)
+      v.literal("mixed") // Mixed content with multiple types
+    ),
+
+    // Content structure (stored as JSON)
+    content: v.any(), // Flexible JSON structure for different lesson types
+
+    // Grading
+    isGraded: v.optional(v.boolean()),
+    maxPoints: v.optional(v.number()),
+
+    createdAt: v.number(),
+  })
+    .index("by_moduleId", ["moduleId"])
+    .index("by_moduleId_order", ["moduleId", "order"])
+    .index("by_capsuleId", ["capsuleId"]),
+
+  // Capsule progress tracking (includes quiz answer history)
+  capsuleProgress: defineTable({
+    userId: v.id("users"),
+    capsuleId: v.id("capsules"),
+    moduleId: v.optional(v.id("capsuleModules")),
+    lessonId: v.optional(v.id("capsuleLessons")),
+
+    completed: v.boolean(),
+    completedAt: v.optional(v.number()),
+
+    // For graded lessons
+    score: v.optional(v.number()),
+    maxScore: v.optional(v.number()),
+    percentage: v.optional(v.number()),
+
+    // Interaction data
+    attempts: v.optional(v.number()),
+    timeSpent: v.optional(v.number()), // seconds
+    hintsUsed: v.optional(v.number()),
+
+    // Quiz answer tracking - stores history of all attempts
+    quizAnswers: v.optional(v.array(v.object({
+      attemptNumber: v.number(),
+      selectedAnswer: v.string(),
+      selectedIndex: v.optional(v.number()),
+      isCorrect: v.boolean(),
+      timestamp: v.number(),
+    }))),
+
+    // Last quiz answer details (for quick access)
+    lastAnswer: v.optional(v.object({
+      selectedAnswer: v.string(),
+      selectedIndex: v.optional(v.number()),
+      correctAnswer: v.optional(v.string()),
+      correctIndex: v.optional(v.number()),
+      isCorrect: v.boolean(),
+      options: v.optional(v.array(v.string())),
+    })),
+
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_userId_capsuleId", ["userId", "capsuleId"])
+    .index("by_userId_lessonId", ["userId", "lessonId"])
+    .index("by_capsuleId", ["capsuleId"]),
+
+  capsuleGenerationRuns: defineTable({
+    capsuleId: v.id("capsules"),
+    status: v.union(
+      v.literal("queued"),
+      v.literal("running"),
+      v.literal("completed"),
+      v.literal("failed")
+    ),
+    stage: v.optional(v.string()),
+    errorMessage: v.optional(v.string()),
+    reviewJson: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_capsuleId", ["capsuleId"]),
+
+  // AI Model Management
+  aiModels: defineTable({
+    name: v.string(), // Display name, e.g., "Gemini 1.5 Pro"
+    provider: v.union(v.literal("google"), v.literal("openai")),
+    modelId: v.string(), // The actual model string, e.g., "gemini-1.5-pro", "gpt-4o"
+    isEnabled: v.boolean(),
+    // Note: API Keys are stored in environment variables (GEMINI_API_KEY, OPENAI_API_KEY)
+  })
+    .index("by_provider", ["provider"])
+    .index("by_isEnabled", ["isEnabled"]),
+
+  aiFeatures: defineTable({
+    key: v.string(), // Unique identifier, e.g., "tutor_chat", "capsule_generation"
+    name: v.string(), // Display name
+    description: v.optional(v.string()),
+    currentModelId: v.id("aiModels"), // Reference to the active model
+  })
+    .index("by_key", ["key"]),
+
+  // Rate limit buckets for DB-backed rate limiting
+  rateLimitBuckets: defineTable({
+    bucketKey: v.string(), // Unique identifier (e.g., "user:123", "global:api")
+    maxRequests: v.number(), // Maximum requests allowed
+    windowMs: v.number(), // Time window in milliseconds
+    requests: v.array(v.number()), // Timestamps of recent requests
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_bucketKey", ["bucketKey"]),
+
+  // Generation jobs for tracking capsule generation progress
+  generationJobs: defineTable({
+    capsuleId: v.id("capsules"),
+    generationId: v.string(), // Unique generation ID
+    
+    // State machine state
+    state: v.union(
+      v.literal("idle"),
+      v.literal("generating_outline"),
+      v.literal("outline_complete"),
+      v.literal("generating_lesson_plans"),
+      v.literal("lesson_plans_complete"),
+      v.literal("generating_content"),
+      v.literal("content_complete"),
+      v.literal("completed"),
+      v.literal("failed")
+    ),
+    
+    // Progress tracking
+    outlineGenerated: v.boolean(),
+    lessonPlansGenerated: v.number(),
+    lessonsGenerated: v.number(),
+    totalModules: v.number(),
+    totalLessons: v.number(),
+    currentModuleIndex: v.number(),
+    currentLessonIndex: v.number(),
+    
+    // Timing
+    startedAt: v.number(),
+    updatedAt: v.number(),
+    completedAt: v.optional(v.number()),
+    
+    // Error tracking
+    lastError: v.optional(v.string()),
+    lastErrorCode: v.optional(v.string()),
+    retryCount: v.number(),
+    
+    // Token usage
+    totalTokensUsed: v.number(),
+    
+    // Intermediate results (JSON stringified)
+    outlineJson: v.optional(v.string()),
+    lessonPlansJson: v.optional(v.string()),
+    generatedContentJson: v.optional(v.string()), // Stores partially generated content for resumption
+  })
+    .index("by_capsuleId", ["capsuleId"])
+    .index("by_generationId", ["generationId"])
+    .index("by_state", ["state"]),
+
+  // Generation metrics for observability
+  generationMetrics: defineTable({
+    generationId: v.string(),
+    capsuleId: v.id("capsules"),
+    
+    // Stage metrics
+    stage: v.string(),
+    stageDurationMs: v.number(),
+    stageTokensUsed: v.number(),
+    stageSuccess: v.boolean(),
+    stageError: v.optional(v.string()),
+    
+    // Request details
+    provider: v.string(),
+    model: v.string(),
+    attempt: v.number(),
+    
+    // Timestamps
+    startedAt: v.number(),
+    completedAt: v.number(),
+  })
+    .index("by_generationId", ["generationId"])
+    .index("by_capsuleId", ["capsuleId"])
+    .index("by_stage", ["stage"])
+    .index("by_provider", ["provider"]),
 });

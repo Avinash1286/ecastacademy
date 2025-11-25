@@ -13,6 +13,7 @@ import {
   interactiveNotesSchema,
   interactiveNotesSchemaDescription,
 } from "@/lib/validators/generatedContentSchemas";
+import { resolveWithConvexClient } from "@shared/ai/modelResolver";
 
 const convex = createConvexClient();
 
@@ -38,6 +39,11 @@ export async function createCourseWithProgress(
     description,
   });
 
+  const [notesModelConfig, quizModelConfig] = await Promise.all([
+    resolveWithConvexClient(convex, "notes_generation"),
+    resolveWithConvexClient(convex, "quiz_generation"),
+  ]);
+
   const totalVideos = videoData.length;
   for (const [index, video] of videoData.entries()) {
     const videoProgress = 10 + ((index + 1) / totalVideos) * 85;
@@ -59,14 +65,18 @@ export async function createCourseWithProgress(
       });
       videoId = existingVideo._id;
     } else {
-  onProgress({ message: `Generating notes for: ${video.title}`, progress: videoProgress });
-  let notes = await generateNotes(video.transcript ?? "", { videoTitle: video.title });
+      onProgress({ message: `Generating notes for: ${video.title}`, progress: videoProgress });
+      let notes = await generateNotes(video.transcript ?? "", {
+        videoTitle: video.title,
+        modelConfig: notesModelConfig,
+      });
       notes = await validateAndCorrectJson(notes, {
         schema: interactiveNotesSchema,
         schemaName: "InteractiveNotes",
         schemaDescription: interactiveNotesSchemaDescription,
         originalInput: video.transcript ?? "",
         format: "interactive-notes",
+        modelConfig: notesModelConfig,
       });
       const notesObject = JSON.parse(notes);
 
@@ -75,15 +85,16 @@ export async function createCourseWithProgress(
         progress: videoProgress + (5 / totalVideos),
       });
       const notesContext = JSON.stringify(notesObject);
-      let quiz = await generateQuiz(notesContext);
+      let quiz = await generateQuiz(notesContext, quizModelConfig);
       quiz = await validateAndCorrectJson(quiz, {
         schema: generatedQuizSchema,
         schemaName: "InteractiveQuiz",
         schemaDescription: generatedQuizSchemaDescription,
         originalInput: notesContext,
         format: "interactive-quiz",
+        modelConfig: quizModelConfig,
       });
-  const quizObject = JSON.parse(quiz);
+      const quizObject = JSON.parse(quiz);
 
       videoId = await convex.mutation(api.videos.createVideo, {
         youtubeVideoId: video.id,

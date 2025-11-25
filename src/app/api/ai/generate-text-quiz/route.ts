@@ -3,6 +3,12 @@ import { api } from "../../../../../convex/_generated/api";
 import { Id } from "../../../../../convex/_generated/dataModel";
 import { generateQuiz } from "@/lib/services/aimodel";
 import { createConvexClient } from "@/lib/convexClient";
+import { validateAndCorrectJson } from "@/lib/utils";
+import {
+  generatedQuizSchema,
+  generatedQuizSchemaDescription,
+} from "@/lib/validators/generatedContentSchemas";
+import { resolveWithConvexClient, MissingAIModelMappingError } from "@shared/ai/modelResolver";
 
 const convex = createConvexClient();
 
@@ -49,10 +55,34 @@ export async function POST(request: NextRequest) {
       status: "processing",
     });
 
+    let quizModelConfig;
+    try {
+      quizModelConfig = await resolveWithConvexClient(convex, "quiz_generation");
+    } catch (resolverError) {
+      const status = resolverError instanceof MissingAIModelMappingError ? 503 : 500;
+      await convex.mutation(api.contentItems.updateTextQuizStatus, {
+        contentItemId: contentItemId as Id<"contentItems">,
+        status: "failed",
+        textQuizError: "Quiz generation is unavailable. Please contact an administrator.",
+      });
+      return NextResponse.json(
+        { error: "Quiz generation is unavailable. Please contact an administrator." },
+        { status }
+      );
+    }
+
     try {
       // Generate quiz from text content
-      const quizJson = await generateQuiz(contentItem.textContent);
-      const quiz = JSON.parse(quizJson);
+      const quizJson = await generateQuiz(contentItem.textContent, quizModelConfig);
+      const validatedQuiz = await validateAndCorrectJson(quizJson, {
+        schema: generatedQuizSchema,
+        schemaName: "InteractiveQuiz",
+        schemaDescription: generatedQuizSchemaDescription,
+        originalInput: contentItem.textContent,
+        format: "interactive-quiz",
+        modelConfig: quizModelConfig,
+      });
+      const quiz = JSON.parse(validatedQuiz);
 
       // Validate quiz structure
       if (!quiz.topic || !Array.isArray(quiz.questions) || quiz.questions.length === 0) {

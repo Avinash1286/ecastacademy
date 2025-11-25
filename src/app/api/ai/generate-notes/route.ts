@@ -8,6 +8,7 @@ import {
 	interactiveNotesSchema,
 	interactiveNotesSchemaDescription,
 } from "@/lib/validators/generatedContentSchemas";
+import { resolveWithConvexClient, MissingAIModelMappingError } from "@shared/ai/modelResolver";
 
 const convex = createConvexClient();
 
@@ -118,9 +119,21 @@ export async function POST(request: NextRequest) {
 			);
 		}
 
+		let notesModelConfig;
+		try {
+			notesModelConfig = await resolveWithConvexClient(convex, "notes_generation");
+		} catch (error) {
+			const status = error instanceof MissingAIModelMappingError ? 503 : 500;
+			return NextResponse.json(
+				{ error: "Notes generation is currently unavailable. Please contact an administrator." },
+				{ status }
+			);
+		}
+
 		try {
 			const notesJson = await generateNotes(transcript, {
 				videoTitle: videoTitle ?? fallbackTitle,
+				modelConfig: notesModelConfig,
 			});
 
 			const validatedJson = await validateAndCorrectJson(notesJson, {
@@ -129,6 +142,7 @@ export async function POST(request: NextRequest) {
 				schemaDescription: interactiveNotesSchemaDescription,
 				originalInput: transcript,
 				format: "interactive-notes",
+				modelConfig: notesModelConfig,
 			});
 
 			const notes = JSON.parse(validatedJson);

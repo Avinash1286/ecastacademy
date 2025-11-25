@@ -10,11 +10,7 @@ if (!convexUrl) {
 
 const resolvedConvexUrl = convexUrl;
 
-type ConvexHttpClientInternal = ConvexHttpClient & {
-  setFetchOptions?: (options: Record<string, unknown>) => void;
-  setAdminAuth?: (token: string) => void;
-  clearAuth?: () => void;
-};
+
 
 // Agent code removed to fix RSC fetch error
 
@@ -31,8 +27,10 @@ export function createConvexClient(options?: CreateConvexClientOptions): ConvexH
 
   if (options?.useAdminAuth !== false && deployKey) {
     // Cast to any to access setAdminAuth if it exists on the instance but not the type
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (client as any).setAdminAuth?.(deployKey);
   } else if (options?.useAdminAuth === false) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (client as any).clearAuth?.();
   }
 

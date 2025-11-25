@@ -14,7 +14,7 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
 import { cn } from "@/lib/utils"
-import { Book, Compass, Settings, type LucideIcon } from "lucide-react"
+import { Book, Compass, Settings, Sparkles, type LucideIcon } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useSidebar } from "@/components/ui/sidebar" 
@@ -38,6 +38,12 @@ const navItems: NavItem[] = [
     href: "/dashboard/my-learnings",
     icon: Book,
     label: "My Learnings",
+    variant: "link",
+  },
+  {
+    href: "/dashboard/capsule",
+    icon: Sparkles,
+    label: "Capsule",
     variant: "link",
   },
   {

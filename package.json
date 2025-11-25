@@ -10,11 +10,15 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "convex:dev": "convex dev"
+    "convex:dev": "convex dev",
+    "capsules:replay": "tsx scripts/capsuleReplay.ts"
   },
   "dependencies": {
     "@ai-sdk/google": "^2.0.38",
+    "@ai-sdk/openai": "^2.0.71",
     "@ai-sdk/react": "^2.0.95",
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
     "@google/genai": "^1.9.0",
     "@google/generative-ai": "^0.24.1",
     "@hookform/resolvers": "^5.1.1",
@@ -63,6 +67,7 @@
     "dotenv": "^17.2.0",
     "embla-carousel-react": "^8.6.0",
     "input-otp": "^1.4.2",
+    "jsonrepair": "^3.13.1",
     "lucide-react": "^0.525.0",
     "mime": "^4.0.7",
     "next": "15.3.4",
@@ -70,6 +75,7 @@
     "next-themes": "^0.4.6",
     "node-fetch": "^2.7.0",
     "nodemailer": "^6.10.1",
+    "openai": "^6.9.1",
     "react": "^19.0.0",
     "react-day-picker": "^9.8.0",
     "react-dom": "^19.0.0",

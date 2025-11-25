@@ -1,3 +1,6 @@
+import { generateText } from "ai";
+import { getAIClient } from "@shared/ai/centralized";
+import { MissingAIModelMappingError, resolveWithConvexCtx } from "@shared/ai/modelResolver";
 import { action } from "./_generated/server";
 import { v } from "convex/values";
 import { api } from "./_generated/api";
@@ -12,10 +15,9 @@ export const generateTutorResponse = action({
             })
         ),
         context: v.optional(v.string()),
-        model: v.optional(v.string()),
     },
     handler: async (ctx, args) => {
-        const { chatId, messages, context, model } = args;
+        const { chatId, messages, context } = args;
 
         // 1. Get the user identity
         const identity = await ctx.auth.getUserIdentity();
@@ -50,49 +52,13 @@ export const generateTutorResponse = action({
         // Actually, for security, we should probably handle the API call to the LLM here.
 
         try {
-            // We'll use the fetch API to call the Google Gemini API directly or via Vercel AI SDK if configured on server.
-            // Since we don't have the Vercel AI SDK setup for Convex Actions explicitly shown in context, 
-            // and we see use of 'google' provider in env, let's try to use the standard fetch or a library if available.
-            // BUT, looking at the project, it uses 'ai' sdk. 
-            // We can use the `google` provider if we install it, but we might not have it in convex runtime.
-            // A safer bet for Convex is to use `fetch` to an external API or the Vercel AI SDK's `streamText` if supported in this environment.
-
-            // For now, let's assume we call the Next.js API route which handles the AI generation, 
-            // OR we implement the generation here.
-            // Given the instructions "Create a Convex Action... Calls the AI provider", we should do it here.
-
-            // Let's check if we have the API key.
-            const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-            if (!apiKey) {
-                throw new Error("Missing API Key");
-            }
-
-            // Simple fetch to Gemini API (REST)
-            const response = await fetch(
-                `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
-                {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                    },
-                    body: JSON.stringify({
-                        contents: [
-                            {
-                                role: "user",
-                                parts: [{ text: systemPrompt + "\n\n" + lastMessage.content }]
-                            }
-                        ]
-                    }),
-                }
-            );
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`AI API Error: ${response.statusText} - ${errorText}`);
-            }
-
-            const data = await response.json();
-            const aiText = data.candidates?.[0]?.content?.parts?.[0]?.text || "I'm sorry, I couldn't generate a response.";
+            const modelConfig = await resolveWithConvexCtx(ctx, "tutor_chat");
+            const { text } = await generateText({
+                model: getAIClient(modelConfig),
+                system: systemPrompt,
+                prompt: lastMessage.content,
+            });
+            const aiText = text?.trim() || "I'm sorry, I couldn't generate a response.";
 
             // 4. Save Assistant Message
             // We need to call a mutation to save the message.
@@ -111,7 +77,11 @@ export const generateTutorResponse = action({
 
         } catch (error: any) {
             console.error("AI Generation Error:", error);
-            throw new Error("Failed to generate response: " + error.message);
+            if (error instanceof MissingAIModelMappingError) {
+                throw new Error(error.message);
+            }
+            const message = error instanceof Error ? error.message : "Unknown error";
+            throw new Error("Failed to generate response: " + message);
         }
     },
 });

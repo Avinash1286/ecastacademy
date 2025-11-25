@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { ThemeProvider } from "@/components/theme-provider"; // Import the new provider
 import { ConvexProvider } from "@/components/ConvexProvider";
 import { SessionProvider } from "next-auth/react";
+import { SoundProvider } from "@/context/SoundContext";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -38,15 +39,17 @@ export default function RootLayout({
       >
         <SessionProvider>
           <ConvexProvider>
-            <ThemeProvider
-              attribute="class"
-              defaultTheme="dark"
-              enableSystem
-              disableTransitionOnChange
-            >
-              {children}
-              <Toaster />
-            </ThemeProvider>
+            <SoundProvider>
+              <ThemeProvider
+                attribute="class"
+                defaultTheme="dark"
+                enableSystem
+                disableTransitionOnChange
+              >
+                {children}
+                <Toaster />
+              </ThemeProvider>
+            </SoundProvider>
           </ConvexProvider>
         </SessionProvider>
       </body>

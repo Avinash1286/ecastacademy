@@ -10,7 +10,11 @@
 
 import type * as admin from "../admin.js";
 import type * as ai from "../ai.js";
+import type * as aiConfig from "../aiConfig.js";
 import type * as auth from "../auth.js";
+import type * as capsuleGeneration from "../capsuleGeneration.js";
+import type * as capsules from "../capsules.js";
+import type * as capsulesV2 from "../capsulesV2.js";
 import type * as certificates from "../certificates.js";
 import type * as chapters from "../chapters.js";
 import type * as chatSessions from "../chatSessions.js";
@@ -18,10 +22,12 @@ import type * as completions from "../completions.js";
 import type * as contentItems from "../contentItems.js";
 import type * as courses from "../courses.js";
 import type * as debug from "../debug.js";
+import type * as generationMetrics from "../generationMetrics.js";
 import type * as messages from "../messages.js";
 import type * as migration from "../migration.js";
 import type * as migrations from "../migrations.js";
 import type * as progress from "../progress.js";
+import type * as rateLimit from "../rateLimit.js";
 import type * as testQueries from "../testQueries.js";
 import type * as utils_auth from "../utils/auth.js";
 import type * as utils_grading from "../utils/grading.js";
@@ -46,7 +52,11 @@ import type {
 declare const fullApi: ApiFromModules<{
   admin: typeof admin;
   ai: typeof ai;
+  aiConfig: typeof aiConfig;
   auth: typeof auth;
+  capsuleGeneration: typeof capsuleGeneration;
+  capsules: typeof capsules;
+  capsulesV2: typeof capsulesV2;
   certificates: typeof certificates;
   chapters: typeof chapters;
   chatSessions: typeof chatSessions;
@@ -54,10 +64,12 @@ declare const fullApi: ApiFromModules<{
   contentItems: typeof contentItems;
   courses: typeof courses;
   debug: typeof debug;
+  generationMetrics: typeof generationMetrics;
   messages: typeof messages;
   migration: typeof migration;
   migrations: typeof migrations;
   progress: typeof progress;
+  rateLimit: typeof rateLimit;
   testQueries: typeof testQueries;
   "utils/auth": typeof utils_auth;
   "utils/grading": typeof utils_grading;

@@ -1,26 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { streamText, type CoreMessage } from "ai";
-import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { cleanTranscript } from "@shared/ai/transcript";
 import { TUTOR_CHAT_PROMPT, TUTOR_CHAT_QUIZ_EXTENSION } from "@shared/ai/prompts";
 import { createConvexClient } from "@/lib/convexClient";
 import { api } from "convex/_generated/api";
 import { Id } from "convex/_generated/dataModel";
+import { getAIClient } from "@shared/ai/centralized";
 
 const MAX_MESSAGE_LENGTH = 60000;
 const MAX_HISTORY = 100;
 const MAX_TRANSCRIPT_LENGTH = 4000000;
-const MODEL_ID = "gemini-2.5-pro";
 
-const getGoogleClient = () => {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    throw new Error("GEMINI_API_KEY is not configured");
-  }
-  return createGoogleGenerativeAI({ apiKey });
-};
-
-const google = getGoogleClient();
 const convex = createConvexClient();
 
 type ContentItemWithDetails = {
@@ -178,15 +168,29 @@ export async function POST(request: NextRequest) {
       .filter(Boolean)
       .join("\n");
 
-  const systemPrompt = `${TUTOR_CHAT_PROMPT}\n\n${TUTOR_CHAT_QUIZ_EXTENSION}${contextBlock ? `\n${contextBlock}` : ""}\n\nTranscript:\n${cleanedTranscript}`;
+    const systemPrompt = `${TUTOR_CHAT_PROMPT}\n\n${TUTOR_CHAT_QUIZ_EXTENSION}${contextBlock ? `\n${contextBlock}` : ""}\n\nTranscript:\n${cleanedTranscript}`;
 
     const conversation: CoreMessage[] = sanitizedMessages.map((message) => ({
       role: message.role,
       content: message.content,
     }));
 
+    // Fetch AI Configuration
+    const modelConfig = await convex.query(api.aiConfig.getFeatureModel, {
+      featureKey: "tutor_chat",
+    });
+
+    if (!modelConfig) {
+      throw new Error("AI Configuration for 'tutor_chat' not found.");
+    }
+
+    const model = getAIClient({
+      provider: modelConfig.provider,
+      modelId: modelConfig.modelId,
+    });
+
     const result = streamText({
-      model: google.languageModel(MODEL_ID),
+      model,
       system: systemPrompt,
       messages: conversation,
       maxOutputTokens: 8192,

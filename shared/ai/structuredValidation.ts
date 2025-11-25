@@ -1,5 +1,6 @@
 import { ZodError, ZodSchema } from "zod";
 import { StructuredRepairRequest, repairStructuredJson } from "@shared/ai/generation";
+import { AIModelConfig } from "@shared/ai/centralized";
 
 const DEFAULT_ATTEMPTS = 5;
 const PROMPT_TRUNCATION_LIMIT = 12000;
@@ -33,6 +34,8 @@ type JsonValidationOptions<T> = {
   originalInput?: string;
   format?: string;
   maxAttempts?: number;
+  /** AI model configuration for repair attempts */
+  modelConfig?: AIModelConfig;
 };
 
 export const validateAndCorrectJson = async <T>(
@@ -46,6 +49,7 @@ export const validateAndCorrectJson = async <T>(
     originalInput,
     format = "generic-json",
     maxAttempts = DEFAULT_ATTEMPTS,
+    modelConfig,
   } = options;
 
   let currentJson = jsonString;
@@ -76,7 +80,7 @@ export const validateAndCorrectJson = async <T>(
         repairPayload.errorMessage
       );
 
-      currentJson = await repairStructuredJson(repairPayload);
+      currentJson = await repairStructuredJson(repairPayload, modelConfig);
     }
   }
 

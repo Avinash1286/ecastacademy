@@ -397,39 +397,9 @@ function messageToPlainText(message: UIMessage): string {
   return parts.map((part) => part.text).join('\n\n').trim();
 }
 
-function mergePersistedAndPendingMessages(persisted: UIMessage[], current: UIMessage[]): UIMessage[] {
-  if (persisted.length === 0) {
-    return current;
-  }
 
-  const merged: UIMessage[] = [...persisted];
-  const seenIds = new Set(persisted.map((message) => message.id).filter(Boolean) as string[]);
 
-  current.forEach((message) => {
-    if (!message.id || !seenIds.has(message.id)) {
-      merged.push(message);
-      if (message.id) {
-        seenIds.add(message.id);
-      }
-    }
-  });
 
-  return merged;
-}
-
-function messagesAreEqual(a: UIMessage[], b: UIMessage[]): boolean {
-  if (a.length !== b.length) {
-    return false;
-  }
-
-  for (let index = 0; index < a.length; index += 1) {
-    if (a[index]?.id !== b[index]?.id) {
-      return false;
-    }
-  }
-
-  return true;
-}
 
 function ChatBubble({ message, isStreaming }: { message: UIMessage; isStreaming: boolean }) {
   if (message.role !== 'user' && message.role !== 'assistant') {

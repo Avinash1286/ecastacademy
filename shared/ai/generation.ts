@@ -1,99 +1,53 @@
-import { GoogleGenAI } from "@google/genai";
+import { generateText } from "ai";
 import { NOTES_PROMPT, QUIZ_PROMPT, STRUCTURED_REPAIR_PROMPT, TUTOR_CHAT_PROMPT } from "@shared/ai/prompts";
-import { interactiveNotesResponseSchema, quizResponseSchema } from "@shared/ai/responseSchemas";
 import { cleanTranscript } from "@shared/ai/transcript";
-import { retryWithExponentialBackoff } from "@shared/ai/retry";
-
-const GEMINI_MODEL = "gemini-2.5-pro";
-
-let ai: GoogleGenAI | null = null;
-
-const getClient = () => {
-  if (!process.env.GEMINI_API_KEY) {
-    throw new Error("GEMINI_API_KEY is not configured");
-  }
-  if (!ai) {
-    ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-  }
-  return ai;
-};
-
-const defaultConfig = {
-  thinkingConfig: {
-    thinkingBudget: -1,
-  },
-  generationConfig: {
-    maxOutputTokens: 65536,
-  },
-};
+import { getAIClient, AIModelConfig } from "@shared/ai/centralized";
 
 export type TutorChatMessage = {
   role: "user" | "assistant";
   content: string;
 };
 
+const DEFAULT_CONFIG: AIModelConfig = {
+  provider: "google",
+  modelId: "gemini-2.5-pro",
+};
+
 export const generateNotes = async (
   rawTranscript: string,
-  options: { videoTitle?: string } = {}
+  options: { videoTitle?: string; modelConfig?: AIModelConfig } = {}
 ): Promise<string> => {
   const transcript = cleanTranscript(rawTranscript);
   if (!transcript) {
     throw new Error("Transcript is empty. Cannot generate notes.");
   }
 
-  const contents = [
-    {
-      role: "user" as const,
-      parts: [
-        {
-          text: `Video Title: ${options.videoTitle ?? "Untitled Lesson"}\n\nTranscript:\n${transcript}`,
-        },
-      ],
-    },
-  ];
+  const model = getAIClient(options.modelConfig || DEFAULT_CONFIG);
 
-  const response = await retryWithExponentialBackoff(() =>
-    getClient().models.generateContent({
-      model: GEMINI_MODEL,
-      config: {
-        ...defaultConfig,
-        responseMimeType: "application/json",
-        responseSchema: interactiveNotesResponseSchema,
-        systemInstruction: [{ text: NOTES_PROMPT }],
-      },
-      contents,
-    })
-  );
+  const prompt = `Video Title: ${options.videoTitle ?? "Untitled Lesson"}\n\nTranscript:\n${transcript}`;
 
-  return response.text ?? "";
+  const { text } = await generateText({
+    model,
+    system: NOTES_PROMPT,
+    prompt,
+  });
+
+  return text;
 };
 
-export const generateQuiz = async (input: string): Promise<string> => {
-  const contents = [
-    {
-      role: "user" as const,
-      parts: [
-        {
-          text: input,
-        },
-      ],
-    },
-  ];
+export const generateQuiz = async (
+  input: string,
+  modelConfig?: AIModelConfig
+): Promise<string> => {
+  const model = getAIClient(modelConfig || DEFAULT_CONFIG);
 
-  const response = await retryWithExponentialBackoff(() =>
-    getClient().models.generateContent({
-      model: GEMINI_MODEL,
-      config: {
-        ...defaultConfig,
-        responseMimeType: "application/json",
-        responseSchema: quizResponseSchema,
-        systemInstruction: [{ text: QUIZ_PROMPT }],
-      },
-      contents,
-    })
-  );
+  const { text } = await generateText({
+    model,
+    system: QUIZ_PROMPT,
+    prompt: input,
+  });
 
-  return response.text ?? "";
+  return text;
 };
 
 export const generateTutorResponse = async (params: {
@@ -102,6 +56,7 @@ export const generateTutorResponse = async (params: {
   videoTitle?: string;
   courseTitle?: string;
   chapterTitle?: string;
+  modelConfig?: AIModelConfig;
 }): Promise<string> => {
   const transcript = cleanTranscript(params.transcript).slice(0, 4_000_000);
 
@@ -113,8 +68,8 @@ export const generateTutorResponse = async (params: {
     .filter((message) => message.content?.trim().length)
     .slice(-8)
     .map((message) => ({
-      role: message.role === "assistant" ? ("model" as const) : ("user" as const),
-      parts: [{ text: message.content }],
+      role: message.role,
+      content: message.content,
     }));
 
   if (conversation.length === 0) {
@@ -129,24 +84,19 @@ export const generateTutorResponse = async (params: {
     .filter(Boolean)
     .join("\n");
 
-  const response = await retryWithExponentialBackoff(() =>
-    getClient().models.generateContent({
-      model: GEMINI_MODEL,
-      config: {
-        ...defaultConfig,
-        systemInstruction: [
-          {
-            text: `${TUTOR_CHAT_PROMPT}
-${contextBlock ? `\n${contextBlock}` : ""}
-\nTranscript:\n${transcript}`,
-          },
-        ],
-      },
-      contents: conversation,
-    })
-  );
+  const model = getAIClient(params.modelConfig || DEFAULT_CONFIG);
 
-  return response.text ?? "";
+  const system = `${TUTOR_CHAT_PROMPT}
+${contextBlock ? `\n${contextBlock}` : ""}
+\nTranscript:\n${transcript}`;
+
+  const { text } = await generateText({
+    model,
+    system,
+    messages: conversation,
+  });
+
+  return text;
 };
 
 export type StructuredRepairRequest = {
@@ -160,30 +110,16 @@ export type StructuredRepairRequest = {
 };
 
 export const repairStructuredJson = async (
-  payload: StructuredRepairRequest
+  payload: StructuredRepairRequest,
+  modelConfig?: AIModelConfig
 ): Promise<string> => {
-  const contents = [
-    {
-      role: "user" as const,
-      parts: [
-        {
-          text: JSON.stringify(payload, null, 2),
-        },
-      ],
-    },
-  ];
+  const model = getAIClient(modelConfig || DEFAULT_CONFIG);
 
-  const response = await retryWithExponentialBackoff(() =>
-    getClient().models.generateContent({
-      model: GEMINI_MODEL,
-      config: {
-        ...defaultConfig,
-        responseMimeType: "application/json",
-        systemInstruction: [{ text: STRUCTURED_REPAIR_PROMPT }],
-      },
-      contents,
-    })
-  );
+  const { text } = await generateText({
+    model,
+    system: STRUCTURED_REPAIR_PROMPT,
+    prompt: JSON.stringify(payload, null, 2),
+  });
 
-  return response.text ?? "";
+  return text;
 };
