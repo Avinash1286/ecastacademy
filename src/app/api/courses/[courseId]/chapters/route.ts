@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCourseChapters } from "@/lib/services/courseServiceConvex";
 import type { Id } from '../../../../../../convex/_generated/dataModel';
 import { withRateLimit, RATE_LIMIT_PRESETS } from '@/lib/security/rateLimit';
+import { logger } from '@/lib/logging/logger';
 
 export async function GET(
   request: NextRequest,
@@ -24,9 +25,12 @@ export async function GET(
         return new NextResponse("Not Found: No chapters found for this course", { status: 404 });
     }
 
-    return NextResponse.json(chapters, { status: 200 });
+    // MEDIUM-6 FIX: Add caching headers to reduce database load
+    const response = NextResponse.json(chapters, { status: 200 });
+    response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=120');
+    return response;
   } catch (error) {
-    console.error("[GET_COURSE_CHAPTERS_API_ERROR]", error);
+    logger.error('Failed to get course chapters', { endpoint: '/api/courses/[courseId]/chapters' }, error as Error);
     return new NextResponse("Internal Server Error", { status: 500 });
   }
 }

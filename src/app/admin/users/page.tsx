@@ -59,6 +59,8 @@ export default function AdminUsersPage() {
 
   useEffect(() => {
     // Filter users based on search term
+    if (!Array.isArray(users)) return;
+    
     if (searchTerm) {
       const filtered = users.filter(
         (user) =>
@@ -78,8 +80,9 @@ export default function AdminUsersPage() {
       const data = await response.json();
 
       if (response.ok) {
-        setUsers(data.users);
-        setFilteredUsers(data.users);
+        const userList = Array.isArray(data.users) ? data.users : [];
+        setUsers(userList);
+        setFilteredUsers(userList);
       } else {
         toast.error(data.error || "Failed to fetch users");
       }

@@ -16,34 +16,44 @@ const AUDIT_ACTIONS = {
   ADMIN_ACCESS: "admin_access",
 } as const;
 
-// Helper to check if user is admin (uses session auth)
-async function requireAdmin(ctx: QueryCtx | MutationCtx): Promise<Doc<"users">> {
-  const { user } = await requireAuthenticatedUser(ctx);
-  if (user.role !== "admin") {
-    throw new Error("Unauthorized: Admin access required");
+// Helper to check if user is admin
+// Tries session-based auth first, falls back to userId parameter for server-side admin auth
+async function requireAdmin(ctx: QueryCtx | MutationCtx, currentUserId?: Id<"users">): Promise<Doc<"users">> {
+  // First, try session-based authentication
+  try {
+    const { user } = await requireAuthenticatedUser(ctx);
+    if (user.role !== "admin") {
+      throw new Error("Unauthorized: Admin access required");
+    }
+    return user;
+  } catch {
+    // If session auth fails and we have a currentUserId (from server-side admin auth),
+    // verify the user exists and is an admin
+    if (currentUserId) {
+      const user = await ctx.db.get(currentUserId);
+      if (!user) {
+        throw new Error("User not found");
+      }
+      if (user.role !== "admin") {
+        throw new Error("Unauthorized: Admin access required");
+      }
+      return user;
+    }
+    // If no currentUserId provided and session auth failed, throw original error
+    throw new Error("Not authenticated");
   }
-  return user;
-}
-
-// Legacy helper for backward compatibility (deprecated - use requireAdmin without userId)
-async function requireAdminLegacy(ctx: QueryCtx | MutationCtx, userId: Id<"users">): Promise<Doc<"users">> {
-  const user = await ctx.db.get(userId);
-  if (!user || user.role !== "admin") {
-    throw new Error("Unauthorized: Admin access required");
-  }
-  return user;
 }
 
 // List all users (admin only) - with pagination
 export const listUsers = query({
   args: {
-    currentUserId: v.id("users"),
+    currentUserId: v.optional(v.id("users")), // Used for server-side admin auth fallback
     limit: v.optional(v.number()),
     cursor: v.optional(v.id("users")),
   },
   handler: async (ctx, args) => {
-    // Verify current user is admin
-    await requireAdminLegacy(ctx, args.currentUserId);
+    // Use session-based auth, with fallback to currentUserId for server-side admin auth
+    await requireAdmin(ctx, args.currentUserId);
     
     const limit = Math.min(args.limit ?? MAX_USERS_PER_PAGE, MAX_USERS_PER_PAGE);
     
@@ -101,16 +111,16 @@ export const listUsers = query({
 // Update user role (admin only)
 export const updateUserRole = mutation({
   args: {
-    currentUserId: v.id("users"),
+    currentUserId: v.optional(v.id("users")), // Used for server-side admin auth fallback
     targetUserId: v.id("users"),
     newRole: v.union(v.literal("user"), v.literal("admin")),
   },
   handler: async (ctx, args) => {
-    // Verify current user is admin (also validates via session)
-    const adminUser = await requireAdminLegacy(ctx, args.currentUserId);
+    // Use session-based auth, with fallback to currentUserId for server-side admin auth
+    const adminUser = await requireAdmin(ctx, args.currentUserId);
     
     // Don't allow users to demote themselves
-    if (args.currentUserId === args.targetUserId && args.newRole === "user") {
+    if (adminUser._id === args.targetUserId && args.newRole === "user") {
       throw new Error("You cannot demote yourself");
     }
     
@@ -129,7 +139,7 @@ export const updateUserRole = mutation({
     
     // Log the role change for audit
     await ctx.scheduler.runAfter(0, internal.audit.logEvent, {
-      userId: args.currentUserId,
+      userId: adminUser._id,
       action: AUDIT_ACTIONS.USER_ROLE_CHANGED,
       resourceType: "user",
       resourceId: args.targetUserId.toString(),
@@ -148,15 +158,15 @@ export const updateUserRole = mutation({
 // Delete user (admin only)
 export const deleteUser = mutation({
   args: {
-    currentUserId: v.id("users"),
+    currentUserId: v.optional(v.id("users")), // Used for server-side admin auth fallback
     targetUserId: v.id("users"),
   },
   handler: async (ctx, args) => {
-    // Verify current user is admin
-    await requireAdminLegacy(ctx, args.currentUserId);
+    // Use session-based auth, with fallback to currentUserId for server-side admin auth
+    const adminUser = await requireAdmin(ctx, args.currentUserId);
     
     // Don't allow users to delete themselves
-    if (args.currentUserId === args.targetUserId) {
+    if (adminUser._id === args.targetUserId) {
       throw new Error("You cannot delete yourself");
     }
     
@@ -204,7 +214,7 @@ export const deleteUser = mutation({
     
     // Log the deletion for audit
     await ctx.scheduler.runAfter(0, internal.audit.logEvent, {
-      userId: args.currentUserId,
+      userId: adminUser._id,
       action: AUDIT_ACTIONS.USER_DELETED,
       resourceType: "user",
       resourceId: args.targetUserId.toString(),
@@ -225,11 +235,11 @@ export const deleteUser = mutation({
 // Get admin statistics - optimized version
 export const getAdminStats = query({
   args: {
-    currentUserId: v.id("users"),
+    currentUserId: v.optional(v.id("users")), // Used for server-side admin auth fallback
   },
   handler: async (ctx, args) => {
-    // Verify current user is admin
-    await requireAdminLegacy(ctx, args.currentUserId);
+    // Use session-based auth, with fallback to currentUserId for server-side admin auth
+    await requireAdmin(ctx, args.currentUserId);
     
     // Use take() with limits instead of collect() to prevent memory issues
     // In a production system, you would use pre-computed aggregates
@@ -261,13 +271,13 @@ export const getAdminStats = query({
  */
 export const listGenerationFailures = query({
   args: {
-    currentUserId: v.optional(v.id("users")), // Keep for backward compatibility but ignored
+    currentUserId: v.optional(v.id("users")), // Used for server-side admin auth fallback
     resolvedFilter: v.optional(v.boolean()), // undefined = all, true = resolved only, false = unresolved only
     errorCodeFilter: v.optional(v.string()),
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx);
+    await requireAdmin(ctx, args.currentUserId);
     
     // Get failures based on resolved filter
     let failures;
@@ -314,10 +324,10 @@ export const listGenerationFailures = query({
  */
 export const getFailureStats = query({
   args: {
-    currentUserId: v.optional(v.id("users")), // Keep for backward compatibility but ignored
+    currentUserId: v.optional(v.id("users")), // Used for server-side admin auth fallback
   },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx);
+    await requireAdmin(ctx, args.currentUserId);
     
     const failures = await ctx.db.query("generationFailures").collect();
     
@@ -357,12 +367,12 @@ export const getFailureStats = query({
  */
 export const resolveGenerationFailure = mutation({
   args: {
-    currentUserId: v.optional(v.id("users")), // Keep for backward compatibility but ignored
+    currentUserId: v.optional(v.id("users")), // Used for server-side admin auth fallback
     failureId: v.id("generationFailures"),
     resolution: v.string(),
   },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx);
+    await requireAdmin(ctx, args.currentUserId);
     
     const failure = await ctx.db.get(args.failureId);
     if (!failure) {
@@ -384,12 +394,12 @@ export const resolveGenerationFailure = mutation({
  */
 export const bulkResolveByErrorCode = mutation({
   args: {
-    currentUserId: v.optional(v.id("users")), // Keep for backward compatibility but ignored
+    currentUserId: v.optional(v.id("users")), // Used for server-side admin auth fallback
     errorCode: v.string(),
     resolution: v.string(),
   },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx);
+    await requireAdmin(ctx, args.currentUserId);
     
     const failures = await ctx.db
       .query("generationFailures")

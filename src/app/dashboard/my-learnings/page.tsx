@@ -103,11 +103,15 @@ const MyLearningsPage = () => {
                 const progressValue = Math.round(course.progressPercentage ?? 0);
 
                 return (
-                  <article
+                  <Link
                     key={course._id}
-                    className="flex h-full flex-col overflow-hidden rounded-lg border border-border bg-card shadow-sm transition hover:-translate-y-1 hover:shadow-lg"
+                    href={`/learnspace/${course._id}`}
+                    className="block"
                   >
-                    <div className="relative w-full aspect-video bg-muted">
+                    <article
+                      className="flex h-full flex-col overflow-hidden rounded-lg border border-border bg-card shadow-sm transition hover:-translate-y-1 hover:shadow-lg cursor-pointer"
+                    >
+                      <div className="relative w-full aspect-video bg-muted">
                       {course.thumbnailUrl ? (
                         <>
                           <Image
@@ -158,15 +162,10 @@ const MyLearningsPage = () => {
                         <div className="text-xs text-muted-foreground">
                           {course.totalChapters ?? 0} chapter{(course.totalChapters ?? 0) === 1 ? '' : 's'}
                         </div>
-                        <Button asChild className="gap-2">
-                          <Link href={`/learnspace/${course._id}`}>
-                            Continue
-                            <ArrowRight className="h-4 w-4" />
-                          </Link>
-                        </Button>
                       </div>
                     </div>
                   </article>
+                </Link>
                 );
               })}
             </div>

@@ -40,10 +40,10 @@ export default function CapsuleLearningPage({ params }: PageProps) {
   const hasShownCelebration = useRef(false);
   const { playCorrectSound, isMuted, toggleMute } = useSoundEffects();
 
-  // Fetch capsule with all content
+  // Fetch capsule with all content - pass userId for access control
   const capsuleData = useQuery(
     api.capsules.getCapsuleWithContent,
-    isAuthenticated ? { capsuleId } : "skip"
+    { capsuleId, userId: userId || undefined }
   );
 
   const userProgress = useQuery(

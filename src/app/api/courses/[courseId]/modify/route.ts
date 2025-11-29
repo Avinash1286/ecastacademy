@@ -5,6 +5,7 @@ import { ZodError } from "zod";
 import type { Id } from '../../../../../../convex/_generated/dataModel';
 import { auth } from "@/lib/auth/auth.config";
 import { withRateLimit, RATE_LIMIT_PRESETS } from "@/lib/security/rateLimit";
+import { logger } from "@/lib/logging/logger";
 
 export async function PATCH(
   request: NextRequest,
@@ -53,7 +54,7 @@ export async function PATCH(
 
     return NextResponse.json(updatedCourse, { status: 200 });
   } catch (error) {
-    console.error("[PATCH_COURSE_API_ERROR]", error);
+    logger.error('Failed to update course', { courseId, userId: session.user.id }, error as Error);
 
     if (error instanceof ZodError) {
       return NextResponse.json({ error: error.message }, { status: 400 });
@@ -110,7 +111,7 @@ export async function DELETE(
       { status: 200 }
     );
   } catch (error) {
-    console.error("[DELETE_COURSE_API_ERROR]", error);
+    logger.error('Failed to delete course', { userId: session.user.id }, error as Error);
 
     if (error instanceof Error && error.message === "Course not found") {
       return NextResponse.json({ error: error.message }, { status: 404 });

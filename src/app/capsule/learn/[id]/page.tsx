@@ -46,9 +46,11 @@ export default function CapsuleLearnPage({ params }: PageProps) {
   const hasShownCelebration = useRef(false);
   const { playCorrectSound, isMuted, toggleMute } = useSoundEffects();
 
+  // Fetch capsule with access control - pass userId for ownership check
+  // Public capsules are viewable by anyone, private only by owner
   const capsuleData = useQuery(
     api.capsules.getCapsuleWithContent,
-    isAuthenticated ? { capsuleId } : 'skip'
+    { capsuleId, userId: userId || undefined }
   );
 
   const userProgress = useQuery(
@@ -175,7 +177,12 @@ export default function CapsuleLearnPage({ params }: PageProps) {
     }
   }, [progressPercentageValue, playCorrectSound, totalLessonsCount]);
 
-  if (!isAuthenticated && status !== 'loading') {
+  // Check if this is a public capsule that non-owner can view
+  const isPublicCapsule = capsuleData?.isPublic === true;
+  const isOwner = capsuleData?.isOwner === true;
+
+  // For private capsules, require authentication
+  if (!isAuthenticated && status !== 'loading' && !isPublicCapsule) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background px-4">
         <Card className="max-w-md w-full">
@@ -341,6 +348,28 @@ export default function CapsuleLearnPage({ params }: PageProps) {
             <Progress value={progressPercentage} className="h-2" />
           </div>
         </div>
+
+        {/* Sign in prompt for non-authenticated users viewing public capsules */}
+        {!isAuthenticated && isPublicCapsule && (
+          <div className="border-b bg-amber-500/10 border-amber-500/20">
+            <div className="container mx-auto max-w-5xl py-3 px-4">
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-2 text-sm text-amber-700 dark:text-amber-300">
+                  <ShieldAlert className="h-4 w-4 shrink-0" />
+                  <span>Sign in to track your progress and save your answers</span>
+                </div>
+                <Button 
+                  size="sm" 
+                  variant="outline"
+                  className="shrink-0 border-amber-500/50 hover:bg-amber-500/10"
+                  onClick={() => router.push('/auth/signin')}
+                >
+                  Sign in
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="container mx-auto max-w-5xl py-8 px-4">
           {/* Failed lessons alert */}

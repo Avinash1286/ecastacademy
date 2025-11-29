@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCourseDetails } from '@/lib/services/courseServiceConvex';
 import type { Id } from '../../../../../../convex/_generated/dataModel';
 import { withRateLimit, RATE_LIMIT_PRESETS } from '@/lib/security/rateLimit';
+import { logger } from '@/lib/logging/logger';
 
 export async function GET(
   request: NextRequest,
@@ -20,9 +21,12 @@ export async function GET(
       return new NextResponse('Course not found', { status: 404 });
     }
 
-    return NextResponse.json(courseDetails);
+    // MEDIUM-6 FIX: Add caching headers to reduce database load and improve DDoS resilience
+    const response = NextResponse.json(courseDetails);
+    response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=120');
+    return response;
   } catch (error) {
-    console.error('[GET_COURSE_DETAILS_API]', error);
+    logger.error('Failed to get course details', { endpoint: '/api/courses/[courseId]/single' }, error as Error);
     return new NextResponse('Internal Server Error', { status: 500 });
   }
 }

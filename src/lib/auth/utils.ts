@@ -1,5 +1,5 @@
 import bcrypt from "bcryptjs";
-import { randomUUID } from "crypto";
+import { randomBytes, createHash } from "crypto";
 
 /**
  * Hash a password using bcrypt
@@ -20,10 +20,19 @@ export async function verifyPassword(
 }
 
 /**
- * Generate a secure random token for password reset
+ * MEDIUM-2 FIX: Generate a cryptographically secure random token for password reset
+ * Uses 32 bytes (256 bits) of entropy instead of UUID's ~122 bits
  */
 export function generateToken(): string {
-  return randomUUID();
+  return randomBytes(32).toString("hex");
+}
+
+/**
+ * MEDIUM-2 FIX: Hash a token before storing in database
+ * This ensures that even if the database is compromised, tokens cannot be used directly
+ */
+export function hashToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
 }
 
 /**

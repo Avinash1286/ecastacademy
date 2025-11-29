@@ -40,6 +40,7 @@ export function CertificateView({
   }, [certificateId, normalizedVerificationPath])
 
   const [verificationLink, setVerificationLink] = useState<string>(fallbackVerificationLink)
+  const [isDownloading, setIsDownloading] = useState(false)
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -90,8 +91,6 @@ export function CertificateView({
   const handlePrint = () => {
     window.print()
   }
-
-  const [isDownloading, setIsDownloading] = useState(false)
 
   const handleDownloadSVG = async () => {
     if (!certificate) return

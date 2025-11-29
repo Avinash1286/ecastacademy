@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Paperclip, FileText, Loader2, CheckCircle2, AlertTriangle, Clock, Trash2, RefreshCw, ArrowUp, X, Sparkles } from 'lucide-react';
+import { Paperclip, FileText, Loader2, CheckCircle2, AlertTriangle, Clock, Trash2, RefreshCw, ArrowUp, X, Sparkles, Globe, Users, ChevronRight } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 import { toast } from 'sonner';
 
@@ -34,6 +34,12 @@ export default function CapsulePage() {
   const capsules = useQuery(
     api.capsules.getUserCapsules,
     userId ? { userId } : 'skip'
+  );
+
+  // Community capsules - public capsules from other users
+  const communityCapsules = useQuery(
+    api.capsules.getCommunityCapsules,
+    { limit: 6, excludeUserId: userId }
   );
 
   const deleteCapsule = useMutation(api.capsules.deleteCapsule);
@@ -531,6 +537,91 @@ export default function CapsulePage() {
                         )}
                         {capsule.createdAt && (
                           <span>{new Date(capsule.createdAt).toLocaleDateString()}</span>
+                        )}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* Community Capsules Section */}
+        <section className="mt-16">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-4">
+              <h2 className="text-xl font-semibold flex items-center gap-2">
+                <Globe className="h-5 w-5 text-primary" />
+                Community Capsules
+              </h2>
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Users className="h-4 w-4" />
+                <span>Shared by learners</span>
+              </div>
+            </div>
+            {communityCapsules?.capsules && communityCapsules.capsules.length > 0 && (
+              <Button
+                variant="ghost"
+                className="text-sm gap-1"
+                onClick={() => router.push('/dashboard/capsule/community')}
+              >
+                View all
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
+
+          {communityCapsules === undefined ? (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {[...Array(3)].map((_, idx) => (
+                <Card key={idx} className="h-48 animate-pulse bg-muted/40" />
+              ))}
+            </div>
+          ) : communityCapsules.capsules.length === 0 ? (
+            <Card className="border-2 border-dashed border-border/50">
+              <CardContent className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                <Globe className="h-10 w-10 mb-4 text-primary/50" />
+                <p className="text-lg font-medium mb-2">No community capsules yet</p>
+                <p className="text-sm text-center max-w-md">
+                  Be the first to share! Make your completed capsules public to help others learn.
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {communityCapsules.capsules.slice(0, 3).map((capsule) => (
+                <Card
+                  key={capsule._id}
+                  className="cursor-pointer transition-all hover:border-primary/50 hover:shadow-md group relative bg-card"
+                  onClick={() => router.push(`/capsule/learn/${capsule._id}`)}
+                >
+                  <CardContent className="p-5 min-h-[220px] flex flex-col">
+                    {/* Header with icon */}
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-blue-500/20 to-purple-500/20 flex items-center justify-center shrink-0">
+                        <Globe className="h-5 w-5 text-blue-500" />
+                      </div>
+                      <Badge variant="secondary" className="text-xs bg-blue-500/10 text-blue-600 border-blue-500/20">
+                        Public
+                      </Badge>
+                    </div>
+
+                    {/* Title */}
+                    <h3 className="font-semibold text-base line-clamp-2 mb-2">{capsule.title}</h3>
+
+                    {/* Description */}
+                    {capsule.description ? (
+                      <p className="text-sm text-muted-foreground line-clamp-2 mb-3">{capsule.description}</p>
+                    ) : (
+                      <p className="text-sm text-muted-foreground/50 italic mb-3">No description</p>
+                    )}
+
+                    {/* Footer with module count */}
+                    <div className="flex items-center justify-end mt-auto pt-3 border-t border-border/50">
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        {capsule.moduleCount && (
+                          <span>{capsule.moduleCount} modules</span>
                         )}
                       </div>
                     </div>

@@ -19,7 +19,18 @@ const REQUEST_ID_HEADER = "X-Request-ID";
 // CSRF Configuration
 const CSRF_COOKIE_NAME = "csrf-token";
 const CSRF_HEADER_NAME = "x-csrf-token";
-const CSRF_EXEMPT_PATHS = ["/api/auth", "/api/webhooks", "/api/health"];
+// HIGH-5 FIX: More specific CSRF exemptions to prevent bypass
+// Only exempt specific auth paths needed for OAuth flows, not the entire /api/auth namespace
+const CSRF_EXEMPT_PATHS = [
+  "/api/auth/callback",      // OAuth callbacks need exemption
+  "/api/auth/signin",        // NextAuth signin
+  "/api/auth/signout",       // NextAuth signout  
+  "/api/auth/session",       // NextAuth session check
+  "/api/auth/csrf",          // NextAuth CSRF endpoint
+  "/api/auth/providers",     // NextAuth providers list
+  "/api/webhooks",           // External webhooks
+  "/api/health",             // Health checks
+];
 
 // Protected routes requiring authentication
 const PROTECTED_PATHS = ["/dashboard", "/learnspace", "/admin"];
@@ -28,7 +39,16 @@ const PROTECTED_PATHS = ["/dashboard", "/learnspace", "/admin"];
 const ADMIN_PATHS = ["/admin"];
 
 // Routes requiring CSRF protection (state-changing API routes)
-const CSRF_PROTECTED_PATHS = ["/api/ai", "/api/course", "/api/capsule", "/api/videos", "/api/certificates"];
+// HIGH-5 FIX: Added /api/auth to protect forgot-password and reset-password
+const CSRF_PROTECTED_PATHS = [
+  "/api/ai", 
+  "/api/course", 
+  "/api/capsule", 
+  "/api/videos", 
+  "/api/certificates",
+  "/api/auth/forgot-password",
+  "/api/auth/reset-password",
+];
 
 // Body size limits (in bytes)
 const SIZE_LIMITS: Record<string, number> = {
@@ -189,7 +209,8 @@ export async function middleware(request: NextRequest) {
   const requiresCsrf =
     !["GET", "HEAD", "OPTIONS"].includes(method) &&
     CSRF_PROTECTED_PATHS.some((path) => pathname.startsWith(path)) &&
-    !CSRF_EXEMPT_PATHS.some((path) => pathname.startsWith(path));
+    // HIGH-5 FIX: Use exact match for exempt paths to prevent bypass
+    !CSRF_EXEMPT_PATHS.some((path) => pathname === path || pathname.startsWith(path + "/"));
 
   if (requiresCsrf) {
     const cookieToken = request.cookies.get(CSRF_COOKIE_NAME)?.value;

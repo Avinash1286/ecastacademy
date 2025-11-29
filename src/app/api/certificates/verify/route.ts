@@ -12,6 +12,32 @@ import { api } from "../../../../../convex/_generated/api";
 
 const convex = createConvexClient();
 
+/**
+ * MEDIUM-1 FIX: Mask name to protect PII
+ * "John Doe" -> "J. Doe"
+ */
+function maskName(name?: string): string {
+  if (!name) return "Certificate Holder";
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) {
+    return parts[0].charAt(0) + "***";
+  }
+  // First initial + last name
+  return `${parts[0].charAt(0)}. ${parts[parts.length - 1]}`;
+}
+
+/**
+ * MEDIUM-1 FIX: Convert exact grade to a range
+ */
+function getGradeRange(grade?: number): string {
+  if (grade === undefined || grade === null) return "Completed";
+  if (grade >= 90) return "90-100% (Excellent)";
+  if (grade >= 80) return "80-89% (Very Good)";
+  if (grade >= 70) return "70-79% (Good)";
+  if (grade >= 60) return "60-69% (Satisfactory)";
+  return "Below 60%";
+}
+
 export async function GET(request: NextRequest) {
   // Apply rate limiting
   const rateLimitResponse = await withRateLimit(request, RATE_LIMIT_PRESETS.CERTIFICATE);
@@ -51,14 +77,18 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Return verified certificate details
+    // MEDIUM-1 FIX: Return minimal certificate info to prevent PII enumeration
+    // Only return enough info to confirm validity, not full personal details
     return NextResponse.json({
       valid: true,
       certificate: {
+        // Only show course name and completion date - no personal info
         courseName: result.certificate?.courseName,
-        recipientName: result.certificate?.userName,
         completionDate: result.certificate?.completionDate,
-        grade: result.certificate?.overallGrade,
+        // Show only first name initial + last name for privacy
+        recipientName: maskName(result.certificate?.userName),
+        // Show grade as a range, not exact number
+        gradeRange: getGradeRange(result.certificate?.overallGrade),
         issuedAt: result.certificate?.issuedAt,
       },
     });

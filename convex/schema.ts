@@ -429,6 +429,10 @@ export default defineSchema({
     ),
     errorMessage: v.optional(v.string()),
 
+    // Visibility - public capsules are visible to all users
+    isPublic: v.optional(v.boolean()), // Default: false (private)
+    publishedAt: v.optional(v.number()), // When capsule was made public
+
     // Metadata
     thumbnailUrl: v.optional(v.string()),
     estimatedDuration: v.optional(v.number()), // in minutes
@@ -440,7 +444,9 @@ export default defineSchema({
   })
     .index("by_userId", ["userId"])
     .index("by_userId_status", ["userId", "status"])
-    .index("by_status", ["status"]),
+    .index("by_status", ["status"])
+    .index("by_public_status", ["isPublic", "status"])
+    .index("by_public_publishedAt", ["isPublic", "publishedAt"]),
 
   // Capsule modules - main sections of a capsule
   capsuleModules: defineTable({

@@ -5,12 +5,22 @@ import {
   getTranscriptProviderStatus 
 } from '@/lib/services/transcriptServiceEnhanced';
 import { withRateLimit, RATE_LIMIT_PRESETS } from '@/lib/security/rateLimit';
+import { auth } from '@/lib/auth/auth.config';
 import { logger } from '@/lib/logging/logger';
 
 export async function GET(request: NextRequest) {
   // Apply rate limiting
   const rateLimitResponse = await withRateLimit(request, RATE_LIMIT_PRESETS.TRANSCRIPT);
   if (rateLimitResponse) return rateLimitResponse;
+
+  // HIGH-3 FIX: Require authentication to prevent unauthorized API usage
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json(
+      { error: 'Authentication required to fetch transcripts.' },
+      { status: 401 }
+    );
+  }
 
   const { searchParams } = new URL(request.url);
   const videoId = searchParams.get('v');

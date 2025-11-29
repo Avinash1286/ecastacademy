@@ -6,7 +6,7 @@ import { createConvexClient } from "@/lib/convexClient";
 import { api } from "convex/_generated/api";
 import { Id } from "convex/_generated/dataModel";
 import { getAIClient } from "@shared/ai/core";
-import { withRateLimit, RATE_LIMIT_PRESETS } from "@/lib/security/rateLimit";
+import { withRateLimit, withRateLimitByUser, RATE_LIMIT_PRESETS } from "@/lib/security/rateLimit";
 import { auth } from "@/lib/auth/auth.config";
 import { logger } from "@/lib/logging/logger";
 
@@ -107,6 +107,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       { error: "Authentication required" },
       { status: 401 }
+    );
+  }
+
+  // MEDIUM-5 FIX: Apply per-user rate limiting for authenticated users
+  // This prevents a single user from exhausting shared rate limits
+  const userRateLimit = await withRateLimitByUser(
+    session.user.id,
+    RATE_LIMIT_PRESETS.AI_GENERATION,
+    "tutor-chat"
+  );
+  if (!userRateLimit.success) {
+    return NextResponse.json(
+      { error: "You've reached your AI usage limit. Please wait a moment before trying again." },
+      { status: 429 }
     );
   }
 
@@ -224,9 +238,31 @@ export async function POST(request: NextRequest) {
     return result.toUIMessageStreamResponse();
   } catch (error) {
     logger.error("[TUTOR_CHAT] Chat generation failed", undefined, error as Error);
-    const message =
-      error instanceof Error ? error.message : "Something went wrong while contacting the tutor";
-    const status = message.toLowerCase().includes("transcript") ? 422 : 500;
+    // MEDIUM-3 FIX: Sanitize error messages to not leak internal details
+    const { message, status } = getSafeTutorError(error);
     return NextResponse.json({ error: message }, { status });
   }
+}
+
+/**
+ * MEDIUM-3 FIX: Convert internal errors to safe user-facing messages
+ */
+function getSafeTutorError(error: unknown): { message: string; status: number } {
+  if (error instanceof Error) {
+    const msg = error.message.toLowerCase();
+    // Allow transcript-related errors through (user-actionable)
+    if (msg.includes("transcript")) {
+      return { message: "Transcript is required for tutoring.", status: 422 };
+    }
+    if (msg.includes("quota") || msg.includes("rate limit") || msg.includes("429")) {
+      return { message: "Service is temporarily busy. Please try again in a moment.", status: 429 };
+    }
+    if (msg.includes("timeout")) {
+      return { message: "Request took too long. Please try again.", status: 504 };
+    }
+    if (msg.includes("configuration") || msg.includes("not found")) {
+      return { message: "AI tutor is temporarily unavailable. Please try again later.", status: 503 };
+    }
+  }
+  return { message: "Something went wrong. Please try again.", status: 500 };
 }

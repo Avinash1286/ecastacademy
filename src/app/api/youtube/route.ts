@@ -7,12 +7,32 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { withRateLimit, RATE_LIMIT_PRESETS } from '@/lib/security/rateLimit';
+import { auth } from '@/lib/auth/auth.config';
 import { logger } from '@/lib/logging/logger';
 
 const YOUTUBE_API_BASE_URL = 'https://www.googleapis.com/youtube/v3';
 
 // YouTube API key is now server-side only (no NEXT_PUBLIC_ prefix)
 const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY;
+
+// Request timeout for external API calls (15 seconds)
+const EXTERNAL_API_TIMEOUT_MS = 15000;
+
+/**
+ * Fetch with timeout using AbortController
+ * LOW-2: Prevent hung requests from holding resources indefinitely
+ */
+async function fetchWithTimeout(url: string, timeoutMs: number = EXTERNAL_API_TIMEOUT_MS): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    return response;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
 
 interface YouTubeVideoSnippet {
   title: string;
@@ -88,6 +108,15 @@ export async function GET(request: NextRequest) {
   const rateLimitResponse = await withRateLimit(request, RATE_LIMIT_PRESETS.YOUTUBE);
   if (rateLimitResponse) return rateLimitResponse;
 
+  // HIGH-4 FIX: Require authentication to prevent unauthorized API usage
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json(
+      { error: 'Authentication required to access YouTube API.' },
+      { status: 401 }
+    );
+  }
+
   // Check API key configuration
   if (!YOUTUBE_API_KEY) {
     return NextResponse.json(
@@ -103,8 +132,8 @@ export async function GET(request: NextRequest) {
 
   try {
     if (action === 'video' && videoId) {
-      // Fetch single video info
-      const response = await fetch(
+      // Fetch single video info with timeout
+      const response = await fetchWithTimeout(
         `${YOUTUBE_API_BASE_URL}/videos?part=snippet,contentDetails&id=${videoId}&key=${YOUTUBE_API_KEY}`
       );
 
@@ -141,7 +170,7 @@ export async function GET(request: NextRequest) {
           playlistUrl.searchParams.set('pageToken', nextPageToken);
         }
 
-        const playlistResponse = await fetch(playlistUrl.toString());
+        const playlistResponse = await fetchWithTimeout(playlistUrl.toString());
         if (!playlistResponse.ok) {
           throw new Error(`YouTube API error: ${playlistResponse.statusText}`);
         }
@@ -158,7 +187,7 @@ export async function GET(request: NextRequest) {
           videosUrl.searchParams.set('id', videoIds.join(','));
           videosUrl.searchParams.set('key', YOUTUBE_API_KEY);
 
-          const videosResponse = await fetch(videosUrl.toString());
+          const videosResponse = await fetchWithTimeout(videosUrl.toString());
           if (videosResponse.ok) {
             const videosData = await videosResponse.json();
             const mappedVideos = videosData.items.map(mapYouTubeItemToVideoInfo);
@@ -178,7 +207,7 @@ export async function GET(request: NextRequest) {
       // Fetch multiple videos by comma-separated IDs
       const videoIds = videoId.split(',').slice(0, 50); // Limit to 50 videos
 
-      const response = await fetch(
+      const response = await fetchWithTimeout(
         `${YOUTUBE_API_BASE_URL}/videos?part=snippet,contentDetails&id=${videoIds.join(',')}&key=${YOUTUBE_API_KEY}`
       );
 
@@ -199,6 +228,15 @@ export async function GET(request: NextRequest) {
     }
 
   } catch (error) {
+    // Handle timeout errors specifically
+    if (error instanceof Error && error.name === 'AbortError') {
+      logger.warn('[YOUTUBE_API] Request timeout', { action: searchParams.get('action') });
+      return NextResponse.json(
+        { error: 'Request timed out. Please try again.' },
+        { status: 504 }
+      );
+    }
+    
     logger.error('[YOUTUBE_API] Request failed', { action: searchParams.get('action') }, error as Error);
     // Don't leak internal error details to client
     return NextResponse.json(

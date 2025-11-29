@@ -4,6 +4,7 @@ import { CreateCourseSchema } from "@/lib/validators/courseValidator";
 import { ZodError } from "zod";
 import { auth } from "@/lib/auth/auth.config";
 import { withRateLimit, RATE_LIMIT_PRESETS } from "@/lib/security/rateLimit";
+import { logger } from "@/lib/logging/logger";
 
 export async function POST(request: NextRequest) {
   // Apply rate limiting for course creation
@@ -48,7 +49,7 @@ export async function POST(request: NextRequest) {
         controller.close();
 
       } catch (error) {
-        console.error("[COURSE_CREATE_API_ERROR]", error);
+        logger.error('Course creation failed', { userId: session?.user?.id }, error as Error);
         let errorMessage = "An unknown error occurred.";
 
         if (error instanceof ZodError) {

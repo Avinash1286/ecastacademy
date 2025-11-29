@@ -24,11 +24,11 @@ export async function GET(request: NextRequest) {
     const currentUserId = session.user.id as Id<"users">;
 
     // Fetch users with stats
-    const users = await convex.query(api.admin.listUsers, {
+    const result = await convex.query(api.admin.listUsers, {
       currentUserId,
     });
 
-    return NextResponse.json({ users });
+    return NextResponse.json({ users: result.users });
   } catch (error: unknown) {
     logger.error("Error fetching users", undefined, error as Error);
 

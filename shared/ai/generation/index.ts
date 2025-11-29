@@ -401,12 +401,12 @@ export const regenerateVisualization = async (
   const model = getAIClient(validatedConfig);
 
   const contextPrompt = `
-LESSON CONTEXT:
+LESSON CONTEXT (The visualization MUST be about this topic):
 - Course: ${input.lessonContext.capsuleTitle}
 - Module: ${input.lessonContext.moduleTitle}
 - Lesson: ${input.lessonContext.lessonTitle}
 
-CURRENT VISUALIZATION:
+CURRENT VISUALIZATION (Improve THIS visualization):
 Title: ${input.currentVisualization.title || "Untitled"}
 Description: ${input.currentVisualization.description || "No description"}
 
@@ -428,10 +428,12 @@ ${input.currentVisualization.javascript || "// No JavaScript"}
 USER FEEDBACK:
 "${input.userFeedback}"
 
-Based on the user's feedback, regenerate this visualization. Make it functional, visually appealing, and educational.
-If the user says it's broken, focus on fixing the code.
-If the user wants specific changes, implement those changes.
-If the current code is completely unusable, create a fresh visualization that serves the same educational purpose.
+INSTRUCTIONS:
+1. First, check if the user's feedback is RELEVANT to the current visualization topic (${input.lessonContext.lessonTitle}).
+2. If feedback is RELEVANT (bug fix, visual improvement, feature request for THIS visualization): Apply the feedback.
+3. If feedback is IRRELEVANT (asking for a completely different topic/visualization): IGNORE the off-topic request and instead improve the current visualization's functionality, interactivity, and educational value based on the lesson context.
+
+The regenerated visualization MUST stay on-topic with "${input.lessonContext.lessonTitle}" in the "${input.lessonContext.moduleTitle}" module.
 
 Output ONLY the JSON object with title, description, type, html, css, and javascript fields.`;
 

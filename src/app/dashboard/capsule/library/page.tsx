@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from 'convex/react';
+import { useQuery, useMutation } from 'convex/react';
 import { api } from '../../../../../convex/_generated/api';
 import { Id } from '../../../../../convex/_generated/dataModel';
 import { useRouter } from 'next/navigation';
@@ -11,7 +11,9 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Progress } from '@/components/ui/progress';
-import { Sparkles, Clock, BookOpen, Plus, Loader2, CheckCircle2, XCircle } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { Sparkles, Clock, BookOpen, Plus, Loader2, CheckCircle2, XCircle, Globe, Lock } from 'lucide-react';
+import { toast } from 'sonner';
 
 export default function CapsuleLibraryPage() {
   const router = useRouter();
@@ -26,6 +28,9 @@ export default function CapsuleLibraryPage() {
         }
       : "skip"
   );
+
+  // Mutation for toggling visibility
+  const toggleVisibility = useMutation(api.capsules.toggleCapsuleVisibility);
 
   // Get generation jobs for progress tracking
   const generationJobs = useQuery(
@@ -81,6 +86,28 @@ export default function CapsuleLibraryPage() {
 
   const isAuthenticated = !!userId && status === 'authenticated';
   const loading = status === 'loading' || (isAuthenticated && capsules === undefined);
+
+  // Handle visibility toggle
+  const handleToggleVisibility = async (
+    e: React.MouseEvent,
+    capsuleId: Id<'capsules'>,
+    currentIsPublic: boolean | undefined
+  ) => {
+    e.stopPropagation(); // Prevent card click
+    if (!userId) return;
+
+    try {
+      const result = await toggleVisibility({
+        capsuleId,
+        userId,
+        isPublic: !currentIsPublic,
+      });
+      toast.success(result.message);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to update visibility';
+      toast.error(message);
+    }
+  };
 
   if (!isAuthenticated && status !== 'loading') {
     return (
@@ -214,16 +241,41 @@ export default function CapsuleLibraryPage() {
                   )}
 
                   {capsule.status === 'completed' && (
-                    <Button 
-                      className="w-full mt-4 gap-2"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        router.push(`/capsule/learn/${capsule._id}`);
-                      }}
-                    >
-                      <Sparkles className="h-4 w-4" />
-                      Start Learning
-                    </Button>
+                    <div className="space-y-3 mt-4">
+                      {/* Visibility Toggle */}
+                      <div 
+                        className="flex items-center justify-between p-3 rounded-lg bg-muted/50 border"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="flex items-center gap-2">
+                          {capsule.isPublic ? (
+                            <Globe className="h-4 w-4 text-blue-500" />
+                          ) : (
+                            <Lock className="h-4 w-4 text-muted-foreground" />
+                          )}
+                          <span className="text-sm font-medium">
+                            {capsule.isPublic ? 'Public' : 'Private'}
+                          </span>
+                        </div>
+                        <Switch
+                          checked={capsule.isPublic ?? false}
+                          onCheckedChange={() => {}}
+                          onClick={(e) => handleToggleVisibility(e, capsule._id, capsule.isPublic)}
+                          aria-label="Toggle capsule visibility"
+                        />
+                      </div>
+                      
+                      <Button 
+                        className="w-full gap-2"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          router.push(`/capsule/learn/${capsule._id}`);
+                        }}
+                      >
+                        <Sparkles className="h-4 w-4" />
+                        Start Learning
+                      </Button>
+                    </div>
                   )}
                 </CardContent>
               </Card>

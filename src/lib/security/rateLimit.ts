@@ -105,14 +105,9 @@ async function rateLimitWithRedis(
     });
 
     if (!response.ok) {
-      console.error("[RATE_LIMIT] Redis error, falling back to allow request");
-      // On Redis error, allow the request (fail open for availability)
-      return {
-        success: true,
-        limit: config.maxRequests,
-        remaining: config.maxRequests - 1,
-        reset: now + config.interval,
-      };
+      console.error("[RATE_LIMIT] Redis error, falling back to in-memory rate limiting");
+      // HIGH-1 FIX: Fall back to in-memory instead of failing open
+      return rateLimitInMemory(identifier, config);
     }
 
     const results = await response.json();
@@ -136,13 +131,8 @@ async function rateLimitWithRedis(
     };
   } catch (error) {
     console.error("[RATE_LIMIT] Redis connection error:", error);
-    // Fail open - allow request if Redis is unavailable
-    return {
-      success: true,
-      limit: config.maxRequests,
-      remaining: config.maxRequests - 1,
-      reset: now + config.interval,
-    };
+    // HIGH-1 FIX: Fall back to in-memory instead of failing open
+    return rateLimitInMemory(identifier, config);
   }
 }
 
@@ -263,8 +253,16 @@ function hashString(str: string): string {
 }
 
 /**
+ * Track if we've already logged the Redis warning (prevent spam)
+ */
+let redisWarningLogged = false;
+
+/**
  * Core rate limiting function
  * Automatically uses Redis in production (if configured) or in-memory for development
+ * 
+ * HIGH-2 FIX: In production without Redis, rate limiting still works but logs warnings.
+ * For true multi-instance safety, Redis should be configured.
  * 
  * @param identifier - Unique identifier for the client (e.g., IP address)
  * @param config - Rate limit configuration
@@ -279,17 +277,15 @@ export async function rateLimit(
     return rateLimitWithRedis(identifier, config);
   }
   
-  // Log warning in production if Redis is not configured
-  if (process.env.NODE_ENV === "production" && !isRedisConfigured) {
-    // Only log once per minute to avoid log spam
-    const now = Date.now();
-    if (now - lastCleanup > 60000) {
-      console.warn(
-        "[RATE_LIMIT] Warning: Redis not configured in production. " +
-        "Rate limiting will not work across multiple instances. " +
-        "Set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN."
-      );
-    }
+  // HIGH-2 FIX: Log warning in production if Redis is not configured (only once)
+  if (process.env.NODE_ENV === "production" && !redisWarningLogged) {
+    redisWarningLogged = true;
+    console.error(
+      "[RATE_LIMIT] SECURITY WARNING: Redis not configured in production! " +
+      "Rate limiting will NOT work across multiple serverless instances. " +
+      "This is a security risk. Set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN. " +
+      "Falling back to in-memory rate limiting (single-instance only)."
+    );
   }
   
   return rateLimitInMemory(identifier, config);

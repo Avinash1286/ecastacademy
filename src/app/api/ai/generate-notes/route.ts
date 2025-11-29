@@ -9,7 +9,7 @@ import {
 	interactiveNotesSchemaDescription,
 } from "@/lib/validators/generatedContentSchemas";
 import { resolveWithConvexClient, MissingAIModelMappingError } from "@shared/ai/modelResolver";
-import { withRateLimit, RATE_LIMIT_PRESETS } from "@/lib/security/rateLimit";
+import { withRateLimit, withRateLimitByUser, RATE_LIMIT_PRESETS } from "@/lib/security/rateLimit";
 import { auth } from "@/lib/auth/auth.config";
 import { logger } from "@/lib/logging/logger";
 
@@ -70,6 +70,19 @@ export async function POST(request: NextRequest) {
 		return NextResponse.json(
 			{ error: "Authentication required" },
 			{ status: 401 }
+		);
+	}
+
+	// MEDIUM-5 FIX: Apply per-user rate limiting for authenticated users
+	const userRateLimit = await withRateLimitByUser(
+		session.user.id,
+		RATE_LIMIT_PRESETS.AI_GENERATION,
+		"generate-notes"
+	);
+	if (!userRateLimit.success) {
+		return NextResponse.json(
+			{ error: "You've reached your AI usage limit. Please wait a moment before trying again." },
+			{ status: 429 }
 		);
 	}
 

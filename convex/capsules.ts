@@ -156,6 +156,102 @@ export const getUserCapsules = query({
 });
 
 /**
+ * Query: Get public (community) capsules with pagination
+ * Only returns completed, public capsules from other users
+ * Includes author information for display
+ */
+export const getCommunityCapsules = query({
+  args: {
+    limit: v.optional(v.number()),
+    cursor: v.optional(v.string()),
+    excludeUserId: v.optional(v.id("users")), // Exclude current user's capsules
+  },
+  handler: async (ctx, args) => {
+    const limit = Math.min(args.limit ?? 12, 50); // Cap at 50 for performance
+    
+    // Query public, completed capsules ordered by publishedAt (newest first)
+    let query = ctx.db
+      .query("capsules")
+      .withIndex("by_public_status", (q) => 
+        q.eq("isPublic", true).eq("status", "completed")
+      )
+      .order("desc");
+
+    // Apply cursor-based pagination
+    const allCapsules = await query.collect();
+    
+    // Filter out current user's capsules if excludeUserId provided
+    let filteredCapsules = args.excludeUserId 
+      ? allCapsules.filter(c => c.userId !== args.excludeUserId)
+      : allCapsules;
+
+    // Apply cursor pagination manually (after filtering)
+    let startIndex = 0;
+    if (args.cursor) {
+      const cursorIndex = filteredCapsules.findIndex(c => c._id === args.cursor);
+      if (cursorIndex !== -1) {
+        startIndex = cursorIndex + 1;
+      }
+    }
+
+    const paginatedCapsules = filteredCapsules.slice(startIndex, startIndex + limit + 1);
+    const hasMore = paginatedCapsules.length > limit;
+    const capsulesToReturn = hasMore ? paginatedCapsules.slice(0, -1) : paginatedCapsules;
+
+    return {
+      capsules: capsulesToReturn,
+      nextCursor: hasMore ? capsulesToReturn[capsulesToReturn.length - 1]?._id : null,
+      hasMore,
+    };
+  },
+});
+
+/**
+ * Mutation: Toggle capsule visibility (public/private)
+ * Only the owner can change visibility
+ * Only completed capsules can be made public
+ */
+export const toggleCapsuleVisibility = mutation({
+  args: {
+    capsuleId: v.id("capsules"),
+    userId: v.id("users"),
+    isPublic: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    const { capsuleId, userId, isPublic } = args;
+
+    // Get the capsule
+    const capsule = await ctx.db.get(capsuleId);
+    if (!capsule) {
+      throw new Error("Capsule not found");
+    }
+
+    // Security: Verify ownership
+    if (capsule.userId !== userId) {
+      throw new Error("You don't have permission to modify this capsule");
+    }
+
+    // Only completed capsules can be made public
+    if (isPublic && capsule.status !== "completed") {
+      throw new Error("Only completed capsules can be made public");
+    }
+
+    // Update visibility
+    await ctx.db.patch(capsuleId, {
+      isPublic,
+      publishedAt: isPublic ? Date.now() : undefined,
+      updatedAt: Date.now(),
+    });
+
+    return { 
+      success: true, 
+      isPublic,
+      message: isPublic ? "Capsule is now public" : "Capsule is now private" 
+    };
+  },
+});
+
+/**
  * Query: Get a single capsule by ID
  */
 export const getCapsule = query({
@@ -198,12 +294,30 @@ export const getModuleLessons = query({
 
 /**
  * Query: Get capsule with modules and lessons (full structure)
+ * 
+ * ACCESS CONTROL:
+ * - Public capsules: Anyone can view
+ * - Private capsules: Only owner can view
  */
 export const getCapsuleWithContent = query({
-  args: { capsuleId: v.id("capsules") },
+  args: { 
+    capsuleId: v.id("capsules"),
+    userId: v.optional(v.id("users")), // Optional: for access control
+  },
   handler: async (ctx, args) => {
     const capsule = await ctx.db.get(args.capsuleId);
     if (!capsule) return null;
+
+    // Access control: Public capsules are viewable by anyone
+    // Private capsules are only viewable by the owner
+    const isOwner = args.userId && capsule.userId === args.userId;
+    const isPublic = capsule.isPublic === true;
+    
+    if (!isPublic && !isOwner) {
+      // For unauthenticated users or non-owners viewing private capsules
+      // Return null to indicate no access (maintains same interface)
+      return null;
+    }
 
     const modules = await ctx.db
       .query("capsuleModules")
@@ -224,9 +338,24 @@ export const getCapsuleWithContent = query({
       })
     );
 
+    // Include author info for public capsules
+    let author = null;
+    if (isPublic && !isOwner) {
+      const authorData = await ctx.db.get(capsule.userId);
+      if (authorData) {
+        author = {
+          id: authorData._id,
+          name: authorData.name,
+          image: authorData.image,
+        };
+      }
+    }
+
     return {
       ...capsule,
       modules: modulesWithLessons,
+      author,
+      isOwner: !!isOwner,
     };
   },
 });

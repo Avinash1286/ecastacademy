@@ -83,6 +83,7 @@ export const saveGenerationProgress = internalMutation({
     generationId: v.string(),
     state: v.string(),
     currentModuleIndex: v.optional(v.number()),
+    totalModules: v.optional(v.number()),
     outlineJson: v.optional(v.string()),
     modulesContentJson: v.optional(v.string()),
   },
@@ -105,6 +106,7 @@ export const saveGenerationProgress = internalMutation({
     };
 
     if (updates.currentModuleIndex !== undefined) patch.currentModuleIndex = updates.currentModuleIndex;
+    if (updates.totalModules !== undefined) patch.totalModules = updates.totalModules;
     if (updates.outlineJson !== undefined) patch.outlineJson = updates.outlineJson;
     if (updates.modulesContentJson !== undefined) patch.modulesContentJson = updates.modulesContentJson;
 
@@ -214,6 +216,7 @@ export const generateOutline = internalAction({
       await ctx.runMutation(internal.capsuleGeneration.saveGenerationProgress, {
         generationId: args.generationId,
         state: "outline_complete",
+        totalModules: outline.modules.length,
         outlineJson: JSON.stringify(outline),
       });
 

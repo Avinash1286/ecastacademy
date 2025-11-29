@@ -4,6 +4,7 @@ import { Id } from '../../../../../convex/_generated/dataModel';
 import { createConvexClient } from '@/lib/convexClient';
 import { auth } from '@/lib/auth/auth.config';
 import { withRateLimit, RATE_LIMIT_PRESETS } from '@/lib/security/rateLimit';
+import { logger } from '@/lib/logging/logger';
 
 const convex = createConvexClient();
 
@@ -94,7 +95,7 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error) {
-    console.error('[CREATE_COURSE_FROM_VIDEOS]', error);
+    logger.error('Failed to create course from videos', { userId: session.user.id }, error as Error);
     return NextResponse.json(
       { error: 'Failed to create course' },
       { status: 500 }

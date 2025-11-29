@@ -370,16 +370,14 @@ function VisualizationFrame({
         userFeedback: feedback.trim(),
       });
       
-      toast.success('Visualization regenerated! Refreshing...');
+      toast.success('Visualization regenerated successfully!');
       setShowFeedbackForm(false);
       setFeedback('');
       
-      // Notify parent to refresh content
+      // Notify parent to refresh content if provided
+      // Otherwise, Convex's reactive queries will auto-update the data
       if (onRegenerated) {
         onRegenerated();
-      } else {
-        // Fallback: reload page after short delay
-        setTimeout(() => window.location.reload(), 1500);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to regenerate';
@@ -734,7 +732,16 @@ function VisualizationFrame({
             </div>
           )}
         </CardHeader>
-        <CardContent className="p-0">
+        <CardContent className="p-0 relative">
+          {isRegenerating && (
+            <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-10 flex flex-col items-center justify-center gap-3">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              <div className="text-center">
+                <p className="font-medium text-foreground">Generating...</p>
+                <p className="text-sm text-muted-foreground">Creating your improved visualization</p>
+              </div>
+            </div>
+          )}
           <iframe
             ref={iframeRef}
             srcDoc={srcDoc}

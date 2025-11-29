@@ -18,13 +18,15 @@ import { Book, Compass, Settings, Sparkles, type LucideIcon } from "lucide-react
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useSidebar } from "@/components/ui/sidebar" 
-import { Skeleton } from "@/components/ui/skeleton" 
+import { Skeleton } from "@/components/ui/skeleton"
+import { useSession } from "next-auth/react"
 
 type NavItem = {
   href: string
   icon: LucideIcon
   label: string
   variant: "link" | "button"
+  adminOnly?: boolean
 }
 
 const navItems: NavItem[] = [
@@ -35,15 +37,15 @@ const navItems: NavItem[] = [
     variant: "link",
   },
   {
-    href: "/dashboard/my-learnings",
-    icon: Book,
-    label: "My Learnings",
-    variant: "link",
-  },
-  {
     href: "/dashboard/capsule",
     icon: Sparkles,
     label: "Capsule",
+    variant: "link",
+  },
+  {
+    href: "/dashboard/my-learnings",
+    icon: Book,
+    label: "My Learnings",
     variant: "link",
   },
   {
@@ -51,12 +53,20 @@ const navItems: NavItem[] = [
     icon: Settings,
     label: "Admin Panel",
     variant: "link",
+    adminOnly: true,
   },
 ]
 
 const AppSidebar = () => {
   const pathname = usePathname()
-  const { isMobile, setOpenMobile } = useSidebar(); 
+  const { isMobile, setOpenMobile } = useSidebar();
+  const { data: session } = useSession();
+  
+  // Check if user is admin
+  const isAdmin = (session?.user as { role?: string })?.role === "admin";
+  
+  // Filter nav items based on user role
+  const filteredNavItems = navItems.filter(item => !item.adminOnly || isAdmin);
 
   const handleLinkClick = () => {
     if (isMobile) {
@@ -104,7 +114,7 @@ const AppSidebar = () => {
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
-              {navItems.map((item) =>
+              {filteredNavItems.map((item) =>
                 item.variant === "button" ? (
                   <div key={item.href} className="p-4">
                     <Button asChild onClick={handleLinkClick} className={cn("w-full justify-start gap-2 bg-muted text-secondary-foreground hover:bg-secondary", pathname === item.href && "bg-secondary text-secondary-foreground")}>
@@ -141,7 +151,6 @@ const AppSidebar = () => {
       </SidebarContent>
 
       <SidebarFooter className="p-4">
-        <div className="text-sm text-muted-foreground">User Info Area</div>
       </SidebarFooter>
     </Sidebar>
   )

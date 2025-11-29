@@ -3,6 +3,7 @@ import { api } from '../../../../../../../convex/_generated/api';
 import { Id } from '../../../../../../../convex/_generated/dataModel';
 import { createConvexClient } from '@/lib/convexClient';
 import { withRateLimit, RATE_LIMIT_PRESETS } from '@/lib/security/rateLimit';
+import { logger } from '@/lib/logging/logger';
 
 const convex = createConvexClient();
 
@@ -27,7 +28,7 @@ async function queryWithRetry<T>(
       
       // Wait before retrying (exponential backoff)
       const delay = baseDelay * Math.pow(2, attempt);
-      console.log(`[RETRY] Attempt ${attempt + 1}/${maxRetries + 1} failed, retrying in ${delay}ms...`);
+      logger.debug(`Retry attempt ${attempt + 1}/${maxRetries + 1}, retrying in ${delay}ms`, { attempt, maxRetries, delay });
       await new Promise(resolve => setTimeout(resolve, delay));
     }
   }
@@ -66,11 +67,10 @@ export async function GET(
       });
     }
 
-    console.log('Chapter details from Convex:', {
+    logger.debug('Chapter details retrieved', {
+      chapterId,
       hasNotes: !!chapterDetails.video.notes,
       hasQuiz: !!chapterDetails.video.quiz,
-      notesType: typeof chapterDetails.video.notes,
-      quizType: typeof chapterDetails.video.quiz,
     });
 
     const response = NextResponse.json({
@@ -84,7 +84,7 @@ export async function GET(
     
     return response;
   } catch (error) {
-    console.error('[GET_CHAPTER_DETAILS_API_ERROR]', error);
+    logger.error('Failed to get chapter details', { chapterId: (await context.params).chapterId }, error as Error);
     
     // Provide more specific error message
     const errorMessage = error instanceof Error ? error.message : 'Internal Server Error';

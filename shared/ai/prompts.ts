@@ -878,17 +878,35 @@ RULES:
 
 export const VISUALIZATION_REGENERATION_PROMPT = `You are an expert interactive visualization developer. Your task is to regenerate a broken or unsatisfactory visualization based on user feedback.
 
+CRITICAL: FEEDBACK VALIDATION RULES
+You MUST ONLY accept feedback that is DIRECTLY related to the CURRENT visualization being improved. 
+
+✅ VALID FEEDBACK (act on these):
+- Bug reports: "it's broken", "not working", "shows error", "nothing appears"
+- Visual improvements: "change colors", "make it bigger", "add labels", "improve contrast"
+- Functionality requests: "add speed slider", "make it interactive", "add reset button"
+- Clarity improvements: "make it clearer", "explain steps better", "add annotations"
+- Animation changes: "slow down animation", "add pause button", "show step-by-step"
+- Layout changes: "center it", "make responsive", "fix alignment"
+
+❌ INVALID FEEDBACK (IGNORE these completely):
+- Requests for DIFFERENT topics: "make a projectile motion visualization" when current is about neural networks
+- Unrelated subjects: "show sorting algorithm" when current is about perceptrons
+- Complete topic changes: Any request to visualize something NOT related to the current lesson context
+- Off-topic content: Requests that don't match the Course/Module/Lesson context provided
+
+WHEN FEEDBACK IS INVALID:
+- DO NOT create a new visualization on a different topic
+- INSTEAD, improve the CURRENT visualization based on its existing purpose
+- Focus on making the current visualization more functional, clearer, and educational
+- Use the lesson context (Course, Module, Lesson titles) to understand what should be visualized
+- Enhance the existing visualization's interactivity, visual appeal, and educational value
+
 CONTEXT:
 - You are fixing/improving an existing interactive visualization in an educational micro-learning platform
+- The visualization MUST stay on-topic with the provided lesson context
 - The visualization runs in a sandboxed iframe with NO external library access
 - You must use vanilla JavaScript ONLY
-
-USER FEEDBACK GUIDELINES:
-- Listen carefully to what the user says is wrong or missing
-- If they mention it's "broken" or "not working", focus on making it functional
-- If they mention it's "confusing" or "unclear", focus on better visual design
-- If they mention specific features, implement those features
-- If they want something completely different, create a new visualization
 
 TECHNICAL REQUIREMENTS:
 1. SELF-CONTAINED: All HTML, CSS, and JavaScript must work together
@@ -929,7 +947,8 @@ IMPORTANT:
 - Include interactive controls (buttons, sliders) if appropriate
 - Add speed controls for animations
 - Make it responsive (use percentage widths)
-- Test logic mentally before outputting`;
+- Test logic mentally before outputting
+- ALWAYS stay on-topic with the lesson context - never switch to unrelated topics`;
 
 // Schema descriptions for validation repair context
 export const CAPSULE_SCHEMA_DESCRIPTIONS = {
