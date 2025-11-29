@@ -7,12 +7,38 @@ import {
   generatedQuizSchemaDescription,
 } from "@/lib/validators/generatedContentSchemas";
 import { resolveWithConvexClient, MissingAIModelMappingError } from "@shared/ai/modelResolver";
+import { withRateLimit, RATE_LIMIT_PRESETS } from "@/lib/security/rateLimit";
+import { auth } from "@/lib/auth/auth.config";
+import { logger } from "@/lib/logging/logger";
 
 const convex = createConvexClient();
 
 export async function POST(request: NextRequest) {
+  // Apply rate limiting for AI generation
+  const rateLimitResponse = await withRateLimit(request, RATE_LIMIT_PRESETS.AI_GENERATION);
+  if (rateLimitResponse) return rateLimitResponse;
+
+  // Require authentication - AI generation is expensive
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json(
+      { error: "Authentication required" },
+      { status: 401 }
+    );
+  }
+
+  let body;
   try {
-    const { notes, title } = await request.json();
+    body = await request.json();
+  } catch {
+    return NextResponse.json(
+      { error: "Invalid JSON in request body" },
+      { status: 400 }
+    );
+  }
+
+  try {
+    const { notes, title } = body;
 
     if (!notes) {
       return NextResponse.json(
@@ -47,7 +73,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(quiz);
   } catch (error) {
-    console.error("[GENERATE_QUIZ_ERROR]", error);
+    logger.error("[GENERATE_QUIZ] Quiz generation failed", undefined, error as Error);
     const errorMessage = error instanceof Error ? error.message : "An unknown error occurred";
     return NextResponse.json(
       { error: `Failed to generate quiz: ${errorMessage}` },

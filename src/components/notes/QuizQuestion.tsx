@@ -4,6 +4,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { CheckCircle, XCircle, HelpCircle } from 'lucide-react';
+import { useSoundEffects } from '@/hooks/useSoundEffects';
+import { ConfettiCelebration } from '@/components/ui/ConfettiCelebration';
 
 interface QuizQuestion {
   type: 'mcq' | 'true-false' | 'fill-blank' | 'fill-in-the-blank';
@@ -27,6 +29,10 @@ export function QuizQuestion({ question, questionIndex }: QuizQuestionProps) {
   const [selectedAnswer, setSelectedAnswer] = useState<string>('');
   const [showResult, setShowResult] = useState(false);
   const [showExplanation, setShowExplanation] = useState(false);
+  const [showConfetti, setShowConfetti] = useState(false);
+  const [animateResult, setAnimateResult] = useState(false);
+  
+  const { playCorrectSound, playIncorrectSound } = useSoundEffects();
 
   // Validate question has required fields
   if (!question || !question.question || !question.correctAnswer) {
@@ -39,6 +45,18 @@ export function QuizQuestion({ question, questionIndex }: QuizQuestionProps) {
   const handleSubmit = () => {
     if (selectedAnswer.trim()) {
       setShowResult(true);
+      setAnimateResult(true);
+      
+      const correct = compareStrings(selectedAnswer, question.correctAnswer);
+      if (correct) {
+        playCorrectSound();
+        setShowConfetti(true);
+      } else {
+        playIncorrectSound();
+      }
+      
+      // Reset animation state after animation completes
+      setTimeout(() => setAnimateResult(false), 500);
     }
   };
 
@@ -46,6 +64,8 @@ export function QuizQuestion({ question, questionIndex }: QuizQuestionProps) {
     setSelectedAnswer('');
     setShowResult(false);
     setShowExplanation(false);
+    setShowConfetti(false);
+    setAnimateResult(false);
   };
 
   const getOptionClassName = (option: string) => {
@@ -69,7 +89,19 @@ export function QuizQuestion({ question, questionIndex }: QuizQuestionProps) {
   };
 
   return (
-    <Card className="p-6 bg-card border-border shadow-sm">
+    <>
+      {/* Confetti celebration for correct answers */}
+      <ConfettiCelebration 
+        show={showConfetti} 
+        onComplete={() => setShowConfetti(false)}
+        duration={3000}
+      />
+      
+      <Card className={cn(
+        "p-6 bg-card border-border shadow-sm transition-all",
+        showResult && animateResult && isAnswerCorrect && "animate-correct-pulse",
+        showResult && animateResult && !isAnswerCorrect && "animate-incorrect-shake"
+      )}>
       <div className="space-y-4">
         <div className="flex items-start gap-4">
           <div className="flex-shrink-0 w-8 h-8 bg-primary text-primary-foreground rounded-full flex items-center justify-center text-sm font-bold mt-1">
@@ -230,5 +262,6 @@ export function QuizQuestion({ question, questionIndex }: QuizQuestionProps) {
         </div>
       </div>
     </Card>
+    </>
   );
 }

@@ -6,6 +6,7 @@
  * - Automatic retry with exponential backoff
  * - Timeout handling
  * - Error classification
+ * - Circuit breaker for provider resilience
  */
 
 import { GeminiAdapter, createGeminiAdapter } from "./geminiAdapter";
@@ -24,6 +25,12 @@ import {
   getRetryDelay,
   fromUnknown,
 } from "../errors";
+import {
+  shouldAllowRequest,
+  recordSuccess,
+  recordFailure,
+  type CircuitBreakerConfig,
+} from "./circuitBreaker";
 
 // =============================================================================
 // Unified Client Interface
@@ -63,22 +70,41 @@ export function createAIClient(config: AIModelConfig): AIClient {
 export interface RetryOptions {
   maxRetries?: number;
   onRetry?: (attempt: number, error: CapsuleError, delayMs: number) => void;
+  /** Circuit breaker configuration */
+  circuitBreaker?: Partial<CircuitBreakerConfig>;
+  /** Provider name for circuit breaker tracking (defaults to config.provider) */
+  providerKey?: string;
 }
 
 /**
- * Execute an AI request with automatic retry for transient errors
+ * Execute an AI request with automatic retry and circuit breaker protection
  */
 export async function executeWithRetry<T>(
   client: AIClient,
   request: StructuredOutputRequest,
-  options: AIRequestOptions & RetryOptions = {}
+  options: AIRequestOptions & RetryOptions = {},
+  provider: string = "unknown"
 ): Promise<AIResponse<T>> {
   const maxRetries = options.maxRetries ?? 3;
+  const providerKey = options.providerKey || provider;
   let lastError: CapsuleError | null = null;
+  
+  // Check circuit breaker before attempting
+  const circuitCheck = shouldAllowRequest(providerKey, options.circuitBreaker);
+  if (!circuitCheck.allowed) {
+    throw new CapsuleError(
+      ErrorCode.SERVICE_UNAVAILABLE,
+      `AI provider ${providerKey} is temporarily unavailable. ${circuitCheck.reason}`,
+      { provider: providerKey, circuitState: circuitCheck.state }
+    );
+  }
   
   for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
     try {
       const response = await client.generateStructured<T>(request, options);
+      
+      // Record success with circuit breaker
+      recordSuccess(providerKey, options.circuitBreaker);
       
       // Update metadata if retried
       if (attempt > 1) {
@@ -93,6 +119,9 @@ export async function executeWithRetry<T>(
         : fromUnknown(error, { attempt });
       
       lastError = capsuleError;
+      
+      // Record failure with circuit breaker
+      recordFailure(providerKey, options.circuitBreaker);
       
       // Check if we should retry
       if (!isRetriable(capsuleError.code) || attempt > maxRetries) {
@@ -119,12 +148,21 @@ export async function executeWithRetry<T>(
 // =============================================================================
 
 /**
- * Create a Gemini client with common defaults
+ * Create a Gemini client
+ * @param modelId - Required model ID (e.g., "gemini-1.5-flash"). Must be configured in admin panel.
+ * @param apiKey - Optional API key (falls back to GEMINI_API_KEY env var)
  */
 export function createGeminiClient(
-  modelId: string = "gemini-1.5-flash",
+  modelId: string,
   apiKey?: string
 ): GeminiAdapter {
+  if (!modelId) {
+    throw new CapsuleError(
+      ErrorCode.CONFIG_ERROR,
+      "Model ID is required for Gemini client. Please configure the AI model in the admin panel.",
+      { provider: "google" }
+    );
+  }
   return createGeminiAdapter({
     provider: "google",
     modelId,
@@ -135,12 +173,21 @@ export function createGeminiClient(
 }
 
 /**
- * Create an OpenAI client with common defaults
+ * Create an OpenAI client
+ * @param modelId - Required model ID (e.g., "gpt-4o"). Must be configured in admin panel.
+ * @param apiKey - Optional API key (falls back to OPENAI_API_KEY env var)
  */
 export function createOpenAIClient(
-  modelId: string = "gpt-4o",
+  modelId: string,
   apiKey?: string
 ): OpenAIAdapter {
+  if (!modelId) {
+    throw new CapsuleError(
+      ErrorCode.CONFIG_ERROR,
+      "Model ID is required for OpenAI client. Please configure the AI model in the admin panel.",
+      { provider: "openai" }
+    );
+  }
   return createOpenAIAdapter({
     provider: "openai",
     modelId,
@@ -191,14 +238,13 @@ function sleep(ms: number): Promise<void> {
 export function supportsStructuredOutput(provider: AIProvider, modelId: string): boolean {
   if (provider === "google") {
     // All Gemini 1.5+ models support structured output
-    return modelId.includes("gemini-1.5") || modelId.includes("gemini-2");
+    return modelId.includes("gemini-2.5-pro") || modelId.includes("gemini-flash-latest");
   }
   
   if (provider === "openai") {
     // GPT-4o and newer support JSON schema
-    return modelId.includes("gpt-4o") || 
-           modelId.includes("gpt-4-turbo") ||
-           modelId.includes("gpt-4-0125");
+    return modelId.includes("gpt-5.1") || 
+           modelId.includes("gpt-4o");
   }
   
   return false;
@@ -210,7 +256,7 @@ export function supportsStructuredOutput(provider: AIProvider, modelId: string):
 export function supportsPdfInput(provider: AIProvider, modelId: string): boolean {
   if (provider === "google") {
     // Gemini 1.5+ supports PDF natively
-    return modelId.includes("gemini-1.5") || modelId.includes("gemini-2");
+    return modelId.includes("gemini-2.5-pro") || modelId.includes("gemini-flash-latest");
   }
   
   // OpenAI doesn't support PDF in Chat Completions

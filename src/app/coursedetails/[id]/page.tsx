@@ -83,7 +83,35 @@ const Page = () => {
 
       <div className="container mx-auto max-w-7xl py-12 px-4 sm:px-6 lg:px-8">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-2 space-y-6">
+          {/* Enroll Card - Shows first on mobile, sidebar on desktop */}
+          <div className="lg:col-span-1 order-first lg:order-last">
+            <Card className="lg:sticky lg:top-20">
+              <CardHeader>
+                <CardTitle>Start Learning</CardTitle>
+                <CardDescription>Enroll now to access all course content</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <EnrollButton courseId={courseId} size="lg" className="w-full" />
+                
+                {course.isCertification && (
+                  <div className="p-4 rounded-lg border border-amber-500/20 bg-amber-50/50 dark:bg-amber-950/20">
+                    <div className="flex items-start gap-2">
+                      <Award className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <h4 className="font-semibold text-amber-900 dark:text-amber-100 mb-1">Certificate of Completion</h4>
+                        <p className="text-sm text-amber-800 dark:text-amber-200">
+                          Complete all graded items with {course.passingGrade || 70}% or higher to earn your certificate.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Main Content */}
+          <div className="lg:col-span-2 order-last lg:order-first space-y-6">
             <div>
             <div className="flex items-start gap-4 mb-4">
               <h1 className="text-4xl font-bold flex-1">{course.name}</h1>
@@ -162,32 +190,6 @@ const Page = () => {
                   </div>
                 ))}
               </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="lg:col-span-1">
-          <Card className="sticky top-20">
-            <CardHeader>
-              <CardTitle>Start Learning</CardTitle>
-              <CardDescription>Enroll now to access all course content</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <EnrollButton courseId={courseId} size="lg" className="w-full" />
-              
-              {course.isCertification && (
-                <div className="p-4 rounded-lg border border-amber-500/20 bg-amber-50/50 dark:bg-amber-950/20">
-                  <div className="flex items-start gap-2">
-                    <Award className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
-                    <div>
-                      <h4 className="font-semibold text-amber-900 dark:text-amber-100 mb-1">Certificate of Completion</h4>
-                      <p className="text-sm text-amber-800 dark:text-amber-200">
-                        Complete all graded items with {course.passingGrade || 70}% or higher to earn your certificate.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
             </CardContent>
           </Card>
         </div>

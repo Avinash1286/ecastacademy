@@ -138,11 +138,24 @@ export async function deleteCourse(courseId: Id<"courses">): Promise<void> {
   });
 }
 
-export async function getAllCoursesWithThumbnails(page: number, limit: number) {
-  const offset = (page - 1) * limit;
-  const courses = await convex.query(api.courses.getAllCourses, {
+/**
+ * Get course ownership information for authorization checks
+ * Returns the createdBy field to verify if a user owns a course
+ */
+export async function getCourseOwnership(courseId: Id<"courses">): Promise<{ createdBy: string | null } | null> {
+  const course = await convex.query(api.courses.getCourseOwnership, {
+    id: courseId,
+  });
+  return course;
+}
+
+export async function getAllCoursesWithThumbnails(
+  limit: number,
+  cursor?: string
+) {
+  const result = await convex.query(api.courses.getAllCourses, {
     limit: limit,
-    offset: offset,
+    cursor: cursor,
   });
   
   // Transform Convex _id to id for frontend compatibility
@@ -155,11 +168,17 @@ export async function getAllCoursesWithThumbnails(page: number, limit: number) {
     thumbnailUrl?: string | null;
   };
   
-  return courses.map((course: ConvexCourse) => ({
+  const courses = result.courses.map((course: ConvexCourse) => ({
     ...course,
     id: course._id,
     createdAt: new Date(course.createdAt).toISOString(),
   }));
+  
+  return {
+    courses,
+    nextCursor: result.nextCursor,
+    hasMore: result.hasMore,
+  };
 }
 
 interface CourseChapterDetails {

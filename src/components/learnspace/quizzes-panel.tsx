@@ -47,36 +47,16 @@ export function QuizzesPanel({
       : "skip"
   );
 
-  // Debug logging
-  useEffect(() => {
-    console.log('QuizzesPanel Debug:', {
-      contentItemId: contentItem?.id,
-      contentItemType: typeof contentItem?.id,
-      isGraded: contentItem?.isGraded,
-      userId,
-      userIdType: typeof userId,
-      attemptHistory,
-      attemptCount: attemptHistory?.length || 0,
-      hasSession: !!session,
-      sessionUser: session?.user
-    });
-  }, [contentItem, userId, attemptHistory, session]);
+
 
   useEffect(() => {
     // Check if questions has the required structure
     if (questions && questions.topic && questions.questions && Array.isArray(questions.questions)) {
       setQuiz(questions);
 
-      console.log('Setting quiz view - checking attempts:', {
-        hasAttemptHistory: !!attemptHistory,
-        attemptCount: attemptHistory?.length || 0,
-        latestAttempt: attemptHistory?.[0]
-      });
-
       // Check if user has previous attempts - show results by default
       if (attemptHistory && attemptHistory.length > 0) {
         const latestAttempt = attemptHistory[0]; // Already sorted by _creationTime desc
-        console.log('Showing previous attempt:', latestAttempt);
 
         // Only show previous results if we have answers stored
         if (latestAttempt.answers && Array.isArray(latestAttempt.answers) && latestAttempt.answers.length > 0) {
@@ -86,7 +66,6 @@ export function QuizzesPanel({
           setShowPreviousAttempt(true);
         } else {
           // Has attempts but no answers stored - show quiz (old data)
-          console.log('Attempt found but no answers - showing quiz');
           setCurrentView('quiz');
           setUserAnswers([]);
           setScore(0);
@@ -94,7 +73,6 @@ export function QuizzesPanel({
         }
       } else {
         // No previous attempts - show quiz
-        console.log('No previous attempts - showing quiz');
         setCurrentView('quiz');
         setUserAnswers([]);
         setScore(0);
@@ -106,73 +84,38 @@ export function QuizzesPanel({
   }, [questions, attemptHistory]);
 
   const handleQuizComplete = async (answers: number[], finalScore: number) => {
-    console.log('=== handleQuizComplete START ===');
-    console.log('Answers:', answers);
-    console.log('Final Score:', finalScore);
-    console.log('ContentItem:', contentItem);
-    console.log('Session:', session);
-
     setUserAnswers(answers);
     setScore(finalScore);
     setShowPreviousAttempt(false); // This is a new attempt
 
-    // Get userId from session
+    // Verify user is authenticated (session is checked on server via requireAuthenticatedUser)
     const userId = sessionUser?.id;
 
-    console.log('Extracted userId:', userId, 'Type:', typeof userId);
-
     if (!userId) {
-      console.error('❌ User not authenticated');
+      console.error('User not authenticated');
       setCurrentView('results');
       return;
     }
 
     if (!contentItem?.id) {
-      console.error('❌ Content item ID is missing');
-      console.error('ContentItem object:', contentItem);
+      console.error('Content item ID is missing');
       setCurrentView('results');
       return;
     }
 
     try {
-      const totalQuestions = quiz?.questions.length ?? 0;
-      const maxScore = totalQuestions > 0
-        ? totalQuestions
-        : contentItem?.maxPoints ?? 100;
-      const percentage = maxScore > 0 ? (finalScore / maxScore) * 100 : 0;
-
-      console.log('✅ Recording quiz completion:', {
-        userId,
-        contentItemId: contentItem.id,
-        contentItemIdType: typeof contentItem.id,
-        finalScore,
-        maxScore,
-        percentage,
-        isGraded: contentItem?.isGraded,
-        answers,
-        answersLength: answers.length
-      });
-
       // Use the new unified recordCompletion mutation
-      const result = await recordCompletion({
-        userId,
+      // Pass userId directly to the mutation
+      await recordCompletion({
+        userId: userId as Id<"users">,
         contentItemId: contentItem.id as Id<"contentItems">,
-        // score: finalScore, // Calculated on server
-        // maxScore, // Calculated on server
         answers, // Include answers for quiz attempt record
       });
-
-      console.log('✅✅ Completion recorded successfully:', result);
     } catch (error) {
-      console.error('❌❌ Error submitting quiz:', error);
-      if (error instanceof Error) {
-        console.error('Error message:', error.message);
-        console.error('Error stack:', error.stack);
-      }
+      console.error('Error submitting quiz:', error instanceof Error ? error.message : 'Unknown error');
       // Continue to show results even if submission fails
     } finally {
       setCurrentView('results');
-      console.log('=== handleQuizComplete END ===');
     }
   };
 

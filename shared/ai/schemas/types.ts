@@ -232,25 +232,32 @@ export interface GenerationInput {
 }
 
 // =============================================================================
-// Generation State
+// Generation State - Module-wise Pipeline
 // =============================================================================
 
+/**
+ * Generation stages for module-wise pipeline:
+ * - idle: Job created but not started
+ * - generating_outline: Creating course outline (1 AI call)
+ * - outline_complete: Outline done
+ * - generating_module_content: Creating module content (1 AI call per module)
+ * - module_X_complete: Module X done (dynamic)
+ * - completed: Generation finished successfully
+ * - failed: Generation failed
+ */
 export type GenerationStage = 
+  | "idle"
   | "pending"
-  | "parsing_input"
   | "generating_outline"
-  | "generating_lessons"
-  | "generating_content"
-  | "validating"
-  | "persisting"
+  | "outline_complete"
+  | "generating_module_content"
   | "completed"
-  | "failed";
+  | "failed"
+  | string; // Allow dynamic states like "module_1_complete"
 
 export interface GenerationProgress {
   stage: GenerationStage;
   currentModule?: number;
   totalModules?: number;
-  currentLesson?: number;
-  totalLessons?: number;
   message?: string;
 }

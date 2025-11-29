@@ -1,9 +1,24 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createCourseWithProgress } from "@/lib/services/courseServiceConvex";
 import { CreateCourseSchema } from "@/lib/validators/courseValidator";
 import { ZodError } from "zod";
+import { auth } from "@/lib/auth/auth.config";
+import { withRateLimit, RATE_LIMIT_PRESETS } from "@/lib/security/rateLimit";
 
 export async function POST(request: NextRequest) {
+  // Apply rate limiting for course creation
+  const rateLimitResponse = await withRateLimit(request, RATE_LIMIT_PRESETS.COURSE_CREATE);
+  if (rateLimitResponse) return rateLimitResponse;
+
+  // Require authentication for course creation
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json(
+      { error: "Authentication required" },
+      { status: 401 }
+    );
+  }
+
   const readableStream = new ReadableStream({
     async start(controller) {
       const encoder = new TextEncoder();
@@ -11,9 +26,16 @@ export async function POST(request: NextRequest) {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
       };
 
+      let body;
       try {
-        const body = await request.json();
-        
+        body = await request.json();
+      } catch {
+        sendEvent({ error: "Invalid JSON in request body" });
+        controller.close();
+        return;
+      }
+
+      try {
         const validatedData = CreateCourseSchema.parse(body);
 
         const onProgress = (progressUpdate: { message: string; progress: number }) => {
@@ -28,7 +50,7 @@ export async function POST(request: NextRequest) {
       } catch (error) {
         console.error("[COURSE_CREATE_API_ERROR]", error);
         let errorMessage = "An unknown error occurred.";
-        
+
         if (error instanceof ZodError) {
           // Provide more specific validation errors
           errorMessage = `Invalid input: ${error.errors.map(e => e.message).join(', ')}`;

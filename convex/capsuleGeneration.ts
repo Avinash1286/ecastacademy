@@ -1,11 +1,12 @@
 /**
- * Chunked Capsule Generation
+ * Module-wise Capsule Generation Pipeline
  * 
- * Breaks generation into smaller chunks to avoid 600s timeout:
- * - Stage 1: Generate outline (schedules Stage 2)
- * - Stage 2: Generate lesson plans (schedules Stage 3)
- * - Stage 3: Generate content in batches of 5 lessons (self-schedules until done)
- * - Stage 4: Finalize and persist
+ * Efficient generation that creates content module-by-module:
+ * - Stage 1: Generate course outline (1 AI call)
+ * - Stage 2: Generate module content (1 AI call per module - generates ALL lessons in that module)
+ * - Stage 3: Finalize and persist
+ * 
+ * For 7 modules with 26 lessons: Only 8 AI calls (1 + 7) instead of 34 (1 + 7 + 26)
  * 
  * Each stage saves progress to the database, enabling resumption on failure.
  */
@@ -14,290 +15,103 @@ import { v } from "convex/values";
 import { action, internalAction, internalMutation } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 
-// Import the canonical LessonType from schemas
-import type { LessonType as SchemaLessonType } from "../shared/ai/schemas/types";
-
-// Constants
-const LESSONS_PER_BATCH = 5; // Generate 5 lessons per action to stay under timeout
-
-// Local lesson type that includes runtime variants (for storage/persistence)
-type LessonType = SchemaLessonType | "mixed";
-
 // =============================================================================
 // Types
 // =============================================================================
 
-interface GeneratedLesson {
+interface OutlineLesson {
   title: string;
-  type: LessonType;
-  content: unknown;
+  description: string;
+}
+
+interface OutlineModule {
+  title: string;
+  description: string;
+  lessons: OutlineLesson[];
+}
+
+interface ParsedOutline {
+  title: string;
+  description: string;
+  estimatedDuration: number;
+  modules: OutlineModule[];
+}
+
+interface ParsedLesson {
+  lessonId: string;
+  title: string;
+  content: {
+    sections: Array<{
+      type: string;
+      title: string;
+      content: string;
+      keyPoints: string[];
+    }>;
+    codeExamples: unknown[];
+    interactiveVisualizations: unknown[];
+    practiceQuestions: unknown[];
+  };
+}
+
+interface ParsedModuleContent {
+  moduleId: string;
+  title: string;
+  introduction: string;
+  learningObjectives: string[];
+  lessons: ParsedLesson[];
+  moduleSummary: string;
 }
 
 interface GeneratedModule {
   title: string;
   description?: string;
-  lessons: GeneratedLesson[];
-}
-
-// Note: GenerationState interface removed - using inline types instead
-
-// =============================================================================
-// Helper: Create fallback content for failed generations
-// =============================================================================
-
-/**
- * Creates minimal valid content when AI generation fails
- * This ensures the lesson is at least displayable to users
- */
-function createFallbackContent(lessonType: SchemaLessonType, title: string): unknown {
-  switch (lessonType) {
-    case "concept":
-      return {
-        conceptTitle: title,
-        explanation: `This lesson about "${title}" could not be generated. Please try regenerating the course or contact support.`,
-        keyPoints: ["Content generation failed", "Please try again later"],
-        realWorldExample: undefined,
-        visualAid: undefined,
-      };
-    
-    case "mcq":
-      return {
-        question: `Question about "${title}" could not be generated.`,
-        options: ["Option A", "Option B", "Option C", "Try regenerating"],
-        correctAnswer: 3,
-        explanation: "This question could not be generated. Please try regenerating the course.",
-        hint: "Try regenerating the course",
-      };
-    
-    case "fillBlanks":
-      return {
-        instruction: "Fill in the blanks to complete the statement.",
-        text: `This lesson about "${title}" could not be generated. The content is {{blank-1}}.`,
-        blanks: [
-          {
-            id: "blank-1",
-            correctAnswer: "unavailable",
-            alternatives: ["not available", "missing"],
-            hint: "The content generation failed",
-          },
-        ],
-      };
-    
-    case "dragDrop":
-      return {
-        instruction: `Drag and drop activity for "${title}" could not be generated.`,
-        activityType: "matching" as const,
-        items: [
-          { id: "item-1", content: "Item 1" },
-          { id: "item-2", content: "Item 2" },
-        ],
-        targets: [
-          { id: "target-1", label: "Target 1", acceptsItems: ["item-1"] },
-          { id: "target-2", label: "Target 2", acceptsItems: ["item-2"] },
-        ],
-        feedback: {
-          correct: "Correct!",
-          incorrect: "This activity could not be generated properly.",
-        },
-      };
-    
-    case "simulation":
-      return {
-        title: title,
-        description: `Simulation for "${title}" could not be generated.`,
-        simulationType: "html-css-js" as const,
-        code: {
-          html: `<div style="padding: 20px; text-align: center;">
-            <h2>Simulation Unavailable</h2>
-            <p>The simulation for "${title}" could not be generated.</p>
-            <p>Please try regenerating the course.</p>
-          </div>`,
-          css: "body { font-family: sans-serif; }",
-          javascript: "console.log('Simulation failed to generate');",
-        },
-        instructions: "This simulation could not be generated. Please try regenerating the course.",
-        observationPrompts: ["Try regenerating the course"],
-        learningGoals: ["Content generation failed"],
-      };
-    
-    default:
-      return {
-        error: "Content generation failed",
-        fallback: true,
-        message: `Could not generate content for lesson type: ${lessonType}`,
-      };
-  }
+  introduction?: string;
+  learningObjectives?: string[];
+  moduleSummary?: string;
+  lessons: Array<{
+    title: string;
+    content: unknown;
+  }>;
 }
 
 // =============================================================================
-// Queries for tracking generation progress
+// Progress Management
 // =============================================================================
 
-import { query } from "./_generated/server";
-
-/**
- * Get generation status by ID (for frontend polling)
- */
-export const getGenerationStatus = query({
-  args: {
-    generationId: v.string(),
-  },
-  handler: async (ctx, args) => {
-    const job = await ctx.db
-      .query("generationJobs")
-      .withIndex("by_generationId", (q) => q.eq("generationId", args.generationId))
-      .unique();
-    
-    if (!job) return null;
-    
-    // Calculate progress percentage
-    let progress = 0;
-    const state = job.state || "idle";
-    
-    if (state === "generating_outline") {
-      progress = 5;
-    } else if (state === "outline_complete") {
-      progress = 15;
-    } else if (state === "generating_lesson_plans") {
-      progress = 20;
-    } else if (state === "lesson_plans_complete") {
-      progress = 30;
-    } else if (state === "generating_content") {
-      // Content generation is 30-90%
-      const lessonsGenerated = job.lessonsGenerated || 0;
-      const totalLessons = job.totalLessons || 1;
-      progress = 30 + Math.round((lessonsGenerated / totalLessons) * 60);
-    } else if (state === "content_complete") {
-      progress = 95;
-    } else if (state === "completed") {
-      progress = 100;
-    } else if (state === "failed") {
-      progress = 0;
-    }
-    
-    return {
-      generationId: job.generationId,
-      capsuleId: job.capsuleId,
-      state,
-      progress,
-      lessonsGenerated: job.lessonsGenerated || 0,
-      totalLessons: job.totalLessons || 0,
-      totalModules: job.totalModules || 0,
-      error: job.lastError,
-      createdAt: job.startedAt,
-      updatedAt: job.updatedAt,
-    };
-  },
-});
-
-/**
- * Get generation status by capsule ID
- */
-export const getGenerationStatusByCapsule = query({
-  args: {
-    capsuleId: v.id("capsules"),
-  },
-  handler: async (ctx, args) => {
-    // Get most recent generation job for this capsule
-    const job = await ctx.db
-      .query("generationJobs")
-      .withIndex("by_capsuleId", (q) => q.eq("capsuleId", args.capsuleId))
-      .order("desc")
-      .first();
-    
-    if (!job) return null;
-    
-    // Calculate progress percentage
-    let progress = 0;
-    const state = job.state || "idle";
-    
-    if (state === "generating_outline") {
-      progress = 5;
-    } else if (state === "outline_complete") {
-      progress = 15;
-    } else if (state === "generating_lesson_plans") {
-      progress = 20;
-    } else if (state === "lesson_plans_complete") {
-      progress = 30;
-    } else if (state === "generating_content") {
-      const lessonsGenerated = job.lessonsGenerated || 0;
-      const totalLessons = job.totalLessons || 1;
-      progress = 30 + Math.round((lessonsGenerated / totalLessons) * 60);
-    } else if (state === "content_complete") {
-      progress = 95;
-    } else if (state === "completed") {
-      progress = 100;
-    } else if (state === "failed") {
-      progress = 0;
-    }
-    
-    return {
-      generationId: job.generationId,
-      capsuleId: job.capsuleId,
-      state,
-      progress,
-      lessonsGenerated: job.lessonsGenerated || 0,
-      totalLessons: job.totalLessons || 0,
-      totalModules: job.totalModules || 0,
-      error: job.lastError,
-      createdAt: job.startedAt,
-      updatedAt: job.updatedAt,
-    };
-  },
-});
-
-// =============================================================================
-// Internal Mutations for State Management
-// =============================================================================
-
-/**
- * Save generation progress to allow resumption
- */
 export const saveGenerationProgress = internalMutation({
   args: {
     generationId: v.string(),
-    state: v.optional(v.string()),
-    outlineJson: v.optional(v.string()),
-    lessonPlansJson: v.optional(v.string()),
-    generatedContentJson: v.optional(v.string()),
-    lessonsGenerated: v.optional(v.number()),
+    state: v.string(),
     currentModuleIndex: v.optional(v.number()),
-    currentLessonIndex: v.optional(v.number()),
-    totalModules: v.optional(v.number()),
-    totalLessons: v.optional(v.number()),
+    outlineJson: v.optional(v.string()),
+    modulesContentJson: v.optional(v.string()),
   },
-  handler: async (ctx, args) => {
-    const { generationId, ...updates } = args;
-    
+  handler: async (ctx, updates) => {
+    // Find the generation job
     const job = await ctx.db
       .query("generationJobs")
-      .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
-      .unique();
-    
+      .withIndex("by_generationId", (q) => q.eq("generationId", updates.generationId))
+      .first();
+
     if (!job) {
-      throw new Error(`Generation job not found: ${generationId}`);
+      console.warn(`[Progress] Job not found: ${updates.generationId}`);
+      return;
     }
-    
-    const patch: Record<string, unknown> = { updatedAt: Date.now() };
-    
-    if (updates.state) patch.state = updates.state;
-    if (updates.outlineJson !== undefined) patch.outlineJson = updates.outlineJson;
-    if (updates.lessonPlansJson !== undefined) patch.lessonPlansJson = updates.lessonPlansJson;
-    if (updates.generatedContentJson !== undefined) patch.generatedContentJson = updates.generatedContentJson;
-    if (updates.lessonsGenerated !== undefined) patch.lessonsGenerated = updates.lessonsGenerated;
+
+    // Build patch object
+    const patch: Record<string, unknown> = {
+      currentStage: updates.state,
+      updatedAt: Date.now(),
+    };
+
     if (updates.currentModuleIndex !== undefined) patch.currentModuleIndex = updates.currentModuleIndex;
-    if (updates.currentLessonIndex !== undefined) patch.currentLessonIndex = updates.currentLessonIndex;
-    if (updates.totalModules !== undefined) patch.totalModules = updates.totalModules;
-    if (updates.totalLessons !== undefined) patch.totalLessons = updates.totalLessons;
-    if (updates.state) patch.outlineGenerated = updates.state !== "idle" && updates.state !== "generating_outline";
-    
+    if (updates.outlineJson !== undefined) patch.outlineJson = updates.outlineJson;
+    if (updates.modulesContentJson !== undefined) patch.modulesContentJson = updates.modulesContentJson;
+
     await ctx.db.patch(job._id, patch);
   },
 });
 
-/**
- * Mark generation as failed
- */
 export const markGenerationFailed = internalMutation({
   args: {
     generationId: v.string(),
@@ -305,31 +119,32 @@ export const markGenerationFailed = internalMutation({
     errorMessage: v.string(),
   },
   handler: async (ctx, args) => {
-    // Update job
-    const job = await ctx.db
-      .query("generationJobs")
-      .withIndex("by_generationId", (q) => q.eq("generationId", args.generationId))
-      .unique();
-    
-    if (job) {
-      await ctx.db.patch(job._id, {
-        state: "failed",
-        lastError: args.errorMessage,
-        updatedAt: Date.now(),
-      });
-    }
-    
-    // Update capsule
+    // Update capsule status
     await ctx.db.patch(args.capsuleId, {
       status: "failed",
       errorMessage: args.errorMessage,
       updatedAt: Date.now(),
     });
+
+    // Update job status
+    const job = await ctx.db
+      .query("generationJobs")
+      .withIndex("by_generationId", (q) => q.eq("generationId", args.generationId))
+      .first();
+
+    if (job) {
+      await ctx.db.patch(job._id, {
+        state: "failed",
+        errorMessage: args.errorMessage,
+        completedAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    }
   },
 });
 
 // =============================================================================
-// Stage 1: Generate Outline
+// Stage 1: Generate Course Outline
 // =============================================================================
 
 export const generateOutline = internalAction({
@@ -342,80 +157,68 @@ export const generateOutline = internalAction({
     guidance: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    console.log(`[Stage 1] Starting outline generation for ${args.generationId}`);
-    
+    console.log(`[Stage 1] Generating outline for ${args.generationId}`);
+
     try {
-      // Get AI config
-      const { resolveWithConvexCtx, MissingAIModelMappingError } = await import(
-        "../shared/ai/modelResolver"
-      );
-      
-      let modelConfig;
-      try {
-        modelConfig = await resolveWithConvexCtx(ctx, "capsule_generation");
-      } catch (resolverError) {
-        throw new Error(
-          resolverError instanceof MissingAIModelMappingError
-            ? "AI model not configured. Please configure in admin panel."
-            : "Failed to resolve AI model configuration."
-        );
-      }
-      
-      // Create AI client
-      const { createAIClient } = await import("../shared/ai/client");
-      const client = createAIClient({
-        provider: modelConfig.provider as "google" | "openai",
-        apiKey: modelConfig.apiKey,
-        modelId: modelConfig.modelId,
-      });
-      
-      // Import stage handler
-      const { generateOutline: runOutlineStage } = await import("../shared/ai/generation/stages");
-      
+      // Get AI model config
+      const { resolveWithConvexCtx } = await import("../shared/ai/modelResolver");
+      const modelConfig = await resolveWithConvexCtx(ctx, "capsule_generation");
+
+      // Import generation function
+      const { generateCapsuleOutline } = await import("../shared/ai/generation/index");
+      const { capsuleOutlineSchema } = await import("../shared/capsule/schemas");
+
       // Build input
-      const input = {
-        sourceType: args.pdfBase64 ? "pdf" as const : "topic" as const,
-        pdfBase64: args.pdfBase64,
-        pdfMimeType: args.pdfMimeType || "application/pdf",
-        topic: args.topic,
-        guidance: args.guidance,
-      };
-      
+      const sourceType = args.pdfBase64 ? "pdf" : "topic";
+      const pdfBuffer = args.pdfBase64 
+        ? Buffer.from(args.pdfBase64, "base64").buffer 
+        : undefined;
+
       // Generate outline
-      const context = {
-        generationId: args.generationId,
-        capsuleId: args.capsuleId,
-        attempt: 0,
-        maxAttempts: 3,
-      };
-      
-      const result = await runOutlineStage(client, input, context);
-      
-      if (!result.success) {
-        throw new Error(result.error || "Failed to generate outline");
-      }
-      
-      // Calculate totals
-      const outline = result.data;
-      const totalModules = outline.modules.length;
-      const totalLessons = outline.modules.reduce(
-        (sum: number, mod: { lessonCount: number }) => sum + mod.lessonCount,
-        0
+      const rawOutline = await generateCapsuleOutline(
+        {
+          sourceType,
+          pdfBuffer,
+          topic: args.topic,
+          guidance: args.guidance,
+        },
+        { modelConfig }
       );
-      
-      console.log(`[Stage 1] Outline generated: ${totalModules} modules, ${totalLessons} lessons`);
-      
+
+      // Parse and validate outline
+      let outline: ParsedOutline;
+      try {
+        // Clean up JSON response
+        const jsonMatch = rawOutline.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) {
+          throw new Error("No valid JSON found in outline response");
+        }
+        const parsed = JSON.parse(jsonMatch[0]);
+        outline = capsuleOutlineSchema.parse(parsed);
+      } catch (parseError) {
+        console.error("[Stage 1] Failed to parse outline:", parseError);
+        throw new Error(`Failed to parse outline: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`);
+      }
+
+      console.log(`[Stage 1] Outline generated: ${outline.title} with ${outline.modules.length} modules`);
+
+      // Update capsule with title from outline
+      await ctx.runMutation(api.capsules.updateCapsuleMetadata, {
+        capsuleId: args.capsuleId,
+        title: outline.title,
+        description: outline.description,
+        estimatedDuration: outline.estimatedDuration,
+      });
+
       // Save progress
       await ctx.runMutation(internal.capsuleGeneration.saveGenerationProgress, {
         generationId: args.generationId,
         state: "outline_complete",
         outlineJson: JSON.stringify(outline),
-        totalModules,
-        totalLessons,
       });
-      
-      // Schedule Stage 2
-      await ctx.scheduler.runAfter(0, internal.capsuleGeneration.generateLessonPlans, {
+
+      // Schedule Stage 2 (module content generation)
+      await ctx.scheduler.runAfter(0, internal.capsuleGeneration.generateModulesBatch, {
         capsuleId: args.capsuleId,
         generationId: args.generationId,
         pdfBase64: args.pdfBase64,
@@ -423,12 +226,14 @@ export const generateOutline = internalAction({
         topic: args.topic,
         guidance: args.guidance,
         outlineJson: JSON.stringify(outline),
+        currentModuleIndex: 0,
+        generatedModulesJson: JSON.stringify([]),
       });
-      
+
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error in outline generation";
       console.error(`[Stage 1] Failed:`, error);
-      
+
       await ctx.runMutation(internal.capsuleGeneration.markGenerationFailed, {
         generationId: args.generationId,
         capsuleId: args.capsuleId,
@@ -439,10 +244,10 @@ export const generateOutline = internalAction({
 });
 
 // =============================================================================
-// Stage 2: Generate Lesson Plans
+// Stage 2: Generate Module Content (Module by Module)
 // =============================================================================
 
-export const generateLessonPlans = internalAction({
+export const generateModulesBatch = internalAction({
   args: {
     capsuleId: v.id("capsules"),
     generationId: v.string(),
@@ -451,108 +256,137 @@ export const generateLessonPlans = internalAction({
     topic: v.optional(v.string()),
     guidance: v.optional(v.string()),
     outlineJson: v.string(),
+    currentModuleIndex: v.number(),
+    generatedModulesJson: v.string(),
   },
   handler: async (ctx, args) => {
-    console.log(`[Stage 2] Starting lesson plan generation for ${args.generationId}`);
-    
+    const outline: ParsedOutline = JSON.parse(args.outlineJson);
+    const generatedModules: GeneratedModule[] = JSON.parse(args.generatedModulesJson);
+
+    console.log(`[Stage 2] Processing module ${args.currentModuleIndex + 1}/${outline.modules.length}`);
+
     try {
-      const outline = JSON.parse(args.outlineJson);
-      
-      // Get AI config
+      // Check if we're done
+      if (args.currentModuleIndex >= outline.modules.length) {
+        console.log(`[Stage 2] All modules generated, moving to finalization`);
+
+        // Schedule finalization
+        await ctx.scheduler.runAfter(0, internal.capsuleGeneration.finalizeGeneration, {
+          capsuleId: args.capsuleId,
+          generationId: args.generationId,
+          outlineJson: args.outlineJson,
+          generatedModulesJson: JSON.stringify(generatedModules),
+        });
+        return;
+      }
+
+      // Get current module from outline
+      const currentOutlineModule = outline.modules[args.currentModuleIndex];
+
+      // Update progress
+      await ctx.runMutation(internal.capsuleGeneration.saveGenerationProgress, {
+        generationId: args.generationId,
+        state: "generating_module_content",
+        currentModuleIndex: args.currentModuleIndex,
+      });
+
+      // Get AI model config
       const { resolveWithConvexCtx } = await import("../shared/ai/modelResolver");
       const modelConfig = await resolveWithConvexCtx(ctx, "capsule_generation");
-      
-      // Create AI client
-      const { createAIClient } = await import("../shared/ai/client");
-      const client = createAIClient({
-        provider: modelConfig.provider as "google" | "openai",
-        apiKey: modelConfig.apiKey,
-        modelId: modelConfig.modelId,
-      });
-      
-      // Import stage handler
-      const { generateLessonPlan: runLessonPlanStage } = await import("../shared/ai/generation/stages");
-      
-      // Build base input with capsule info from outline
-      const baseInput = {
-        sourceType: args.pdfBase64 ? "pdf" as const : "topic" as const,
-        pdfBase64: args.pdfBase64,
-        pdfMimeType: args.pdfMimeType || "application/pdf",
-        topic: args.topic,
-        guidance: args.guidance,
-        capsuleTitle: outline.title as string,
-        capsuleDescription: outline.description as string,
-      };
-      
-      // Generate lesson plans for all modules
-      const lessonPlans: Array<{
-        moduleIndex: number;
-        moduleTitle: string;
-        lessons: Array<{
-          title: string;
-          type: LessonType;
-          description: string;
-          objectives: string[];
-        }>;
-      }> = [];
-      
-      for (let i = 0; i < outline.modules.length; i++) {
-        const outlineMod = outline.modules[i];
-        console.log(`[Stage 2] Generating plan for module ${i + 1}/${outline.modules.length}: ${outlineMod.title}`);
-        
-        // Update progress
-        await ctx.runMutation(internal.capsuleGeneration.saveGenerationProgress, {
-          generationId: args.generationId,
-          state: "generating_lesson_plans",
-          currentModuleIndex: i,
-        });
-        
-        const context = {
-          generationId: args.generationId,
-          capsuleId: args.capsuleId,
-          attempt: 0,
-          maxAttempts: 3,
-        };
-        
-        const result = await runLessonPlanStage(
-          client,
-          {
-            ...baseInput,
-            moduleTitle: outlineMod.title,
-            moduleDescription: outlineMod.description,
-            lessonCount: outlineMod.lessonCount,
-            moduleIndex: i,
-          },
-          context
-        );
-        
-        if (!result.success) {
-          throw new Error(result.error || `Failed to generate lesson plan for module ${i + 1}`);
-        }
-        
-        lessonPlans.push({
-          moduleIndex: i,
-          moduleTitle: outlineMod.title,
-          lessons: result.data.lessons.map((l) => ({
+
+      // Import generation function
+      const { generateModuleContent } = await import("../shared/ai/generation/index");
+      const { moduleContentSchema } = await import("../shared/capsule/schemas");
+
+      // Build input
+      const sourceType = args.pdfBase64 ? "pdf" : "topic";
+      const pdfBuffer = args.pdfBase64 
+        ? Buffer.from(args.pdfBase64, "base64").buffer 
+        : undefined;
+
+      console.log(`[Stage 2] Generating content for module: ${currentOutlineModule.title}`);
+
+      // Generate module content (this generates ALL lessons in the module in one call!)
+      const rawModuleContent = await generateModuleContent(
+        {
+          sourceType,
+          pdfBuffer,
+          topic: args.topic,
+          capsuleTitle: outline.title,
+          capsuleDescription: outline.description,
+          moduleTitle: currentOutlineModule.title,
+          moduleDescription: currentOutlineModule.description,
+          moduleIndex: args.currentModuleIndex,
+          lessons: currentOutlineModule.lessons.map(l => ({
             title: l.title,
-            type: l.lessonType as LessonType,
-            description: l.objective,
-            objectives: [l.objective],
+            description: l.description,
           })),
-        });
+        },
+        { modelConfig }
+      );
+
+      // Parse module content
+      let moduleContent: ParsedModuleContent;
+      try {
+        const jsonMatch = rawModuleContent.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) {
+          throw new Error("No valid JSON found in module content response");
+        }
+        const parsed = JSON.parse(jsonMatch[0]);
+        moduleContent = moduleContentSchema.parse(parsed);
+      } catch (parseError) {
+        console.error(`[Stage 2] Failed to parse module ${args.currentModuleIndex + 1}:`, parseError);
+        
+        // Create fallback module content
+        moduleContent = {
+          moduleId: `module-${args.currentModuleIndex}`,
+          title: currentOutlineModule.title,
+          introduction: currentOutlineModule.description,
+          learningObjectives: [],
+          lessons: currentOutlineModule.lessons.map((lesson, idx) => ({
+            lessonId: `lesson-${args.currentModuleIndex}-${idx}`,
+            title: lesson.title,
+            content: {
+              sections: [{
+                type: "concept",
+                title: lesson.title,
+                content: `Content for "${lesson.title}" could not be generated. Please try regenerating this lesson.`,
+                keyPoints: ["Content generation failed"],
+              }],
+              codeExamples: [],
+              interactiveVisualizations: [],
+              practiceQuestions: [],
+            },
+          })),
+          moduleSummary: "",
+        };
       }
-      
-      console.log(`[Stage 2] All lesson plans generated`);
-      
+
+      console.log(`[Stage 2] Module ${args.currentModuleIndex + 1} content generated with ${moduleContent.lessons.length} lessons`);
+
+      // Add to generated modules
+      generatedModules.push({
+        title: moduleContent.title,
+        description: currentOutlineModule.description,
+        introduction: moduleContent.introduction,
+        learningObjectives: moduleContent.learningObjectives,
+        moduleSummary: moduleContent.moduleSummary,
+        lessons: moduleContent.lessons.map(lesson => ({
+          title: lesson.title,
+          content: lesson.content,
+        })),
+      });
+
       // Save progress
       await ctx.runMutation(internal.capsuleGeneration.saveGenerationProgress, {
         generationId: args.generationId,
-        state: "lesson_plans_complete",
-        lessonPlansJson: JSON.stringify(lessonPlans),
+        state: `module_${args.currentModuleIndex + 1}_complete`,
+        currentModuleIndex: args.currentModuleIndex,
+        modulesContentJson: JSON.stringify(generatedModules),
       });
-      
-      // Schedule Stage 3 (first batch)
-      await ctx.scheduler.runAfter(0, internal.capsuleGeneration.generateContentBatch, {
+
+      // Schedule next module (self-scheduling for continuation)
+      await ctx.scheduler.runAfter(0, internal.capsuleGeneration.generateModulesBatch, {
         capsuleId: args.capsuleId,
         generationId: args.generationId,
         pdfBase64: args.pdfBase64,
@@ -560,16 +394,14 @@ export const generateLessonPlans = internalAction({
         topic: args.topic,
         guidance: args.guidance,
         outlineJson: args.outlineJson,
-        lessonPlansJson: JSON.stringify(lessonPlans),
-        generatedContentJson: JSON.stringify([]),
-        currentModuleIndex: 0,
-        currentLessonIndex: 0,
+        currentModuleIndex: args.currentModuleIndex + 1,
+        generatedModulesJson: JSON.stringify(generatedModules),
       });
-      
+
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error in lesson plan generation";
+      const errorMessage = error instanceof Error ? error.message : "Unknown error in module content generation";
       console.error(`[Stage 2] Failed:`, error);
-      
+
       await ctx.runMutation(internal.capsuleGeneration.markGenerationFailed, {
         generationId: args.generationId,
         capsuleId: args.capsuleId,
@@ -580,244 +412,7 @@ export const generateLessonPlans = internalAction({
 });
 
 // =============================================================================
-// Stage 3: Generate Content (in batches)
-// =============================================================================
-
-export const generateContentBatch = internalAction({
-  args: {
-    capsuleId: v.id("capsules"),
-    generationId: v.string(),
-    pdfBase64: v.optional(v.string()),
-    pdfMimeType: v.optional(v.string()),
-    topic: v.optional(v.string()),
-    guidance: v.optional(v.string()),
-    outlineJson: v.string(),
-    lessonPlansJson: v.string(),
-    generatedContentJson: v.string(),
-    currentModuleIndex: v.number(),
-    currentLessonIndex: v.number(),
-  },
-  handler: async (ctx, args) => {
-    console.log(`[Stage 3] Starting content batch at module ${args.currentModuleIndex}, lesson ${args.currentLessonIndex}`);
-    
-    try {
-      const outline = JSON.parse(args.outlineJson);
-      const lessonPlans = JSON.parse(args.lessonPlansJson);
-      const generatedContent: GeneratedModule[] = JSON.parse(args.generatedContentJson);
-      
-      // Get AI config
-      const { resolveWithConvexCtx } = await import("../shared/ai/modelResolver");
-      const modelConfig = await resolveWithConvexCtx(ctx, "capsule_generation");
-      
-      // Create AI client
-      const { createAIClient } = await import("../shared/ai/client");
-      const client = createAIClient({
-        provider: modelConfig.provider as "google" | "openai",
-        apiKey: modelConfig.apiKey,
-        modelId: modelConfig.modelId,
-      });
-      
-      // Import stage handler
-      const { generateLessonContent: runContentStage } = await import("../shared/ai/generation/stages");
-      
-      // Build base input with capsule info from outline
-      const baseInput = {
-        sourceType: args.pdfBase64 ? "pdf" as const : "topic" as const,
-        pdfBase64: args.pdfBase64,
-        pdfMimeType: args.pdfMimeType || "application/pdf",
-        topic: args.topic,
-        guidance: args.guidance,
-        capsuleTitle: outline.title as string,
-      };
-      
-      // Calculate total lessons for progress
-      const totalLessons = lessonPlans.reduce(
-        (sum: number, plan: { lessons: unknown[] }) => sum + plan.lessons.length,
-        0
-      );
-      
-      // Process lessons in this batch
-      let moduleIndex = args.currentModuleIndex;
-      let lessonIndex = args.currentLessonIndex;
-      let lessonsProcessed = 0;
-      let totalLessonsGenerated = generatedContent.reduce(
-        (sum, mod) => sum + mod.lessons.length,
-        0
-      );
-      
-      // Initialize module in generated content if needed
-      while (generatedContent.length <= moduleIndex) {
-        const outlineMod = outline.modules[generatedContent.length];
-        generatedContent.push({
-          title: outlineMod.title,
-          description: outlineMod.description,
-          lessons: [],
-        });
-      }
-      
-      while (lessonsProcessed < LESSONS_PER_BATCH && moduleIndex < lessonPlans.length) {
-        const modulePlan = lessonPlans[moduleIndex];
-        
-        if (lessonIndex >= modulePlan.lessons.length) {
-          // Move to next module
-          moduleIndex++;
-          lessonIndex = 0;
-          
-          // Initialize next module
-          if (moduleIndex < outline.modules.length && generatedContent.length <= moduleIndex) {
-            const outlineMod = outline.modules[moduleIndex];
-            generatedContent.push({
-              title: outlineMod.title,
-              description: outlineMod.description,
-              lessons: [],
-            });
-          }
-          continue;
-        }
-        
-        const lesson = modulePlan.lessons[lessonIndex];
-        totalLessonsGenerated++;
-        
-        console.log(`[Stage 3] Generating content ${totalLessonsGenerated}/${totalLessons}: ${lesson.title}`);
-        
-        // Update progress
-        await ctx.runMutation(internal.capsuleGeneration.saveGenerationProgress, {
-          generationId: args.generationId,
-          state: "generating_content",
-          currentModuleIndex: moduleIndex,
-          currentLessonIndex: lessonIndex,
-          lessonsGenerated: totalLessonsGenerated,
-        });
-        
-        const context = {
-          generationId: args.generationId,
-          capsuleId: args.capsuleId,
-          attempt: 0,
-          maxAttempts: 3,
-        };
-        
-        // Map "mixed" type to "concept" for content generation (fallback)
-        const lessonTypeForGeneration = (lesson.type === "mixed" ? "concept" : lesson.type) as SchemaLessonType;
-        
-        // Generate content for this lesson with retry logic
-        let result: Awaited<ReturnType<typeof runContentStage>> | null = null;
-        let lastError = "";
-        
-        for (let attempt = 0; attempt < 3; attempt++) {
-          if (attempt > 0) {
-            console.log(`[Stage 3] Retry attempt ${attempt + 1} for ${lesson.title}`);
-            // Small delay before retry
-            await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
-          }
-          
-          result = await runContentStage(
-            client,
-            {
-              ...baseInput,
-              lessonTitle: lesson.title,
-              lessonType: lessonTypeForGeneration,
-              lessonObjective: lesson.description || lesson.objectives?.[0] || "",
-              moduleTitle: modulePlan.moduleTitle,
-              moduleIndex,
-              lessonIndex,
-            },
-            { ...context, attempt }
-          );
-          
-          if (result.success) {
-            break;
-          }
-          
-          lastError = result.error || "Unknown error";
-          console.warn(`[Stage 3] Attempt ${attempt + 1} failed for ${lesson.title}: ${lastError}`);
-        }
-        
-        if (!result || !result.success) {
-          console.warn(`[Stage 3] All attempts failed for ${lesson.title}, using fallback. Last error: ${lastError}`);
-          // Add placeholder content on failure - create minimal valid content based on type
-          const fallbackContent = createFallbackContent(lessonTypeForGeneration, lesson.title);
-          generatedContent[moduleIndex].lessons.push({
-            title: lesson.title,
-            type: lesson.type as LessonType,
-            content: fallbackContent,
-          });
-        } else {
-          // IMPORTANT: result.data contains { lessonTitle, lessonType, content }
-          // We only want the inner content object
-          generatedContent[moduleIndex].lessons.push({
-            title: lesson.title,
-            type: lesson.type as LessonType,
-            content: result.data.content,
-          });
-        }
-        
-        lessonIndex++;
-        lessonsProcessed++;
-      }
-      
-      // Check if we're done
-      const allDone = moduleIndex >= lessonPlans.length || 
-        (moduleIndex === lessonPlans.length - 1 && lessonIndex >= lessonPlans[moduleIndex]?.lessons?.length);
-      
-      if (allDone) {
-        console.log(`[Stage 3] All content generated, moving to finalization`);
-        
-        // Save final content
-        await ctx.runMutation(internal.capsuleGeneration.saveGenerationProgress, {
-          generationId: args.generationId,
-          state: "content_complete",
-          generatedContentJson: JSON.stringify(generatedContent),
-          lessonsGenerated: totalLessonsGenerated,
-        });
-        
-        // Schedule finalization
-        await ctx.scheduler.runAfter(0, internal.capsuleGeneration.finalizeGeneration, {
-          capsuleId: args.capsuleId,
-          generationId: args.generationId,
-          outlineJson: args.outlineJson,
-          generatedContentJson: JSON.stringify(generatedContent),
-        });
-      } else {
-        console.log(`[Stage 3] Batch complete, scheduling next batch at module ${moduleIndex}, lesson ${lessonIndex}`);
-        
-        // Save progress and schedule next batch
-        await ctx.runMutation(internal.capsuleGeneration.saveGenerationProgress, {
-          generationId: args.generationId,
-          generatedContentJson: JSON.stringify(generatedContent),
-          lessonsGenerated: totalLessonsGenerated,
-        });
-        
-        // Schedule next batch
-        await ctx.scheduler.runAfter(0, internal.capsuleGeneration.generateContentBatch, {
-          capsuleId: args.capsuleId,
-          generationId: args.generationId,
-          pdfBase64: args.pdfBase64,
-          pdfMimeType: args.pdfMimeType,
-          topic: args.topic,
-          guidance: args.guidance,
-          outlineJson: args.outlineJson,
-          lessonPlansJson: args.lessonPlansJson,
-          generatedContentJson: JSON.stringify(generatedContent),
-          currentModuleIndex: moduleIndex,
-          currentLessonIndex: lessonIndex,
-        });
-      }
-      
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error in content generation";
-      console.error(`[Stage 3] Failed:`, error);
-      
-      await ctx.runMutation(internal.capsuleGeneration.markGenerationFailed, {
-        generationId: args.generationId,
-        capsuleId: args.capsuleId,
-        errorMessage,
-      });
-    }
-  },
-});
-
-// =============================================================================
-// Stage 4: Finalize Generation
+// Stage 3: Finalize Generation
 // =============================================================================
 
 export const finalizeGeneration = internalAction({
@@ -825,66 +420,67 @@ export const finalizeGeneration = internalAction({
     capsuleId: v.id("capsules"),
     generationId: v.string(),
     outlineJson: v.string(),
-    generatedContentJson: v.string(),
+    generatedModulesJson: v.string(),
   },
   handler: async (ctx, args) => {
-    console.log(`[Stage 4] Finalizing generation for ${args.generationId}`);
-    
+    console.log(`[Stage 3] Finalizing generation for ${args.generationId}`);
+
     try {
-      const outline = JSON.parse(args.outlineJson);
-      const generatedContent: GeneratedModule[] = JSON.parse(args.generatedContentJson);
-      
-      // Persist content to database
-      console.log(`[Stage 4] Persisting ${generatedContent.length} modules`);
-      
+      const outline: ParsedOutline = JSON.parse(args.outlineJson);
+      const generatedModules: GeneratedModule[] = JSON.parse(args.generatedModulesJson);
+
+      console.log(`[Stage 3] Persisting ${generatedModules.length} modules`);
+
       // Update capsule metadata
       await ctx.runMutation(api.capsules.updateCapsuleMetadata, {
         capsuleId: args.capsuleId,
         description: outline.description,
       });
-      
-      // Persist modules and lessons
+
+      // Persist modules and lessons using the module-wise structure
       const { moduleCount } = await ctx.runMutation(
         api.capsules.persistGeneratedCapsuleContent,
         {
           capsuleId: args.capsuleId,
-          modules: generatedContent.map((mod) => ({
+          modules: generatedModules.map((mod) => ({
             title: mod.title,
             description: mod.description,
+            introduction: mod.introduction,
+            learningObjectives: mod.learningObjectives,
+            moduleSummary: mod.moduleSummary,
             lessons: mod.lessons.map((lesson) => ({
               title: lesson.title,
-              lessonType: lesson.type,
               content: lesson.content,
             })),
           })),
         }
       );
-      
+
       // Clear source data (delete PDF from storage)
       await ctx.runMutation(api.capsules.clearCapsuleSourceData, {
         capsuleId: args.capsuleId,
       });
-      
+
       // Update final status
       await ctx.runMutation(api.capsules.updateCapsuleStatus, {
         capsuleId: args.capsuleId,
         status: "completed",
         moduleCount,
       });
-      
+
       // Update job as completed
-      await ctx.runMutation(api.capsulesV2.updateGenerationJob, {
+      await ctx.runMutation(api.generationJobs.updateGenerationJob, {
         generationId: args.generationId,
         state: "completed",
         completedAt: Date.now(),
       });
-      
-      console.log(`[Stage 4] Generation completed successfully!`);
-      
+
+      console.log(`[Stage 3] Generation completed successfully!`);
+
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error in finalization";
-      console.error(`[Stage 4] Failed:`, error);
-      
+      console.error(`[Stage 3] Failed:`, error);
+
       await ctx.runMutation(internal.capsuleGeneration.markGenerationFailed, {
         generationId: args.generationId,
         capsuleId: args.capsuleId,
@@ -895,12 +491,12 @@ export const finalizeGeneration = internalAction({
 });
 
 // =============================================================================
-// Entry Point: Start Chunked Generation
+// Entry Point: Start Module-wise Generation
 // =============================================================================
 
 /**
- * Start chunked capsule generation
- * This replaces the old generateCapsuleContentV2 for large courses
+ * Start module-wise capsule generation
+ * This is the main entry point called by the public action
  */
 export const startChunkedGeneration = action({
   args: {
@@ -911,13 +507,13 @@ export const startChunkedGeneration = action({
     const capsule = await ctx.runQuery(api.capsules.getCapsule, {
       capsuleId: args.capsuleId,
     });
-    
+
     if (!capsule) {
       throw new Error("Capsule not found");
     }
-    
+
     // Validate source
-    if (capsule.sourceType === "pdf" && !capsule.sourcePdfStorageId && !capsule.sourcePdfData) {
+    if (capsule.sourceType === "pdf" && !capsule.sourcePdfStorageId) {
       await ctx.runMutation(api.capsules.updateCapsuleStatus, {
         capsuleId: args.capsuleId,
         status: "failed",
@@ -925,7 +521,7 @@ export const startChunkedGeneration = action({
       });
       throw new Error("PDF data missing for capsule");
     }
-    
+
     if (capsule.sourceType === "topic" && !capsule.sourceTopic) {
       await ctx.runMutation(api.capsules.updateCapsuleStatus, {
         capsuleId: args.capsuleId,
@@ -934,42 +530,40 @@ export const startChunkedGeneration = action({
       });
       throw new Error("Topic missing for capsule");
     }
-    
+
     // Reset capsule
     await ctx.runMutation(api.capsules.resetCapsule, {
       capsuleId: args.capsuleId,
     });
-    
+
     // Update status to processing
     await ctx.runMutation(api.capsules.updateCapsuleStatus, {
       capsuleId: args.capsuleId,
       status: "processing",
     });
-    
+
     // Generate unique ID
     const generationId = `gen_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    
+
     // Create generation job
-    await ctx.runMutation(api.capsulesV2.createGenerationJob, {
+    await ctx.runMutation(api.generationJobs.createGenerationJob, {
       capsuleId: args.capsuleId,
       generationId,
     });
-    
+
     // Fetch PDF if needed
     let pdfBase64: string | undefined;
     if (capsule.sourceType === "pdf") {
       if (capsule.sourcePdfStorageId) {
-        console.log("[Chunked] Fetching PDF from storage...");
+        console.log("[ModuleGen] Fetching PDF from storage...");
         pdfBase64 = await ctx.runAction(api.capsules.getPdfBase64, {
           storageId: capsule.sourcePdfStorageId,
         });
-        console.log("[Chunked] PDF fetched successfully");
-      } else if (capsule.sourcePdfData) {
-        pdfBase64 = capsule.sourcePdfData;
+        console.log("[ModuleGen] PDF fetched successfully");
       }
     }
-    
-    // Schedule Stage 1
+
+    // Schedule Stage 1 (outline generation)
     await ctx.scheduler.runAfter(0, internal.capsuleGeneration.generateOutline, {
       capsuleId: args.capsuleId,
       generationId,
@@ -978,7 +572,7 @@ export const startChunkedGeneration = action({
       topic: capsule.sourceTopic,
       guidance: capsule.userPrompt,
     });
-    
+
     return { generationId, success: true };
   },
 });
@@ -988,9 +582,8 @@ export const startChunkedGeneration = action({
 // =============================================================================
 
 /**
- * Regenerate a single failed lesson
- * This allows users to retry content generation for specific lessons
- * without regenerating the entire capsule
+ * Regenerate a single lesson using the lesson-specific prompt
+ * This is for fixing individual failed lessons without regenerating the entire module
  */
 export const regenerateLesson = action({
   args: {
@@ -998,118 +591,314 @@ export const regenerateLesson = action({
   },
   handler: async (ctx, args) => {
     console.log(`[Regenerate] Starting regeneration for lesson ${args.lessonId}`);
-    
+
     // Get the lesson
     const lesson = await ctx.runQuery(api.capsules.getLesson, {
       lessonId: args.lessonId,
     });
-    
+
     if (!lesson) {
       throw new Error("Lesson not found");
     }
-    
+
     // Get the module for context
     const lessonModule = await ctx.runQuery(api.capsules.getModule, {
       moduleId: lesson.moduleId,
     });
-    
+
     if (!lessonModule) {
       throw new Error("Module not found");
     }
-    
+
     // Get the capsule for source material
     const capsule = await ctx.runQuery(api.capsules.getCapsule, {
       capsuleId: lesson.capsuleId,
     });
-    
+
     if (!capsule) {
       throw new Error("Capsule not found");
     }
-    
+
     // Get AI config
     const { resolveWithConvexCtx } = await import("../shared/ai/modelResolver");
     const modelConfig = await resolveWithConvexCtx(ctx, "capsule_generation");
-    
-    // Create AI client
-    const { createAIClient } = await import("../shared/ai/client");
-    const client = createAIClient({
-      provider: modelConfig.provider as "google" | "openai",
-      apiKey: modelConfig.apiKey,
-      modelId: modelConfig.modelId,
-    });
-    
-    // Import stage handler
-    const { generateLessonContent } = await import("../shared/ai/generation/stages");
-    
+
+    // Import generation function - use the single lesson generator
+    const { generateLessonContent } = await import("../shared/ai/generation/index");
+
     // Fetch PDF if needed
-    let pdfBase64: string | undefined;
-    if (capsule.sourceType === "pdf") {
-      if (capsule.sourcePdfStorageId) {
-        console.log("[Regenerate] Fetching PDF from storage...");
-        pdfBase64 = await ctx.runAction(api.capsules.getPdfBase64, {
-          storageId: capsule.sourcePdfStorageId,
-        });
-      } else if (capsule.sourcePdfData) {
-        pdfBase64 = capsule.sourcePdfData;
+    let pdfBuffer: ArrayBuffer | undefined;
+    if (capsule.sourceType === "pdf" && capsule.sourcePdfStorageId) {
+      console.log("[Regenerate] Fetching PDF from storage...");
+      const pdfBase64 = await ctx.runAction(api.capsules.getPdfBase64, {
+        storageId: capsule.sourcePdfStorageId,
+      });
+      if (pdfBase64) {
+        pdfBuffer = Buffer.from(pdfBase64, "base64").buffer;
       }
     }
-    
-    // Build input
-    const input = {
-      sourceType: capsule.sourceType as "pdf" | "topic",
-      pdfBase64,
-      pdfMimeType: capsule.sourcePdfMime || "application/pdf",
-      topic: capsule.sourceTopic,
-      guidance: capsule.userPrompt,
-      capsuleTitle: capsule.title,
-      lessonTitle: lesson.title,
-      lessonType: lesson.type as SchemaLessonType,
-      lessonObjective: lesson.description || `Learn about ${lesson.title}`,
-      moduleTitle: lessonModule.title,
-      moduleIndex: lessonModule.order,
-      lessonIndex: lesson.order,
-    };
-    
-    const context = {
-      generationId: `regen_${Date.now()}`,
-      capsuleId: lesson.capsuleId,
-      attempt: 0,
-      maxAttempts: 3,
-    };
-    
-    // Try to generate content with retries
-    let result: Awaited<ReturnType<typeof generateLessonContent>> | null = null;
+
+    // Generate lesson content with retries
+    let rawContent: string | null = null;
     let lastError = "";
-    
+
     for (let attempt = 0; attempt < 3; attempt++) {
       if (attempt > 0) {
-        console.log(`[Regenerate] Retry attempt ${attempt + 1} for ${lesson.title}`);
+        console.log(`[Regenerate] Retry attempt ${attempt + 1}`);
         await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
       }
-      
-      result = await generateLessonContent(client, input, { ...context, attempt });
-      
-      if (result.success) {
+
+      try {
+        rawContent = await generateLessonContent(
+          {
+            sourceType: capsule.sourceType as "pdf" | "topic",
+            pdfBuffer,
+            topic: capsule.sourceTopic,
+            capsuleTitle: capsule.title,
+            moduleTitle: lessonModule.title,
+            moduleIndex: lessonModule.order,
+            lessonTitle: lesson.title,
+            lessonDescription: lesson.description || `Learn about ${lesson.title}`,
+            lessonIndex: lesson.order,
+          },
+          { modelConfig }
+        );
         break;
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : "Unknown error";
+        console.warn(`[Regenerate] Attempt ${attempt + 1} failed: ${lastError}`);
+      }
+    }
+
+    if (!rawContent) {
+      throw new Error(`Failed to regenerate lesson after 3 attempts: ${lastError}`);
+    }
+
+    // Parse the content
+    const { moduleContentSchema } = await import("../shared/capsule/schemas");
+    let parsedContent: unknown;
+
+    try {
+      const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        throw new Error("No valid JSON found in response");
       }
       
-      lastError = result.error || "Unknown error";
-      console.warn(`[Regenerate] Attempt ${attempt + 1} failed: ${lastError}`);
+      // The single lesson endpoint returns a different structure, parse accordingly
+      const parsed = JSON.parse(jsonMatch[0]);
+      
+      // If it looks like full module content, extract just this lesson
+      if (parsed.lessons && Array.isArray(parsed.lessons)) {
+        const lessonData = moduleContentSchema.parse(parsed);
+        parsedContent = lessonData.lessons[0]?.content || parsed;
+      } else if (parsed.content) {
+        parsedContent = parsed.content;
+      } else {
+        parsedContent = parsed;
+      }
+    } catch (parseError) {
+      console.error("[Regenerate] Failed to parse content:", parseError);
+      throw new Error(`Failed to parse regenerated content: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`);
     }
-    
-    if (!result || !result.success) {
-      console.error(`[Regenerate] All attempts failed for ${lesson.title}: ${lastError}`);
-      throw new Error(`Failed to regenerate lesson: ${lastError}`);
-    }
-    
+
     // Update the lesson with new content
     await ctx.runMutation(api.capsules.updateLessonContent, {
       lessonId: args.lessonId,
-      content: result.data.content,
+      content: parsedContent,
     });
-    
+
     console.log(`[Regenerate] Successfully regenerated lesson: ${lesson.title}`);
-    
+
     return { success: true, lessonId: args.lessonId };
+  },
+});
+
+// =============================================================================
+// Interactive Visualization Regeneration
+// =============================================================================
+
+/**
+ * Regenerate a single interactive visualization with user feedback
+ * Rate limited and authenticated
+ */
+export const regenerateVisualization = action({
+  args: {
+    lessonId: v.id("capsuleLessons"),
+    visualizationIndex: v.number(),
+    userFeedback: v.string(),
+  },
+  handler: async (ctx, args) => {
+    // Validate feedback length (security)
+    if (args.userFeedback.length > 1000) {
+      throw new Error("Feedback is too long. Please keep it under 1000 characters.");
+    }
+    if (args.userFeedback.trim().length < 10) {
+      throw new Error("Please provide more detailed feedback (at least 10 characters).");
+    }
+
+    console.log(`[RegenerateViz] Starting for lesson ${args.lessonId}, index ${args.visualizationIndex}`);
+
+    // Get the lesson
+    const lesson = await ctx.runQuery(api.capsules.getLesson, {
+      lessonId: args.lessonId,
+    });
+
+    if (!lesson) {
+      throw new Error("Lesson not found");
+    }
+
+    // Verify the visualization exists
+    const content = lesson.content as {
+      interactiveVisualizations?: Array<{
+        title?: string;
+        description?: string;
+        type?: string;
+        html?: string;
+        css?: string;
+        javascript?: string;
+      }>;
+    } | undefined;
+
+    const visualizations = content?.interactiveVisualizations || [];
+    if (args.visualizationIndex < 0 || args.visualizationIndex >= visualizations.length) {
+      throw new Error("Visualization not found at the specified index");
+    }
+
+    const currentViz = visualizations[args.visualizationIndex];
+
+    // Get the module for context
+    const lessonModule = await ctx.runQuery(api.capsules.getModule, {
+      moduleId: lesson.moduleId,
+    });
+
+    if (!lessonModule) {
+      throw new Error("Module not found");
+    }
+
+    // Get the capsule for context
+    const capsule = await ctx.runQuery(api.capsules.getCapsule, {
+      capsuleId: lesson.capsuleId,
+    });
+
+    if (!capsule) {
+      throw new Error("Capsule not found");
+    }
+
+    // Rate limit check - reuse capsule generation rate limit bucket
+    const userId = capsule.userId;
+    const bucketKey = `viz_regen:${userId}`;
+    
+    const rateCheck = await ctx.runQuery(api.rateLimit.checkRateLimit, {
+      bucketKey,
+    });
+
+    if (!rateCheck.allowed) {
+      const waitMinutes = Math.ceil((rateCheck.retryAfterMs || 60000) / 60000);
+      throw new Error(`Rate limit exceeded. Please wait ${waitMinutes} minute(s) before trying again.`);
+    }
+
+    // Record the request for rate limiting
+    await ctx.runMutation(api.rateLimit.recordRequest, {
+      bucketKey,
+      maxRequests: 20, // Allow 20 visualization regenerations per hour
+      windowMs: 60 * 60 * 1000, // 1 hour
+    });
+
+    // Get AI config
+    const { resolveWithConvexCtx } = await import("../shared/ai/modelResolver");
+    const modelConfig = await resolveWithConvexCtx(ctx, "capsule_generation");
+
+    // Import regeneration function
+    const { regenerateVisualization: generateViz } = await import("../shared/ai/generation/index");
+
+    // Generate new visualization with retries
+    let rawContent: string | null = null;
+    let lastError = "";
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) {
+        console.log(`[RegenerateViz] Retry attempt ${attempt + 1}`);
+        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+      }
+
+      try {
+        rawContent = await generateViz(
+          {
+            currentVisualization: currentViz,
+            userFeedback: args.userFeedback,
+            lessonContext: {
+              lessonTitle: lesson.title,
+              moduleTitle: lessonModule.title,
+              capsuleTitle: capsule.title,
+            },
+          },
+          { modelConfig }
+        );
+        break;
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : "Unknown error";
+        console.warn(`[RegenerateViz] Attempt ${attempt + 1} failed: ${lastError}`);
+      }
+    }
+
+    if (!rawContent) {
+      throw new Error(`Failed to regenerate visualization after 3 attempts: ${lastError}`);
+    }
+
+    // Parse the response
+    let newVisualization: {
+      title?: string;
+      description?: string;
+      type?: string;
+      html?: string;
+      css?: string;
+      javascript?: string;
+    };
+
+    try {
+      const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        throw new Error("No valid JSON found in response");
+      }
+      newVisualization = JSON.parse(jsonMatch[0]);
+      
+      // Validate required fields
+      if (!newVisualization.html && !newVisualization.javascript) {
+        throw new Error("Generated visualization is missing code");
+      }
+    } catch (parseError) {
+      console.error("[RegenerateViz] Failed to parse response:", parseError);
+      throw new Error("Failed to parse the generated visualization. Please try again.");
+    }
+
+    // Update the lesson content with the new visualization
+    const updatedVisualizations = [...visualizations];
+    updatedVisualizations[args.visualizationIndex] = {
+      title: newVisualization.title || currentViz.title || "Interactive Visualization",
+      description: newVisualization.description || currentViz.description,
+      type: newVisualization.type || "simulation",
+      html: newVisualization.html || "",
+      css: newVisualization.css || "",
+      javascript: newVisualization.javascript || "",
+    };
+
+    const updatedContent = {
+      ...content,
+      interactiveVisualizations: updatedVisualizations,
+    };
+
+    // Save the updated content
+    await ctx.runMutation(api.capsules.updateLessonContent, {
+      lessonId: args.lessonId,
+      content: updatedContent,
+    });
+
+    console.log(`[RegenerateViz] Successfully regenerated visualization for lesson: ${lesson.title}`);
+
+    return { 
+      success: true, 
+      lessonId: args.lessonId,
+      visualizationIndex: args.visualizationIndex,
+    };
   },
 });

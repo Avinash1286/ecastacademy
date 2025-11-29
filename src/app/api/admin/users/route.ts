@@ -3,11 +3,17 @@ import { auth } from "@/lib/auth/auth.config";
 import { api } from "../../../../../convex/_generated/api";
 import { Id } from "../../../../../convex/_generated/dataModel";
 import { createConvexClient } from "@/lib/convexClient";
+import { withRateLimit, RATE_LIMIT_PRESETS } from "@/lib/security/rateLimit";
+import { logger } from "@/lib/logging/logger";
 
 const convex = createConvexClient();
 
 // GET - List all users (admin only)
-export async function GET() {
+export async function GET(request: NextRequest) {
+  // Apply rate limiting for admin operations
+  const rateLimitResponse = await withRateLimit(request, RATE_LIMIT_PRESETS.ADMIN);
+  if (rateLimitResponse) return rateLimitResponse;
+
   try {
     const session = await auth();
 
@@ -24,7 +30,7 @@ export async function GET() {
 
     return NextResponse.json({ users });
   } catch (error: unknown) {
-    console.error("Error fetching users:", error);
+    logger.error("Error fetching users", undefined, error as Error);
 
     if (error instanceof Error && error.message?.includes("Unauthorized")) {
       return NextResponse.json({ error: "Admin access required" }, { status: 403 });
@@ -39,6 +45,17 @@ export async function GET() {
 
 // PATCH - Update user role (admin only)
 export async function PATCH(request: NextRequest) {
+  // Apply rate limiting for admin operations
+  const rateLimitResponse = await withRateLimit(request, RATE_LIMIT_PRESETS.ADMIN);
+  if (rateLimitResponse) return rateLimitResponse;
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON in request body" }, { status: 400 });
+  }
+
   try {
     const session = await auth();
 
@@ -47,7 +64,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     const currentUserId = session.user.id as Id<"users">;
-    const { targetUserId, newRole } = await request.json();
+    const { targetUserId, newRole } = body;
 
     if (!targetUserId || !newRole) {
       return NextResponse.json(
@@ -72,7 +89,7 @@ export async function PATCH(request: NextRequest) {
 
     return NextResponse.json({ user: updatedUser });
   } catch (error: unknown) {
-    console.error("Error updating user role:", error);
+    logger.error("Error updating user role", { targetUserId: "unknown" }, error as Error);
 
     if (error instanceof Error && (error.message?.includes("Unauthorized") || error.message?.includes("Admin"))) {
       return NextResponse.json({ error: "Admin access required" }, { status: 403 });
@@ -91,6 +108,10 @@ export async function PATCH(request: NextRequest) {
 
 // DELETE - Delete user (admin only)
 export async function DELETE(request: NextRequest) {
+  // Apply rate limiting for admin operations
+  const rateLimitResponse = await withRateLimit(request, RATE_LIMIT_PRESETS.ADMIN);
+  if (rateLimitResponse) return rateLimitResponse;
+
   try {
     const session = await auth();
 
@@ -117,7 +138,7 @@ export async function DELETE(request: NextRequest) {
 
     return NextResponse.json(result);
   } catch (error: unknown) {
-    console.error("Error deleting user:", error);
+    logger.error("Error deleting user", { targetUserId: "unknown" }, error as Error);
 
     if (error instanceof Error && (error.message?.includes("Unauthorized") || error.message?.includes("Admin"))) {
       return NextResponse.json({ error: "Admin access required" }, { status: 403 });

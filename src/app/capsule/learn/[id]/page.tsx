@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, use, useEffect, useRef } from 'react';
+import { useState, use, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useQuery, useMutation, useAction } from 'convex/react';
 import { api } from '../../../../../convex/_generated/api';
 import { useRouter } from 'next/navigation';
@@ -11,15 +11,21 @@ import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ChevronLeft, ChevronRight, CheckCircle2, Circle, ShieldAlert, RefreshCw, Loader2, Volume2, VolumeX } from 'lucide-react';
 import { Id } from '../../../../../convex/_generated/dataModel';
+import { buildProgressByLesson, countCompletedLessons, getLessonProgress } from '@/lib/capsuleProgress';
 import { toast } from 'sonner';
 
 import { ConceptLesson } from '@/components/capsule/ConceptLesson';
-import { MCQLesson } from '@/components/capsule/MCQLesson';
-import { FillBlanksLesson } from '@/components/capsule/FillBlanksLesson';
-import { DragDropLesson } from '@/components/capsule/DragDropLesson';
 import { SimulationLesson } from '@/components/capsule/SimulationLesson';
+import { MixedLesson } from '@/components/capsule/MixedLesson';
 import { ConfettiCelebration } from '@/components/ui/ConfettiCelebration';
 import { useSoundEffects } from '@/hooks/useSoundEffects';
+import { FailedLessonsAlert, detectFailedLessons } from '@/components/capsule/FailedLessonsAlert';
+
+// Typed quiz answer imports
+import type {
+  QuizAnswer,
+  MixedLessonProgressState,
+} from '../../../../../shared/quiz/types';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -50,13 +56,114 @@ export default function CapsuleLearnPage({ params }: PageProps) {
     isAuthenticated && userId ? { userId, capsuleId } : 'skip'
   );
 
+  // Compute current lesson ID safely for the typed progress query
+  // This must be computed before any early returns to maintain hook order
+  const currentLessonId = capsuleData?.modules?.[currentModuleIndex]?.lessons?.[currentLessonIndex]?._id;
+
+  // Query typed progress for the current lesson (must be before early returns)
+  const typedProgress = useQuery(
+    api.capsules.getTypedLessonProgress,
+    isAuthenticated && userId && currentLessonId
+      ? { userId, lessonId: currentLessonId }
+      : 'skip'
+  );
+
+  const progressByLesson = useMemo(
+    () => buildProgressByLesson(userProgress ?? undefined),
+    [userProgress]
+  );
+
   const updateProgress = useMutation(api.capsules.updateLessonProgress);
+  const updateTypedProgress = useMutation(api.capsules.updateTypedLessonProgress);
+  const updateMixedNavigation = useMutation(api.capsules.updateMixedLessonNavigation);
   const regenerateLesson = useAction(api.capsuleGeneration.regenerateLesson);
 
   // Calculate progress (safe for early returns)
   const totalLessonsCount = capsuleData?.modules?.reduce((acc, m) => acc + m.lessons.length, 0) || 0;
-  const completedLessonsCount = userProgress?.filter(p => p.completed).length || 0;
+  const completedLessonsCount = countCompletedLessons(progressByLesson);
   const progressPercentageValue = totalLessonsCount > 0 ? (completedLessonsCount / totalLessonsCount) * 100 : 0;
+
+  // Compute current module/lesson safely (needed for callbacks)
+  const currentModule = capsuleData?.modules?.[currentModuleIndex];
+  const currentLesson = currentModule?.lessons?.[currentLessonIndex];
+  const currentModuleId = currentModule?._id;
+
+  // Handler for typed quiz answers (MCQ, FillBlanks, DragDrop) - must be before early returns
+  const handleTypedQuizAnswer = useCallback(async (answer: QuizAnswer) => {
+    if (!currentLessonId || !userId || !currentModuleId) return;
+
+    try {
+      await updateTypedProgress({
+        userId,
+        capsuleId,
+        moduleId: currentModuleId,
+        lessonId: currentLessonId,
+        typedAnswer: answer,
+        completed: true,
+        maxScore: currentLesson?.maxPoints,
+      });
+    } catch (error) {
+      console.error('Error updating typed progress:', error);
+    }
+  }, [currentLessonId, userId, capsuleId, currentModuleId, currentLesson?.maxPoints, updateTypedProgress]);
+
+  // Handler for mixed lesson typed answers - must be before early returns
+  const handleMixedTypedAnswer = useCallback(async (data: {
+    type: 'mixed';
+    lessonId: string;
+    questionStates: Array<{
+      questionIndex: number;
+      questionType: 'mcq' | 'fillBlanks' | 'dragDrop';
+      answered: boolean;
+      answer?: QuizAnswer;
+    }>;
+    allQuestionsAnswered: boolean;
+    currentQuestionIndex: number;
+    overallScore: number;
+    timestamp: number;
+    timeSpentMs?: number;
+  }) => {
+    if (!currentLessonId || !userId || !currentModuleId) return;
+
+    try {
+      // Extract the last answered question's answer for typedLastAnswer
+      const lastAnsweredState = data.questionStates
+        .filter(s => s.answered && s.answer)
+        .pop();
+
+      await updateTypedProgress({
+        userId,
+        capsuleId,
+        moduleId: currentModuleId,
+        lessonId: currentLessonId,
+        typedAnswer: lastAnsweredState?.answer,
+        completed: data.allQuestionsAnswered,
+        maxScore: currentLesson?.maxPoints,
+        mixedLessonProgress: {
+          currentQuestionIndex: data.currentQuestionIndex,
+          questionStates: data.questionStates,
+          allQuestionsAnswered: data.allQuestionsAnswered,
+        },
+      });
+    } catch (error) {
+      console.error('Error updating mixed lesson progress:', error);
+    }
+  }, [currentLessonId, userId, capsuleId, currentModuleId, currentLesson?.maxPoints, updateTypedProgress]);
+
+  // Handler for mixed lesson navigation (lightweight update) - must be before early returns
+  const handleMixedNavigation = useCallback(async (questionIndex: number) => {
+    if (!currentLessonId || !userId) return;
+
+    try {
+      await updateMixedNavigation({
+        userId,
+        lessonId: currentLessonId,
+        currentQuestionIndex: questionIndex,
+      });
+    } catch (error) {
+      console.error('Error updating navigation:', error);
+    }
+  }, [currentLessonId, userId, updateMixedNavigation]);
 
   // Celebrate when course reaches 100% completion
   useEffect(() => {
@@ -109,12 +216,16 @@ export default function CapsuleLearnPage({ params }: PageProps) {
     );
   }
 
-  const currentModule = capsuleData.modules[currentModuleIndex];
-  const currentLesson = currentModule?.lessons[currentLessonIndex];
+  // Detect failed lessons for the alert
+  const failedLessons = detectFailedLessons(capsuleData.modules);
+
+  // Re-assign with non-null assertion since we're past the early returns
+  const safeCurrentModule = capsuleData.modules[currentModuleIndex];
+  const safeCurrentLesson = safeCurrentModule?.lessons[currentLessonIndex];
   const progressPercentage = progressPercentageValue;
 
   // Get current lesson progress
-  const currentLessonProgress = userProgress?.find(p => p.lessonId === currentLesson?._id);
+  const currentLessonProgress = getLessonProgress(progressByLesson, safeCurrentLesson?._id);
   const isLessonCompleted = currentLessonProgress?.completed || false;
 
   const handleLessonComplete = async (score?: number, quizAnswer?: {
@@ -125,17 +236,17 @@ export default function CapsuleLearnPage({ params }: PageProps) {
     isCorrect: boolean;
     options?: string[];
   }) => {
-    if (!currentLesson || !userId) return;
+    if (!safeCurrentLesson || !userId) return;
 
     try {
       await updateProgress({
         userId,
         capsuleId,
-        moduleId: currentModule._id,
-        lessonId: currentLesson._id,
+        moduleId: safeCurrentModule._id,
+        lessonId: safeCurrentLesson._id,
         completed: true,
         score,
-        maxScore: currentLesson.maxPoints,
+        maxScore: safeCurrentLesson.maxPoints,
         quizAnswer,
       });
     } catch (error) {
@@ -145,14 +256,14 @@ export default function CapsuleLearnPage({ params }: PageProps) {
 
   // Handler for tracking hints used
   const handleHintUsed = async () => {
-    if (!currentLesson || !userId) return;
+    if (!safeCurrentLesson || !userId) return;
 
     try {
       await updateProgress({
         userId,
         capsuleId,
-        moduleId: currentModule._id,
-        lessonId: currentLesson._id,
+        moduleId: safeCurrentModule._id,
+        lessonId: safeCurrentLesson._id,
         completed: false,
         hintsUsed: 1,
       });
@@ -162,12 +273,14 @@ export default function CapsuleLearnPage({ params }: PageProps) {
   };
 
   const handleNext = () => {
-    if (currentLessonIndex < currentModule.lessons.length - 1) {
+    if (currentLessonIndex < safeCurrentModule.lessons.length - 1) {
       setCurrentLessonIndex(currentLessonIndex + 1);
     } else if (currentModuleIndex < capsuleData.modules.length - 1) {
       setCurrentModuleIndex(currentModuleIndex + 1);
       setCurrentLessonIndex(0);
     }
+    // Scroll to top when navigating to next lesson
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handlePrevious = () => {
@@ -178,12 +291,21 @@ export default function CapsuleLearnPage({ params }: PageProps) {
       setCurrentModuleIndex(currentModuleIndex - 1);
       setCurrentLessonIndex(prevModule.lessons.length - 1);
     }
+    // Scroll to top when navigating to previous lesson
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // Scroll to top when lesson selection changes via sidebar
+  const handleLessonSelect = (moduleIndex: number, lessonIndex: number) => {
+    setCurrentModuleIndex(moduleIndex);
+    setCurrentLessonIndex(lessonIndex);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const isFirstLesson = currentModuleIndex === 0 && currentLessonIndex === 0;
   const isLastLesson =
     currentModuleIndex === capsuleData.modules.length - 1 &&
-    currentLessonIndex === currentModule.lessons.length - 1;
+    currentLessonIndex === safeCurrentModule.lessons.length - 1;
 
   return (
     <>
@@ -199,7 +321,7 @@ export default function CapsuleLearnPage({ params }: PageProps) {
               <div>
                 <h1 className="text-2xl font-bold">{capsuleData.title}</h1>
                 <p className="text-sm text-muted-foreground">
-                  Module {currentModuleIndex + 1}: {currentModule.title}
+                  Module {currentModuleIndex + 1}: {safeCurrentModule.title}
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -221,6 +343,11 @@ export default function CapsuleLearnPage({ params }: PageProps) {
         </div>
 
         <div className="container mx-auto max-w-5xl py-8 px-4">
+          {/* Failed lessons alert */}
+          {failedLessons.length > 0 && (
+            <FailedLessonsAlert failedLessons={failedLessons} />
+          )}
+          
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
             <div className="lg:col-span-1">
               <Card className="sticky top-24">
@@ -230,10 +357,7 @@ export default function CapsuleLearnPage({ params }: PageProps) {
                     {capsuleData.modules.map((module, mIndex) => (
                       <div key={module._id}>
                         <button
-                          onClick={() => {
-                            setCurrentModuleIndex(mIndex);
-                            setCurrentLessonIndex(0);
-                          }}
+                          onClick={() => handleLessonSelect(mIndex, 0)}
                           className={`w-full text-left px-3 py-2 rounded text-sm transition-colors ${mIndex === currentModuleIndex
                             ? 'bg-primary text-primary-foreground'
                           : 'hover:bg-muted'
@@ -244,13 +368,12 @@ export default function CapsuleLearnPage({ params }: PageProps) {
                       {mIndex === currentModuleIndex && (
                         <div className="ml-4 mt-1 space-y-1">
                           {module.lessons.map((lesson, lIndex) => {
-                            const isLessonCompleted = userProgress?.some(
-                              (p) => p.lessonId === lesson._id && p.completed
-                            );
+                            const lessonProgress = progressByLesson.get(lesson._id);
+                            const isLessonCompleted = lessonProgress?.completed ?? false;
                             return (
                               <button
                                 key={lesson._id}
-                                onClick={() => setCurrentLessonIndex(lIndex)}
+                                onClick={() => handleLessonSelect(mIndex, lIndex)}
                                 className={`w-full text-left px-2 py-1 rounded text-xs flex items-center gap-2 transition-colors ${lIndex === currentLessonIndex
                                   ? 'bg-primary/20 text-primary'
                                   : 'hover:bg-muted text-muted-foreground'
@@ -276,13 +399,13 @@ export default function CapsuleLearnPage({ params }: PageProps) {
 
           <div className="lg:col-span-3 space-y-6">
             <div>
-              <h2 className="text-3xl font-bold mb-2">{currentLesson?.title}</h2>
-              {currentLesson?.description && (
-                <p className="text-muted-foreground">{currentLesson.description}</p>
+              <h2 className="text-3xl font-bold mb-2">{safeCurrentLesson?.title}</h2>
+              {safeCurrentLesson?.description && (
+                <p className="text-muted-foreground">{safeCurrentLesson.description}</p>
               )}
             </div>
 
-            {currentLesson && (
+            {safeCurrentLesson && (
               <div>
                 {(() => {
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -299,20 +422,28 @@ export default function CapsuleLearnPage({ params }: PageProps) {
                         return Array.isArray(content.items) && Array.isArray(content.targets);
                       case 'simulation':
                         return !!content.code;
+                      case 'mixed':
+                        // Mixed type has sections array or other flexible structure
+                        return Array.isArray(content.sections) || 
+                               Array.isArray(content.practiceQuestions) ||
+                               !!content.explanation;
                       default:
-                        return false;
+                        // For unknown types, check if there's any content structure
+                        return Array.isArray(content.sections) || 
+                               !!content.explanation || 
+                               Array.isArray(content.practiceQuestions);
                     }
                   };
 
-                  const isValid = validateContent(currentLesson.type, currentLesson.content);
+                  const isValid = validateContent(safeCurrentLesson.type, safeCurrentLesson.content);
 
                   // Handler for regenerating failed content
                   const handleRegenerate = async () => {
-                    if (!currentLesson._id) return;
+                    if (!safeCurrentLesson._id) return;
                     
                     setIsRegenerating(true);
                     try {
-                      await regenerateLesson({ lessonId: currentLesson._id });
+                      await regenerateLesson({ lessonId: safeCurrentLesson._id });
                       toast.success('Lesson regenerated successfully!');
                     } catch (error) {
                       const message = error instanceof Error ? error.message : 'Failed to regenerate lesson';
@@ -358,17 +489,22 @@ export default function CapsuleLearnPage({ params }: PageProps) {
 
                   return (
                     <>
-                      {currentLesson.type === 'concept' && (
+                      {safeCurrentLesson.type === 'concept' && (
                         <ConceptLesson 
-                          {...currentLesson.content} 
+                          {...safeCurrentLesson.content} 
                           onComplete={() => handleLessonComplete()} 
                           isCompleted={isLessonCompleted}
                         />
                       )}
-                      {currentLesson.type === 'mcq' && (
-                        <MCQLesson
-                          {...currentLesson.content}
-                          onComplete={(correct) => handleLessonComplete(correct ? 100 : 0)}
+                      {safeCurrentLesson.type === 'simulation' && (
+                        <SimulationLesson {...safeCurrentLesson.content} onComplete={() => handleLessonComplete()} />
+                      )}
+                      {safeCurrentLesson.type === 'mixed' && (
+                        <MixedLesson
+                          key={`${currentModuleIndex}-${currentLessonIndex}`}
+                          {...safeCurrentLesson.content}
+                          lessonId={currentLessonId}
+                          onComplete={(score) => handleLessonComplete(score ?? 100)}
                           onQuizAnswer={(data) => handleLessonComplete(data.isCorrect ? 100 : 0, {
                             selectedAnswer: data.selectedAnswer,
                             selectedIndex: data.selectedIndex,
@@ -377,46 +513,15 @@ export default function CapsuleLearnPage({ params }: PageProps) {
                             isCorrect: data.isCorrect,
                             options: data.options,
                           })}
-                          onHintViewed={handleHintUsed}
+                          onTypedAnswer={handleMixedTypedAnswer}
+                          onNavigationChange={handleMixedNavigation}
                           isCompleted={isLessonCompleted}
                           lastAnswer={currentLessonProgress?.lastAnswer ? {
                             selectedIndex: currentLessonProgress.lastAnswer.selectedIndex,
                             isCorrect: currentLessonProgress.lastAnswer.isCorrect,
                           } : undefined}
+                          typedProgress={typedProgress?.mixedLessonProgress as MixedLessonProgressState | undefined}
                         />
-                      )}
-                      {currentLesson.type === 'fillBlanks' && (
-                        <FillBlanksLesson 
-                          {...currentLesson.content} 
-                          onComplete={(score) => handleLessonComplete(score)}
-                          onQuizAnswer={(data) => handleLessonComplete(data.score, {
-                            selectedAnswer: JSON.stringify(data.answers),
-                            correctAnswer: JSON.stringify(data.correctAnswers),
-                            isCorrect: data.isCorrect,
-                          })}
-                          onHintViewed={handleHintUsed}
-                          isCompleted={isLessonCompleted}
-                          lastAnswer={currentLessonProgress?.lastAnswer ? {
-                            answers: JSON.parse(currentLessonProgress.lastAnswer.selectedAnswer || '{}'),
-                          } : undefined}
-                        />
-                      )}
-                      {currentLesson.type === 'dragDrop' && (
-                        <DragDropLesson
-                          {...currentLesson.content}
-                          onComplete={(correct) => handleLessonComplete(correct ? 100 : 0)}
-                          onQuizAnswer={(data) => handleLessonComplete(data.isCorrect ? 100 : 0, {
-                            selectedAnswer: JSON.stringify(data.placements),
-                            isCorrect: data.isCorrect,
-                          })}
-                          isCompleted={isLessonCompleted}
-                          lastAnswer={currentLessonProgress?.lastAnswer ? {
-                            placements: JSON.parse(currentLessonProgress.lastAnswer.selectedAnswer || '{}'),
-                          } : undefined}
-                        />
-                      )}
-                      {currentLesson.type === 'simulation' && (
-                        <SimulationLesson {...currentLesson.content} onComplete={() => handleLessonComplete()} />
                       )}
                     </>
                   );

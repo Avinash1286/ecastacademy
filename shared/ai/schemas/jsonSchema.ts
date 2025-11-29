@@ -557,3 +557,125 @@ export function getContentSchemaForType(lessonType: string): JsonSchema {
       throw new Error(`Unknown lesson type: ${lessonType}`);
   }
 }
+
+// =============================================================================
+// OPTIMIZED: Combined Outline + Lesson Plans Schema (Stage 1 Optimized)
+// Single API call returns outline WITH full lesson plans
+// =============================================================================
+
+export const COMBINED_OUTLINE_JSON_SCHEMA: JsonSchema = {
+  type: SchemaType.OBJECT,
+  description: "Combined capsule outline with lesson plans - returns full structure in one call",
+  properties: {
+    title: {
+      type: SchemaType.STRING,
+      description: "Capsule title",
+      minLength: 3,
+    },
+    description: {
+      type: SchemaType.STRING,
+      description: "Capsule description",
+      minLength: 20,
+    },
+    estimatedDuration: {
+      type: SchemaType.NUMBER,
+      description: "Estimated total duration in minutes",
+      minimum: 5,
+      maximum: 300,
+    },
+    modules: {
+      type: SchemaType.ARRAY,
+      description: "Modules with full lesson plans",
+      items: {
+        type: SchemaType.OBJECT,
+        properties: {
+          title: {
+            type: SchemaType.STRING,
+            description: "Module title",
+            minLength: 3,
+          },
+          description: {
+            type: SchemaType.STRING,
+            description: "Brief module description",
+            minLength: 10,
+          },
+          lessons: {
+            type: SchemaType.ARRAY,
+            description: "Lesson plans for this module (1-10)",
+            items: {
+              type: SchemaType.OBJECT,
+              properties: {
+                title: {
+                  type: SchemaType.STRING,
+                  description: "Lesson title",
+                  minLength: 3,
+                },
+                lessonType: {
+                  type: SchemaType.STRING,
+                  enum: ["mcq", "concept", "fillBlanks", "dragDrop", "simulation"],
+                  description: "Type of lesson",
+                },
+                objective: {
+                  type: SchemaType.STRING,
+                  description: "Learning objective for this lesson",
+                  minLength: 10,
+                },
+              },
+              required: ["title", "lessonType", "objective"],
+            },
+            minItems: 1,
+            maxItems: 10,
+          },
+        },
+        required: ["title", "description", "lessons"],
+      },
+      minItems: 1,
+      maxItems: 10,
+    },
+  },
+  required: ["title", "description", "estimatedDuration", "modules"],
+};
+
+// =============================================================================
+// OPTIMIZED: Module Content Schema (Stage 2 Optimized)
+// Single API call generates ALL lessons for a module
+// =============================================================================
+
+export const MODULE_CONTENT_JSON_SCHEMA: JsonSchema = {
+  type: SchemaType.OBJECT,
+  description: "All generated lessons for a module in one call",
+  properties: {
+    moduleTitle: {
+      type: SchemaType.STRING,
+      description: "Title of the module",
+      minLength: 3,
+    },
+    lessons: {
+      type: SchemaType.ARRAY,
+      description: "All generated lessons for this module",
+      items: {
+        type: SchemaType.OBJECT,
+        properties: {
+          title: {
+            type: SchemaType.STRING,
+            description: "Lesson title",
+            minLength: 3,
+          },
+          lessonType: {
+            type: SchemaType.STRING,
+            enum: ["mcq", "concept", "fillBlanks", "dragDrop", "simulation"],
+            description: "Type of lesson",
+          },
+          content: {
+            type: SchemaType.OBJECT,
+            description: "The lesson content - structure depends on lessonType. MCQ: question/options/correctAnswer/explanation. Concept: conceptTitle/explanation/keyPoints. FillBlanks: instruction/text/blanks. DragDrop: instruction/items/targets. Simulation: title/description/code/instructions.",
+          },
+        },
+        required: ["title", "lessonType", "content"],
+      },
+      minItems: 1,
+      maxItems: 10,
+    },
+  },
+  required: ["moduleTitle", "lessons"],
+};

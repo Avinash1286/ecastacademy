@@ -1,10 +1,5 @@
-"use client";
-
 import { Button } from '@/components/ui/button'
 import Link from 'next/link'
-import { useSession } from 'next-auth/react'
-import { useRouter } from 'next/navigation'
-import { useEffect } from 'react'
 import { 
   ArrowRight, 
   BookOpen, 
@@ -20,27 +15,13 @@ import {
   Award
 } from 'lucide-react'
 import { ThemeToggle } from '@/components/dashboard/ThemeToggle'
+import { AuthRedirect } from '@/components/auth/AuthRedirect'
 
 export default function LandingPage() {
-  const { status } = useSession();
-  const router = useRouter();
-
-  useEffect(() => {
-    // Redirect to dashboard if already authenticated
-    if (status === 'authenticated') {
-      router.push('/dashboard');
-    }
-  }, [status, router]);
-
-  if (status === 'loading') {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
-      </div>
-    );
-  }
-
   return (
+    <>
+      {/* Client component handles auth redirect */}
+      <AuthRedirect />
     <div className="min-h-screen bg-background">
       {/* Navigation */}
       <nav className="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -430,5 +411,6 @@ export default function LandingPage() {
         </div>
       </footer>
     </div>
+    </>
   )
 }

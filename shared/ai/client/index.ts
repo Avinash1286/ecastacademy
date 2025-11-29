@@ -28,6 +28,19 @@ export {
   type RetryOptions,
 } from "./aiClient";
 
+// Circuit breaker
+export {
+  type CircuitState,
+  type CircuitBreakerConfig,
+  type CircuitBreakerState,
+  shouldAllowRequest,
+  recordSuccess,
+  recordFailure,
+  resetCircuit,
+  getAllCircuitStates,
+  withCircuitBreaker,
+  CircuitBreakerOpenError,
+} from "./circuitBreaker";
 // Adapters (for direct use if needed)
 export { GeminiAdapter, createGeminiAdapter } from "./geminiAdapter";
 export { OpenAIAdapter, createOpenAIAdapter } from "./openaiAdapter";

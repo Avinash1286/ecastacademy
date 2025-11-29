@@ -24,7 +24,7 @@ interface ExtendedUser {
 }
 
 const MyLearningsPage = () => {
-  const { searchTerm } = useDashboard();
+  const { debouncedSearchTerm } = useDashboard();
   const { data: session, status } = useSession();
   
   // Get userId from session
@@ -42,13 +42,13 @@ const MyLearningsPage = () => {
   // Filter enrolled courses based on search
   const filteredEnrolledCourses = useMemo(() => {
     if (!enrolledCourses) return [];
-    if (!searchTerm) return enrolledCourses;
+    if (!debouncedSearchTerm) return enrolledCourses;
     return enrolledCourses.filter(
       (course) =>
-        course.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        course.description?.toLowerCase().includes(searchTerm.toLowerCase())
+        course.name.toLowerCase().includes(debouncedSearchTerm.toLowerCase()) ||
+        course.description?.toLowerCase().includes(debouncedSearchTerm.toLowerCase())
     );
-  }, [enrolledCourses, searchTerm]);
+  }, [enrolledCourses, debouncedSearchTerm]);
 
   return (
     <main className="bg-background min-h-screen">

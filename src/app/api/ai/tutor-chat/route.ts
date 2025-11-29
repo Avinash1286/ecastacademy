@@ -5,7 +5,10 @@ import { TUTOR_CHAT_PROMPT, TUTOR_CHAT_QUIZ_EXTENSION } from "@shared/ai/prompts
 import { createConvexClient } from "@/lib/convexClient";
 import { api } from "convex/_generated/api";
 import { Id } from "convex/_generated/dataModel";
-import { getAIClient } from "@shared/ai/centralized";
+import { getAIClient } from "@shared/ai/core";
+import { withRateLimit, RATE_LIMIT_PRESETS } from "@/lib/security/rateLimit";
+import { auth } from "@/lib/auth/auth.config";
+import { logger } from "@/lib/logging/logger";
 
 const MAX_MESSAGE_LENGTH = 60000;
 const MAX_HISTORY = 100;
@@ -42,7 +45,7 @@ const loadTranscriptFromBackend = async (chapterId?: string | null, contentItemI
 
     return null;
   } catch (error) {
-    console.error("[TUTOR_CHAT_TRANSCRIPT_FALLBACK_ERROR]", error);
+    logger.error("[TUTOR_CHAT] Transcript fallback fetch failed", { chapterId, contentItemId }, error as Error);
     return null;
   }
 };
@@ -94,8 +97,30 @@ const sanitizeMessages = (messages: unknown[]): SanitizedMessage[] => {
 };
 
 export async function POST(request: NextRequest) {
+  // Apply rate limiting for AI generation
+  const rateLimitResponse = await withRateLimit(request, RATE_LIMIT_PRESETS.AI_GENERATION);
+  if (rateLimitResponse) return rateLimitResponse;
+
+  // Require authentication - AI chat is expensive
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json(
+      { error: "Authentication required" },
+      { status: 401 }
+    );
+  }
+
+  let payload;
   try {
-    const payload = await request.json();
+    payload = await request.json();
+  } catch {
+    return NextResponse.json(
+      { error: "Invalid JSON in request body" },
+      { status: 400 }
+    );
+  }
+
+  try {
     const {
       messages,
       transcript,
@@ -106,7 +131,7 @@ export async function POST(request: NextRequest) {
       contentItemId,
     } = payload ?? {};
 
-    console.log('[TUTOR_CHAT_REQUEST]', {
+    logger.debug('[TUTOR_CHAT] Request received', {
       clientProvidedTranscript: typeof transcript === 'string' && transcript.trim().length > 0,
       transcriptLength: typeof transcript === 'string' ? transcript.length : 0,
       hasMessages: Array.isArray(messages),
@@ -130,7 +155,7 @@ export async function POST(request: NextRequest) {
 
     if (!workingTranscript) {
       workingTranscript = await loadTranscriptFromBackend(chapterId, contentItemId);
-      console.log('[TUTOR_CHAT_SERVER_FETCH]', {
+      logger.debug('[TUTOR_CHAT] Server-side transcript fetch', {
         fetchedTranscriptLength: workingTranscript?.length ?? 0,
         source: contentItemId ? 'contentItem' : 'chapter',
       });
@@ -198,7 +223,7 @@ export async function POST(request: NextRequest) {
 
     return result.toUIMessageStreamResponse();
   } catch (error) {
-    console.error("[TUTOR_CHAT_ERROR]", error);
+    logger.error("[TUTOR_CHAT] Chat generation failed", undefined, error as Error);
     const message =
       error instanceof Error ? error.message : "Something went wrong while contacting the tutor";
     const status = message.toLowerCase().includes("transcript") ? 422 : 500;

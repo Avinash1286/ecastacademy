@@ -29,6 +29,12 @@ export async function sendEmail(options: SendEmailOptions): Promise<void> {
 
   // Check if email is configured
   if (!process.env.EMAIL_SERVER_USER || !process.env.EMAIL_SERVER_PASSWORD) {
+    // In production, email must be configured - throw error to alert operators
+    if (process.env.NODE_ENV === "production") {
+      console.error("CRITICAL: Email service not configured in production!");
+      throw new Error("Email service is not configured. Please contact support.");
+    }
+    // In development, log warning and skip
     console.warn("Email not configured. Skipping email send.");
     console.log("Would send email to:", to);
     console.log("Subject:", subject);

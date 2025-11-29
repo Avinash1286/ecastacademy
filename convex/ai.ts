@@ -1,5 +1,5 @@
 import { generateText } from "ai";
-import { getAIClient } from "@shared/ai/centralized";
+import { getAIClient } from "@shared/ai/core";
 import { MissingAIModelMappingError, resolveWithConvexCtx } from "@shared/ai/modelResolver";
 import { action } from "./_generated/server";
 import { v } from "convex/values";
@@ -7,6 +7,7 @@ import { api } from "./_generated/api";
 
 export const generateTutorResponse = action({
     args: {
+        userId: v.id("users"),
         chatId: v.string(),
         messages: v.array(
             v.object({
@@ -17,12 +18,12 @@ export const generateTutorResponse = action({
         context: v.optional(v.string()),
     },
     handler: async (ctx, args) => {
-        const { chatId, messages, context } = args;
+        const { userId, chatId, messages, context } = args;
 
-        // 1. Get the user identity
-        const identity = await ctx.auth.getUserIdentity();
-        if (!identity) {
-            throw new Error("Unauthorized");
+        // 1. Verify user exists (userId is passed from client)
+        const user = await ctx.runQuery(api.auth.getUserById, { id: userId });
+        if (!user) {
+            throw new Error("User not found");
         }
 
         // 2. Prepare the prompt
@@ -69,6 +70,7 @@ export const generateTutorResponse = action({
             // We need a mutation to look up the session and add the message.
 
             await ctx.runMutation(api.messages.saveAIResponse, {
+                userId: userId,
                 chatId: chatId,
                 content: aiText,
             });

@@ -1,5 +1,10 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import { requireAuthenticatedUser, requireAdminUser } from "./utils/auth";
+import { validateStringLength, validateUrl, MAX_TITLE_LENGTH, MAX_URL_LENGTH } from "./utils/validation";
+
+// Maximum number of videos to return in unbounded queries
+const MAX_VIDEOS_LIMIT = 500;
 
 // Mutation to create a new video
 export const createVideo = mutation({
@@ -22,6 +27,20 @@ export const createVideo = mutation({
     )),
   },
   handler: async (ctx, args) => {
+    // Auth check - must be authenticated
+    await requireAuthenticatedUser(ctx);
+    
+    // Validate input
+    validateStringLength(args.title, MAX_TITLE_LENGTH, "Title");
+    validateStringLength(args.youtubeVideoId, 50, "YouTube Video ID");
+    validateUrl(args.url, "URL");
+    if (args.thumbnailUrl) {
+      validateUrl(args.thumbnailUrl, "Thumbnail URL");
+    }
+    if (args.channelTitle) {
+      validateStringLength(args.channelTitle, MAX_TITLE_LENGTH, "Channel title");
+    }
+    
     const now = Date.now();
     const { status, ...videoData } = args;
     const videoId = await ctx.db.insert("videos", {
@@ -75,26 +94,68 @@ export const updateVideo = mutation({
     quiz: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
+    // Auth check - must be authenticated
+    await requireAuthenticatedUser(ctx);
+    
+    // Validate input
+    if (args.title) {
+      validateStringLength(args.title, MAX_TITLE_LENGTH, "Title");
+    }
+    if (args.thumbnailUrl) {
+      validateUrl(args.thumbnailUrl, "Thumbnail URL");
+    }
+    if (args.channelTitle) {
+      validateStringLength(args.channelTitle, MAX_TITLE_LENGTH, "Channel title");
+    }
+    
+    // Verify video exists
+    const video = await ctx.db.get(args.id);
+    if (!video) {
+      throw new Error("Video not found");
+    }
+    
     const { id, ...updates } = args;
-    await ctx.db.patch(id, updates);
+    await ctx.db.patch(id, {
+      ...updates,
+      updatedAt: Date.now(),
+    });
     return await ctx.db.get(id);
   },
 });
 
-// Mutation to delete a video (only if not referenced by any chapters)
+// Mutation to delete a video (only if not referenced by any chapters or content items)
 export const deleteVideo = mutation({
   args: {
     id: v.id("videos"),
   },
   handler: async (ctx, args) => {
-    // Check if video is referenced by any chapters
-    const chapters = await ctx.db
+    // Auth check - must be admin
+    await requireAdminUser(ctx);
+    
+    // Verify video exists
+    const video = await ctx.db.get(args.id);
+    if (!video) {
+      throw new Error("Video not found");
+    }
+    
+    // Check if video is referenced by any chapters (old system)
+    const chapter = await ctx.db
       .query("chapters")
       .withIndex("by_videoId", (q) => q.eq("videoId", args.id))
       .first();
     
-    if (chapters) {
+    if (chapter) {
       throw new Error("Cannot delete video that is referenced by chapters");
+    }
+    
+    // Check if video is referenced by any content items (new system)
+    const contentItems = await ctx.db
+      .query("contentItems")
+      .filter((q) => q.eq(q.field("videoId"), args.id))
+      .first();
+    
+    if (contentItems) {
+      throw new Error("Cannot delete video that is referenced by content items");
     }
     
     await ctx.db.delete(args.id);
@@ -102,11 +163,14 @@ export const deleteVideo = mutation({
   },
 });
 
-// Query to get all videos
+// Query to get all videos (with limit to prevent memory issues)
 export const getAllVideos = query({
-  args: {},
-  handler: async (ctx) => {
-    const videos = await ctx.db.query("videos").order("desc").collect();
+  args: {
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const limit = Math.min(args.limit ?? MAX_VIDEOS_LIMIT, MAX_VIDEOS_LIMIT);
+    const videos = await ctx.db.query("videos").order("desc").take(limit);
     return videos;
   },
 });

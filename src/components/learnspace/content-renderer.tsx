@@ -203,7 +203,7 @@ export function ContentRenderer({
 
           <Card>
             <CardContent className="pt-6">
-              <div 
+              <div
                 className="prose prose-lg dark:prose-invert max-w-none tiptap"
                 dangerouslySetInnerHTML={{ __html: contentItem.textContent || "" }}
               />

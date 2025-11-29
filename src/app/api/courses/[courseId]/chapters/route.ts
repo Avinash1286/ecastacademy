@@ -1,11 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCourseChapters } from "@/lib/services/courseServiceConvex";
 import type { Id } from '../../../../../../convex/_generated/dataModel';
+import { withRateLimit, RATE_LIMIT_PRESETS } from '@/lib/security/rateLimit';
 
 export async function GET(
   request: NextRequest,
   context: { params: Promise<{ courseId: string }> }
 ) {
+  // Apply rate limiting for public API
+  const rateLimitResponse = await withRateLimit(request, RATE_LIMIT_PRESETS.PUBLIC_API);
+  if (rateLimitResponse) return rateLimitResponse;
+
   try {
     const params=await context.params
     const { courseId } = params;

@@ -1,62 +1,103 @@
-import { mapYouTubeItemToVideoInfo } from '@/lib/youtube';
+/**
+ * YouTube API Service (Server-Side Proxy)
+ * 
+ * All YouTube API calls are now routed through the server-side API
+ * to protect the API key from exposure in the browser.
+ */
+
 import type { VideoInfo } from '@/lib/types';
-
-const YOUTUBE_API_BASE_URL = 'https://www.googleapis.com/youtube/v3';
-
-export const fetchVideoInfo = async (videoId: string, apiKey: string): Promise<VideoInfo> => {
-  const response = await fetch(
-    `${YOUTUBE_API_BASE_URL}/videos?part=snippet,contentDetails&id=${videoId}&key=${apiKey}`
-  );
-  if (!response.ok) throw new Error(`YouTube API error: ${response.statusText}`);
-  
-  const data = await response.json();
-  if (!data.items || data.items.length === 0) {
-    throw new Error('Video not found or is private.');
-  }
-  
-  return mapYouTubeItemToVideoInfo(data.items[0]);
-};
 
 type ProgressCallback = (progress: number, text: string) => void;
 
-export const fetchPlaylistVideos = async (playlistId: string, apiKey: string, onProgress: ProgressCallback): Promise<VideoInfo[]> => {
-  onProgress(10, 'Fetching playlist items...');
+/**
+ * Fetch single video info from server-side API
+ */
+export const fetchVideoInfo = async (videoId: string): Promise<VideoInfo> => {
+  const response = await fetch(`/api/youtube?action=video&videoId=${encodeURIComponent(videoId)}`);
   
-  const playlistItemsResponse = await fetch(
-    `${YOUTUBE_API_BASE_URL}/playlistItems?part=snippet&playlistId=${playlistId}&maxResults=50&key=${apiKey}`
-  );
-  if (!playlistItemsResponse.ok) throw new Error(`YouTube API error: ${playlistItemsResponse.statusText}`);
-
-  const playlistData = await playlistItemsResponse.json();
-  const videoIds = playlistData.items.map((item: { snippet: { resourceId: { videoId: string } } }) => item.snippet.resourceId.videoId);
-  
-  if (videoIds.length === 0) return [];
-
-  const videos: VideoInfo[] = [];
-  onProgress(20, `Found ${videoIds.length} videos. Fetching details...`);
-
-  for (let i = 0; i < videoIds.length; i += 50) {
-    const batchIds = videoIds.slice(i, i + 50);
-    const batchResponse = await fetch(
-      `${YOUTUBE_API_BASE_URL}/videos?part=snippet,contentDetails&id=${batchIds.join(',')}&key=${apiKey}`
-    );
-    if (!batchResponse.ok) continue;
-
-    const batchData = await batchResponse.json();
-    const batchVideos = batchData.items.map(mapYouTubeItemToVideoInfo);
-    videos.push(...batchVideos);
-    
-    const progress = 20 + ((i + batchIds.length) / videoIds.length) * 70;
-    onProgress(progress, `Fetched ${videos.length} of ${videoIds.length} videos...`);
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.error || `Failed to fetch video: ${response.statusText}`);
   }
   
-  onProgress(90, 'All video details fetched.');
-  return videos;
+  const data = await response.json();
+  
+  if (!data.video) {
+    throw new Error('Video not found or is private.');
+  }
+  
+  return {
+    ...data.video,
+    transcript: '',
+    skipTranscript: false,
+  };
 };
 
+/**
+ * Fetch playlist videos from server-side API
+ */
+export const fetchPlaylistVideos = async (
+  playlistId: string, 
+  onProgress: ProgressCallback
+): Promise<VideoInfo[]> => {
+  onProgress(10, 'Fetching playlist from server...');
+  
+  const response = await fetch(`/api/youtube?action=playlist&playlistId=${encodeURIComponent(playlistId)}`);
+  
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.error || `Failed to fetch playlist: ${response.statusText}`);
+  }
+  
+  onProgress(50, 'Processing playlist data...');
+  
+  const data = await response.json();
+  
+  if (!data.videos || data.videos.length === 0) {
+    return [];
+  }
+  
+  onProgress(90, `Found ${data.videos.length} videos in playlist.`);
+  
+  // Add transcript fields to each video
+  return data.videos.map((video: Omit<VideoInfo, 'transcript' | 'skipTranscript'>) => ({
+    ...video,
+    transcript: '',
+    skipTranscript: false,
+  }));
+};
+
+/**
+ * Fetch batch of videos by IDs from server-side API
+ */
+export const fetchVideoBatch = async (videoIds: string[]): Promise<VideoInfo[]> => {
+  if (videoIds.length === 0) return [];
+  
+  const response = await fetch(
+    `/api/youtube?action=batch&videoId=${encodeURIComponent(videoIds.join(','))}`
+  );
+  
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.error || `Failed to fetch videos: ${response.statusText}`);
+  }
+  
+  const data = await response.json();
+  
+  return (data.videos || []).map((video: Omit<VideoInfo, 'transcript' | 'skipTranscript'>) => ({
+    ...video,
+    transcript: '',
+    skipTranscript: false,
+  }));
+};
+
+/**
+ * Fetch transcript via server-side proxy
+ * (Already server-side, no changes needed)
+ */
 export const fetchTranscript = async (videoId: string): Promise<string> => {
   try {
-    const response = await fetch(`/api/transcript?v=${videoId}`);
+    const response = await fetch(`/api/transcript?v=${encodeURIComponent(videoId)}`);
 
     if (!response.ok) {
       console.warn(`Transcript API proxy returned an error for video ${videoId}.`);

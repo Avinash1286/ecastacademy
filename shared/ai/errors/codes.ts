@@ -58,6 +58,9 @@ export enum ErrorCode {
   /** Max retries exceeded */
   MAX_RETRIES_EXCEEDED = "MAX_RETRIES_EXCEEDED",
   
+  /** Token budget exceeded for this generation */
+  BUDGET_EXCEEDED = "BUDGET_EXCEEDED",
+  
   /** Generation was cancelled */
   CANCELLED = "CANCELLED",
   
@@ -116,6 +119,7 @@ export function getRetryDelay(code: ErrorCode, attempt: number): number {
     [ErrorCode.CONFIG_ERROR]: 0,
     [ErrorCode.NOT_SUPPORTED]: 0,
     [ErrorCode.MAX_RETRIES_EXCEEDED]: 0,
+    [ErrorCode.BUDGET_EXCEEDED]: 0,
     [ErrorCode.CANCELLED]: 0,
     [ErrorCode.UNKNOWN]: 0,
   };
@@ -169,6 +173,7 @@ export function getErrorMessage(code: ErrorCode): string {
     [ErrorCode.CONFIG_ERROR]: "Configuration error. Check system settings.",
     [ErrorCode.NOT_SUPPORTED]: "This feature is not supported by the current configuration.",
     [ErrorCode.MAX_RETRIES_EXCEEDED]: "Maximum retry attempts exceeded.",
+    [ErrorCode.BUDGET_EXCEEDED]: "Generation exceeded maximum token budget. Try a smaller course.",
     [ErrorCode.CANCELLED]: "Generation was cancelled.",
     [ErrorCode.UNKNOWN]: "An unexpected error occurred.",
   };

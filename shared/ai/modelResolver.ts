@@ -1,6 +1,6 @@
 import { api } from "convex/_generated/api";
 import type { FunctionReference } from "convex/server";
-import { AIModelConfig } from "@shared/ai/centralized";
+import type { AIModelConfig } from "@shared/ai/core";
 
 export class MissingAIModelMappingError extends Error {
   constructor(featureKey: string, reason?: string) {

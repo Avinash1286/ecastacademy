@@ -9,6 +9,9 @@ import {
 	interactiveNotesSchemaDescription,
 } from "@/lib/validators/generatedContentSchemas";
 import { resolveWithConvexClient, MissingAIModelMappingError } from "@shared/ai/modelResolver";
+import { withRateLimit, RATE_LIMIT_PRESETS } from "@/lib/security/rateLimit";
+import { auth } from "@/lib/auth/auth.config";
+import { logger } from "@/lib/logging/logger";
 
 const convex = createConvexClient();
 
@@ -57,6 +60,19 @@ const buildUserFriendlyError = (error: unknown): { message: string; status: numb
 };
 
 export async function POST(request: NextRequest) {
+	// Apply rate limiting for AI generation
+	const rateLimitResponse = await withRateLimit(request, RATE_LIMIT_PRESETS.AI_GENERATION);
+	if (rateLimitResponse) return rateLimitResponse;
+
+	// Require authentication - AI generation is expensive
+	const session = await auth();
+	if (!session?.user?.id) {
+		return NextResponse.json(
+			{ error: "Authentication required" },
+			{ status: 401 }
+		);
+	}
+
 	try {
 		let payload: GenerateNotesRequest = {};
 		try {
@@ -155,11 +171,11 @@ export async function POST(request: NextRequest) {
 			return NextResponse.json({ success: true, videoId: video._id, notes });
 		} catch (error) {
 			const { message, status } = buildUserFriendlyError(error);
-			console.error("[GENERATE_NOTES_ERROR]", error);
+			logger.error("[GENERATE_NOTES] Notes generation failed", { status }, error as Error);
 			return NextResponse.json({ error: message }, { status });
 		}
 	} catch (error) {
-		console.error("[GENERATE_NOTES_UNEXPECTED_ERROR]", error);
+		logger.error("[GENERATE_NOTES] Unexpected error", undefined, error as Error);
 		return NextResponse.json(
 			{ error: "Failed to generate notes due to an unexpected error." },
 			{ status: 500 }

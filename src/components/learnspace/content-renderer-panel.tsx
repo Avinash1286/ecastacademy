@@ -56,7 +56,7 @@ export function ContentRenderer({ contentItem, isPlayerVisible, fallbackVideo }:
         <ScrollArea className="h-full">
           <div className="p-6">
             <h2 className="text-2xl font-bold mb-4">{contentItem.title}</h2>
-            <div 
+            <div
               className="prose prose-sm dark:prose-invert max-w-none leading-relaxed tiptap"
               dangerouslySetInnerHTML={{ __html: contentItem.textContent }}
             />

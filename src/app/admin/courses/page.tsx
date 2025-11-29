@@ -44,9 +44,10 @@ import {
   Loader2,
   AlertTriangle,
   Award,
-  Info
+  Info,
+  ChevronDown
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { toast } from "sonner";
 import Link from "next/link";
 
@@ -65,8 +66,12 @@ type CourseWithStats = {
   chapterCount: number;
 };
 
+const COURSES_PER_PAGE = 20;
+
 export default function CoursesManagementPage() {
   const [searchQuery, setSearchQuery] = useState("");
+  const [cursor, setCursor] = useState<string | undefined>(undefined);
+  const [allCourses, setAllCourses] = useState<CourseWithStats[]>([]);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedCourse, setSelectedCourse] = useState<CourseWithStats | null>(null);
@@ -77,8 +82,40 @@ export default function CoursesManagementPage() {
   const [isCertification, setIsCertification] = useState(false);
   const [passingGrade, setPassingGrade] = useState("70");
   
-  // Fetch courses
-  const courses = useQuery(api.courses.getCoursesWithStats, {});
+  // Fetch courses with pagination
+  const coursesData = useQuery(api.courses.getCoursesWithStats, { 
+    limit: COURSES_PER_PAGE,
+    cursor 
+  });
+  
+  // Merge paginated results
+  const courses = useMemo(() => {
+    if (!coursesData?.courses) return allCourses;
+    
+    // If this is a new query (no cursor), replace all courses
+    if (!cursor) {
+      return coursesData.courses as CourseWithStats[];
+    }
+    
+    // Otherwise merge with existing courses (avoiding duplicates)
+    const existingIds = new Set(allCourses.map(c => c.id));
+    const newCourses = coursesData.courses.filter(c => !existingIds.has(c.id as string));
+    return [...allCourses, ...newCourses] as CourseWithStats[];
+  }, [coursesData?.courses, cursor, allCourses]);
+  
+  // Update allCourses when courses change
+  useMemo(() => {
+    if (courses !== allCourses) {
+      setAllCourses(courses);
+    }
+  }, [courses, allCourses]);
+  
+  // Load more handler
+  const loadMore = useCallback(() => {
+    if (coursesData?.nextCursor) {
+      setCursor(coursesData.nextCursor);
+    }
+  }, [coursesData?.nextCursor]);
   
   // Mutations
   const updateCourse = useMutation(api.courses.updateCourse);
@@ -343,6 +380,20 @@ export default function CoursesManagementPage() {
               </CardHeader>
             </Card>
           ))
+        )}
+        
+        {/* Load More Button */}
+        {coursesData?.hasMore && !searchQuery && (
+          <div className="flex justify-center pt-4">
+            <Button 
+              variant="outline" 
+              onClick={loadMore}
+              className="gap-2"
+            >
+              <ChevronDown className="w-4 h-4" />
+              Load More Courses
+            </Button>
+          </div>
         )}
       </div>
 

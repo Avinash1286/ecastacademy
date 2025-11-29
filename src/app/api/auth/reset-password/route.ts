@@ -3,12 +3,27 @@ import { api } from "../../../../../convex/_generated/api";
 import { hashPassword, validatePassword } from "@/lib/auth/utils";
 import { Id } from "../../../../../convex/_generated/dataModel";
 import { createConvexClient } from "@/lib/convexClient";
+import { withRateLimit, RATE_LIMIT_PRESETS } from "@/lib/security/rateLimit";
 
 const convex = createConvexClient();
 
 export async function POST(request: NextRequest) {
+  // Apply strict rate limiting to prevent brute-force attacks on reset tokens
+  const rateLimitResponse = await withRateLimit(request, RATE_LIMIT_PRESETS.AUTH);
+  if (rateLimitResponse) return rateLimitResponse;
+
+  let body;
   try {
-    const { token, password } = await request.json();
+    body = await request.json();
+  } catch {
+    return NextResponse.json(
+      { error: "Invalid JSON in request body" },
+      { status: 400 }
+    );
+  }
+
+  try {
+    const { token, password } = body;
 
     if (!token || !password) {
       return NextResponse.json(

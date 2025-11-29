@@ -3,12 +3,14 @@ import { internalMutation, mutation, query, MutationCtx } from "./_generated/ser
 import { Id } from "./_generated/dataModel";
 import { summarizeProgressByContentItem } from "./utils/progressUtils";
 import { calculateStudentGrade } from "./utils/grading";
+import { generateSecureCertificateId, verifyCertificateSignature } from "./utils/certificateSignature";
 
 /**
  * =============================================================================
  * CERTIFICATE MANAGEMENT SYSTEM
  * =============================================================================
  * Handles certificate eligibility checking and issuance.
+ * Uses HMAC-based signatures for certificate verification.
  * Runs asynchronously to avoid blocking quiz submissions.
  * =============================================================================
  */
@@ -194,8 +196,15 @@ async function processCertificateRequest(
     };
   }
 
-  const certificateId = `${courseId}-${userId}-${Date.now()}`;
   const timestamp = Date.now();
+  
+  // Generate secure certificate ID with HMAC signature
+  const certificateId = generateSecureCertificateId({
+    courseId: courseId as string,
+    userId: userId as string,
+    completionDate: timestamp,
+    overallGrade,
+  });
 
   await ctx.db.insert("certificates", {
     userId,
@@ -345,3 +354,57 @@ export const debugCertificateEligibility = query({
     };
   },
 });
+
+/**
+ * Verify a certificate's authenticity using its signature
+ * This can be called by anyone to verify a certificate is legitimate
+ */
+export const verifyCertificate = query({
+  args: {
+    certificateId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    // Find the certificate by ID
+    const certificate = await ctx.db
+      .query("certificates")
+      .withIndex("by_certificateId", (q) => q.eq("certificateId", args.certificateId))
+      .first();
+
+    if (!certificate) {
+      return {
+        valid: false,
+        reason: "Certificate not found",
+      };
+    }
+
+    // Verify the signature
+    const isSignatureValid = verifyCertificateSignature(args.certificateId, {
+      courseId: certificate.courseId as string,
+      userId: certificate.userId as string,
+      completionDate: certificate.completionDate,
+      overallGrade: certificate.overallGrade,
+    });
+
+    if (!isSignatureValid) {
+      return {
+        valid: false,
+        reason: "Invalid certificate signature",
+      };
+    }
+
+    // Return verified certificate details
+    return {
+      valid: true,
+      certificate: {
+        courseName: certificate.courseName,
+        userName: certificate.userName,
+        completionDate: certificate.completionDate,
+        overallGrade: certificate.overallGrade,
+        issuedAt: certificate.issuedAt,
+        totalGradedItems: certificate.totalGradedItems,
+        passedItems: certificate.passedItems,
+      },
+    };
+  },
+});
+

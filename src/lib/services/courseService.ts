@@ -240,23 +240,29 @@ type ConvexCourse = {
   thumbnailUrl?: string | null;
 };
 
-export async function getAllCoursesWithThumbnails(page: number, limit: number): Promise<Array<{
-  id: string;
-  _id: string;
-  name: string;
-  description?: string;
-  thumbnailUrl?: string;
-  createdAt: string;
-  updatedAt: string;
-}>> {
-  const offset = (page - 1) * limit;
-  const courses = await convex.query(api.courses.getAllCourses, {
+export async function getAllCoursesWithThumbnails(
+  limit: number,
+  cursor?: string
+): Promise<{
+  courses: Array<{
+    id: string;
+    _id: string;
+    name: string;
+    description?: string;
+    thumbnailUrl?: string;
+    createdAt: string;
+    updatedAt: string;
+  }>;
+  nextCursor: string | null;
+  hasMore: boolean;
+}> {
+  const result = await convex.query(api.courses.getAllCourses, {
     limit,
-    offset,
+    cursor,
   });
   
   // Transform Convex _id to id for frontend compatibility
-  return courses.map((course: ConvexCourse) => ({
+  const courses = result.courses.map((course: ConvexCourse) => ({
     id: course._id,
     _id: course._id,
     name: course.name,
@@ -265,6 +271,12 @@ export async function getAllCoursesWithThumbnails(page: number, limit: number): 
     createdAt: new Date(course.createdAt).toISOString(),
     updatedAt: new Date(course.updatedAt).toISOString(),
   }));
+  
+  return {
+    courses,
+    nextCursor: result.nextCursor,
+    hasMore: result.hasMore,
+  };
 }
 
 // Define the shape of the detailed chapter list for the response

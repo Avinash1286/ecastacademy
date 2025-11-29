@@ -3,14 +3,17 @@
  * 
  * Implementation for Google Gemini API with:
  * - Direct PDF support (multimodal)
- * - Structured output with JSON schema
+ * - JSON output via prompt engineering (structured output disabled to avoid schema complexity limits)
  * - Timeout handling
+ * 
+ * NOTE: Gemini's native structured output (responseSchema) is disabled because complex schemas
+ * exceed Google's state limit. Instead, we use prompt engineering to request JSON and rely on
+ * the extractJson function to parse responses.
  */
 
 import { 
   GoogleGenerativeAI, 
   GenerativeModel,
-  SchemaType,
   type GenerationConfig,
 } from "@google/generative-ai";
 
@@ -28,7 +31,6 @@ import {
   apiError,
 } from "../errors";
 import { extractJson } from "../response";
-import type { JsonSchema } from "../schemas/jsonSchema";
 
 // =============================================================================
 // Constants
@@ -36,6 +38,11 @@ import type { JsonSchema } from "../schemas/jsonSchema";
 
 const DEFAULT_TIMEOUT_MS = 120_000; // 2 minutes for large PDFs
 const DEFAULT_MAX_TOKENS = 8192;
+
+// JSON instruction appended to prompts when responseSchema is provided
+const JSON_OUTPUT_INSTRUCTION = `
+
+CRITICAL: You MUST respond with ONLY valid JSON. No markdown code fences, no explanatory text, no prefixes or suffixes. Just the raw JSON object.`;
 
 // =============================================================================
 // Gemini Client
@@ -56,15 +63,29 @@ export class GeminiAdapter {
       );
     }
     
+    if (!config.modelId) {
+      throw new CapsuleError(
+        ErrorCode.CONFIG_ERROR,
+        "Model ID is required. Please configure the AI model in the admin panel.",
+        { provider: "google" }
+      );
+    }
+    
     this.config = config;
     this.client = new GoogleGenerativeAI(apiKey);
     this.model = this.client.getGenerativeModel({
-      model: config.modelId || "gemini-1.5-flash",
+      model: config.modelId,
     });
   }
   
   /**
    * Make a structured output request to Gemini
+   * 
+   * NOTE: We do NOT use Gemini's native responseSchema because complex schemas
+   * exceed Google's state limit. Instead, we:
+   * 1. Request JSON output via responseMimeType
+   * 2. Add explicit JSON instructions to the system prompt
+   * 3. Parse the response using extractJson (with repair logic)
    */
   async generateStructured<T>(
     request: StructuredOutputRequest,
@@ -83,17 +104,18 @@ export class GeminiAdapter {
     }
     
     try {
-      // Build generation config
+      // Build generation config - use JSON mode but WITHOUT schema constraints
       const generationConfig: GenerationConfig = {
         temperature: this.config.temperature ?? 0.7,
         maxOutputTokens: this.config.maxOutputTokens ?? DEFAULT_MAX_TOKENS,
+        responseMimeType: "application/json", // Request JSON output format
+        // NOTE: responseSchema is intentionally NOT set to avoid schema complexity limits
       };
       
-      // Add response schema if provided
+      // Enhance system prompt with JSON instruction when schema is expected
+      let systemPrompt = request.systemPrompt;
       if (request.responseSchema) {
-        generationConfig.responseMimeType = "application/json";
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        generationConfig.responseSchema = this.convertSchema(request.responseSchema) as any;
+        systemPrompt = systemPrompt + JSON_OUTPUT_INSTRUCTION;
       }
       
       // Build content parts
@@ -126,7 +148,7 @@ export class GeminiAdapter {
       
       // Make request
       const result = await this.model.generateContent({
-        systemInstruction: request.systemPrompt,
+        systemInstruction: systemPrompt,
         contents: [{ role: "user", parts }],
         generationConfig,
       });
@@ -138,7 +160,7 @@ export class GeminiAdapter {
       const rawText = response.text();
       const usage = response.usageMetadata;
       
-      // Parse JSON response
+      // Parse JSON response (extractJson has repair logic for malformed JSON)
       const extraction = await extractJson<T>(rawText, {
         stage: "gemini_response",
       });
@@ -178,77 +200,6 @@ export class GeminiAdapter {
       
       throw this.handleError(error, startTime);
     }
-  }
-  
-  /**
-   * Convert our JSON schema format to Gemini's format
-   */
-  private convertSchema(schema: JsonSchema): object {
-    // Gemini uses a similar format to JSON Schema but with SchemaType enum
-    return this.convertSchemaNode(schema);
-  }
-  
-  private convertSchemaNode(node: JsonSchema | object): object {
-    const result: Record<string, unknown> = {};
-    
-    if ("type" in node) {
-      // Convert type string to SchemaType if needed
-      const typeValue = node.type;
-      if (typeof typeValue === "string") {
-        result.type = this.mapType(typeValue);
-      } else {
-        result.type = typeValue;
-      }
-    }
-    
-    if ("description" in node && node.description) {
-      result.description = node.description;
-    }
-    
-    if ("enum" in node && node.enum) {
-      result.enum = node.enum;
-    }
-    
-    if ("properties" in node && node.properties) {
-      result.properties = {};
-      for (const [key, value] of Object.entries(node.properties)) {
-        (result.properties as Record<string, object>)[key] = this.convertSchemaNode(value);
-      }
-    }
-    
-    if ("required" in node && node.required) {
-      result.required = node.required;
-    }
-    
-    if ("items" in node && node.items) {
-      result.items = this.convertSchemaNode(node.items);
-    }
-    
-    if ("minimum" in node) result.minimum = node.minimum;
-    if ("maximum" in node) result.maximum = node.maximum;
-    if ("minItems" in node) result.minItems = node.minItems;
-    if ("maxItems" in node) result.maxItems = node.maxItems;
-    if ("minLength" in node) result.minLength = node.minLength;
-    
-    return result;
-  }
-  
-  private mapType(type: string): SchemaType {
-    const typeMap: Record<string, SchemaType> = {
-      string: SchemaType.STRING,
-      number: SchemaType.NUMBER,
-      integer: SchemaType.INTEGER,
-      boolean: SchemaType.BOOLEAN,
-      array: SchemaType.ARRAY,
-      object: SchemaType.OBJECT,
-      STRING: SchemaType.STRING,
-      NUMBER: SchemaType.NUMBER,
-      INTEGER: SchemaType.INTEGER,
-      BOOLEAN: SchemaType.BOOLEAN,
-      ARRAY: SchemaType.ARRAY,
-      OBJECT: SchemaType.OBJECT,
-    };
-    return typeMap[type] ?? SchemaType.STRING;
   }
   
   /**

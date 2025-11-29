@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Award, TrendingUp } from "lucide-react";
+import { ArrowLeft, Award, TrendingUp, Volume2, VolumeX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -19,6 +19,7 @@ import { useRouter } from "next/navigation";
 import { api } from "../../../convex/_generated/api";
 import { Id } from "../../../convex/_generated/dataModel";
 import { toast } from "sonner";
+import { useSoundEffects } from "@/hooks/useSoundEffects";
 
 interface LearnspaceNavbarProps {
   courseTitle: string;
@@ -31,6 +32,7 @@ export function LearnspaceNavbar({ courseTitle, courseId, isCertification }: Lea
   const router = useRouter();
   const [isIssuing, setIsIssuing] = useState(false);
   const requestCertificate = useMutation(api.certificates.requestCertificate);
+  const { isMuted, toggleMute } = useSoundEffects();
   
   // Get userId from session
   const userId = session?.user && "id" in session.user
@@ -138,6 +140,25 @@ export function LearnspaceNavbar({ courseTitle, courseId, isCertification }: Lea
       </div>
 
       <div className="flex items-center gap-3">
+        {/* Sound Toggle Button */}
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button 
+                variant="ghost" 
+                size="icon"
+                onClick={toggleMute}
+                className="h-9 w-9"
+              >
+                {isMuted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>{isMuted ? "Unmute sounds" : "Mute sounds"}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+
         {/* Show completion and grading progress for certification courses */}
         {isCertification && courseProgress && courseProgress.isCertification && (
           <>

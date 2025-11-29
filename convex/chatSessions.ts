@@ -2,6 +2,10 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { Doc } from "./_generated/dataModel";
 
+/**
+ * Save or update chat history
+ * Accepts userId directly from client (consistent with other mutations)
+ */
 export const saveChatHistory = mutation({
   args: {
     userId: v.id("users"),
@@ -13,6 +17,12 @@ export const saveChatHistory = mutation({
     messages: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
+    // Verify the user exists
+    const user = await ctx.db.get(args.userId);
+    if (!user) {
+      throw new Error("User not found");
+    }
+    
     const now = Date.now();
     const existing = await ctx.db
       .query("chatSessions")
@@ -42,6 +52,10 @@ export const saveChatHistory = mutation({
   },
 });
 
+/**
+ * Get or create a chat session
+ * Accepts userId directly from client (consistent with other mutations like messages.send)
+ */
 export const getOrCreateSession = mutation({
   args: {
     userId: v.id("users"),
@@ -52,6 +66,12 @@ export const getOrCreateSession = mutation({
     title: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    // Verify the user exists
+    const user = await ctx.db.get(args.userId);
+    if (!user) {
+      throw new Error("User not found");
+    }
+
     const existing = await ctx.db
       .query("chatSessions")
       .withIndex("by_userId_chatId", (q) => q.eq("userId", args.userId).eq("chatId", args.chatId))
@@ -75,6 +95,10 @@ export const getOrCreateSession = mutation({
   },
 });
 
+/**
+ * Get chat history for a user
+ * Accepts userId directly from client (consistent with other queries/mutations)
+ */
 export const getChatHistory = query({
   args: {
     userId: v.id("users"),

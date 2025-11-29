@@ -1,24 +1,23 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { Id } from "./_generated/dataModel";
+import { requireAuthenticatedUser } from "./utils/auth";
 
 /**
  * @deprecated Prefer mutations in completions.ts.
  * Keeping the legacy surface for backwards compatibility but it will
  * continue to use its original behaviour.
+ * 
+ * SECURITY UPDATE: Now derives userId from authenticated session instead of client input.
  */
 export const submitQuizAttempt = mutation({
   args: {
-    userId: v.id("users"),
     contentItemId: v.id("contentItems"),
     answers: v.any(), // Quiz answers array (indices)
   },
   handler: async (ctx, args) => {
-    // Get user
-    const user = await ctx.db.get(args.userId);
-    if (!user) {
-      throw new Error("User not found");
-    }
+    // Get authenticated user - userId derived from session, not client
+    const { user } = await requireAuthenticatedUser(ctx);
 
     // Get content item
     const contentItem = await ctx.db.get(args.contentItemId);
@@ -193,19 +192,18 @@ export const submitQuizAttempt = mutation({
 /**
  * Mark a non-quiz graded item as complete (e.g., assignment, video)
  * Used for items that don't have auto-grading
+ * 
+ * SECURITY UPDATE: Now derives userId from authenticated session instead of client input.
  */
 export const markItemComplete = mutation({
   args: {
-    userId: v.id("users"),
     contentItemId: v.id("contentItems"),
     score: v.optional(v.number()), // Optional score for manual grading
     maxScore: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const user = await ctx.db.get(args.userId);
-    if (!user) {
-      throw new Error("User not found");
-    }
+    // Get authenticated user - userId derived from session, not client
+    const { user } = await requireAuthenticatedUser(ctx);
 
     const contentItem = await ctx.db.get(args.contentItemId);
     if (!contentItem) {
@@ -297,13 +295,17 @@ export const markItemComplete = mutation({
 /**
  * Calculate overall course progress for a user
  * Returns completion percentage and grade for certification courses
+ * 
+ * SECURITY UPDATE: Now derives userId from authenticated session instead of client input.
  */
 export const calculateCourseProgress = query({
   args: {
     courseId: v.id("courses"),
-    userId: v.id("users"),
   },
   handler: async (ctx, args) => {
+    // Get authenticated user
+    const { user } = await requireAuthenticatedUser(ctx);
+
     const course = await ctx.db.get(args.courseId);
     if (!course) {
       throw new Error("Course not found");
@@ -346,7 +348,7 @@ export const calculateCourseProgress = query({
     const progressRecords = await ctx.db
       .query("progress")
       .withIndex("by_userId_courseId", (q) =>
-        q.eq("userId", args.userId).eq("courseId", args.courseId)
+        q.eq("userId", user._id).eq("courseId", args.courseId)
       )
       .collect();
 

@@ -29,6 +29,7 @@ export function EnrollButton({ courseId, variant = 'default', size = 'default', 
   const router = useRouter();
   const { data: session, status } = useSession();
   const [isLoading, setIsLoading] = useState(false);
+  const [isNavigating, setIsNavigating] = useState(false);
   
   // Get userId from session
   const sessionUser = session?.user as unknown as ExtendedUser | undefined;
@@ -93,15 +94,25 @@ export function EnrollButton({ courseId, variant = 'default', size = 'default', 
 
   // Already enrolled
   if (enrollmentStatus.isEnrolled) {
+    const handleContinueLearning = () => {
+      setIsNavigating(true);
+      router.push(`/learnspace/${courseId}`);
+    };
+
     return (
       <div className="flex items-center gap-2">
         <Button
           variant="outline"
           size={size}
-          onClick={() => router.push(`/learnspace/${courseId}`)}
+          onClick={handleContinueLearning}
+          disabled={isNavigating}
           className={className}
         >
-          <CheckCircle2 className="h-4 w-4 mr-2 text-green-600" />
+          {isNavigating ? (
+            <Loader2 className="h-4 w-4 animate-spin mr-2" />
+          ) : (
+            <CheckCircle2 className="h-4 w-4 mr-2 text-green-600" />
+          )}
           Continue Learning
         </Button>
         <Button

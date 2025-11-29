@@ -88,16 +88,18 @@ export const dragDropActivityTypeSchema = z.enum([
 
 export const simulationTypeSchema = z.literal("html-css-js") satisfies z.ZodType<SimulationType>;
 
-export const generationStageSchema = z.enum([
-  "pending",
-  "parsing_input",
-  "generating_outline",
-  "generating_lessons",
-  "generating_content",
-  "validating",
-  "persisting",
-  "completed",
-  "failed",
+// Module-wise pipeline generation stages
+export const generationStageSchema = z.union([
+  z.enum([
+    "idle",
+    "pending",
+    "generating_outline",
+    "outline_complete",
+    "generating_module_content",
+    "completed",
+    "failed",
+  ]),
+  z.string().regex(/^module_\d+_complete$/), // Dynamic module stages
 ]) satisfies z.ZodType<GenerationStage>;
 
 // =============================================================================
@@ -421,3 +423,69 @@ export type CapsuleOutlineSchema = z.infer<typeof capsuleOutlineSchema>;
 export type ModuleLessonPlanSchema = z.infer<typeof moduleLessonPlanSchema>;
 export type LessonContentResultSchema = z.infer<typeof lessonContentResultSchema>;
 export type GenerationInputSchema = z.infer<typeof generationInputSchema>;
+
+// =============================================================================
+// OPTIMIZED: Combined Outline + Lesson Plans (reduces API calls)
+// Stage 1 Optimized: Single call returns outline WITH lesson plans
+// =============================================================================
+
+/**
+ * Lesson plan item for combined outline
+ */
+export const combinedLessonPlanSchema = z.object({
+  title: strictString(3).describe("Lesson title"),
+  lessonType: lessonTypeSchema.describe("Type of lesson"),
+  objective: strictString(10).describe("Learning objective for this lesson"),
+});
+
+/**
+ * Module with lesson plans for combined outline
+ */
+export const combinedOutlineModuleSchema = z.object({
+  title: strictString(3).describe("Module title"),
+  description: strictString(10).describe("Brief module description"),
+  lessons: z.array(combinedLessonPlanSchema).min(1).max(10).describe("Lesson plans for this module"),
+});
+
+/**
+ * Combined Outline + Lesson Plans Schema
+ * Single API call returns full structure with lesson plans
+ */
+export const combinedOutlineSchema = z.object({
+  title: strictString(3).describe("Capsule title"),
+  description: strictString(20).describe("Capsule description"),
+  estimatedDuration: z.number().int().min(5).max(300).describe("Duration in minutes"),
+  modules: z.array(combinedOutlineModuleSchema).min(1).max(10).describe("Modules with lesson plans"),
+});
+
+export type CombinedOutlineSchema = z.infer<typeof combinedOutlineSchema>;
+
+// =============================================================================
+// OPTIMIZED: Module Content Schema (all lessons in one call)
+// Stage 2 Optimized: Single call generates ALL lessons for a module
+// =============================================================================
+
+/**
+ * Generated lesson for module content
+ */
+export const moduleGeneratedLessonSchema = z.object({
+  title: strictString(3).describe("Lesson title"),
+  lessonType: lessonTypeSchema.describe("Type of lesson"),
+  content: z.union([
+    mcqContentSchema,
+    conceptContentSchema,
+    fillBlanksContentSchema,
+    dragDropContentSchema,
+    simulationContentSchema,
+  ]).describe("The lesson content matching lessonType"),
+});
+
+/**
+ * Module Content Schema - all lessons for a module in one call
+ */
+export const moduleContentSchema = z.object({
+  moduleTitle: strictString(3).describe("Title of the module"),
+  lessons: z.array(moduleGeneratedLessonSchema).min(1).max(10).describe("All generated lessons for this module"),
+});
+
+export type ModuleContentSchema = z.infer<typeof moduleContentSchema>;

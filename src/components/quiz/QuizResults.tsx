@@ -1,9 +1,12 @@
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Trophy, CheckCircle, XCircle, Award, AlertCircle, Clock, TrendingUp, RefreshCw } from 'lucide-react';
 import { cn } from "@/lib/utils";
 import { QuizResultsProps } from '@/lib/types';
+import { useSoundEffects } from '@/hooks/useSoundEffects';
+import { ConfettiCelebration } from '@/components/ui/ConfettiCelebration';
 
 export const QuizResults = ({ 
   quiz, 
@@ -14,6 +17,9 @@ export const QuizResults = ({
   attemptHistory,
   isPreviousAttempt = false 
 }: QuizResultsProps & { isPreviousAttempt?: boolean }) => {
+  const [showConfetti, setShowConfetti] = useState(false);
+  const { playCorrectSound, playIncorrectSound } = useSoundEffects();
+  
   const totalQuestions = quiz.questions.length || 0;
   const percentage = totalQuestions > 0 ? Math.round((score / totalQuestions) * 100) : 0;
   
@@ -56,8 +62,39 @@ export const QuizResults = ({
     return 'Keep practicing! 💪';
   };
 
+  // Trigger celebration on mount for new attempts (not viewing previous results)
+  useEffect(() => {
+    if (!isPreviousAttempt) {
+      // Play sound based on performance
+      if (isGraded) {
+        if (passed) {
+          playCorrectSound();
+          setShowConfetti(true);
+        } else {
+          playIncorrectSound();
+        }
+      } else {
+        // For non-graded quizzes, celebrate if score is good (>= 60%)
+        if (percentage >= 60) {
+          playCorrectSound();
+          setShowConfetti(true);
+        } else {
+          playIncorrectSound();
+        }
+      }
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <div className="mx-auto max-w-3xl space-y-6">
+      {/* Confetti celebration for good quiz results */}
+      <ConfettiCelebration 
+        show={showConfetti} 
+        onComplete={() => setShowConfetti(false)}
+        duration={3000}
+        pieceCount={75}
+      />
+      
       {/* Show "Previous Attempt" banner if viewing history */}
       {isPreviousAttempt && (
         <Card className="p-4 bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800">

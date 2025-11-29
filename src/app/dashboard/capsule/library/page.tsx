@@ -29,33 +29,52 @@ export default function CapsuleLibraryPage() {
 
   // Get generation jobs for progress tracking
   const generationJobs = useQuery(
-    api.capsulesV2.getActiveGenerationJobs,
+    api.generationJobs.getActiveGenerationJobs,
     userId ? { userId } : 'skip'
   );
 
   // Helper to get generation progress for a capsule
+  // Updated for module-wise pipeline
   const getGenerationProgress = (capsuleId: Id<'capsules'>) => {
     if (!generationJobs) return null;
     const job = generationJobs.find(j => j.capsuleId === capsuleId);
     if (!job) return null;
     
-    const { state, lessonsGenerated, totalLessons, lessonPlansGenerated, totalModules } = job;
+    const { state, currentModuleIndex, totalModules, currentStage } = job;
+    const effectiveState = currentStage || state;
     
-    if (state === 'completed') return { percentage: 100, message: 'Complete!' };
-    if (state === 'failed') return null;
-    if (state === 'idle') return { percentage: 0, message: 'Starting...' };
-    if (state === 'generating_outline') return { percentage: 5, message: 'Generating outline...' };
-    if (state === 'outline_complete') return { percentage: 10, message: 'Outline ready' };
-    if (state === 'generating_lesson_plans') {
-      const planProgress = totalModules > 0 ? (lessonPlansGenerated / totalModules) * 15 : 0;
-      return { percentage: 10 + planProgress, message: `Planning modules...` };
+    if (effectiveState === 'completed') return { percentage: 100, message: 'Complete!' };
+    if (effectiveState === 'failed') return null;
+    if (effectiveState === 'idle') return { percentage: 0, message: 'Starting...' };
+    if (effectiveState === 'generating_outline') return { percentage: 5, message: 'Generating outline...' };
+    if (effectiveState === 'outline_complete') return { percentage: 10, message: 'Outline ready' };
+    
+    // Module-wise content generation
+    if (effectiveState === 'generating_module_content' || effectiveState.startsWith('module_')) {
+      const modulesCompleted = currentModuleIndex || 0;
+      const total = totalModules || 1;
+      const moduleProgress = total > 0 ? (modulesCompleted / total) * 85 : 0;
+      const percentage = Math.min(10 + moduleProgress, 95);
+      return { 
+        percentage, 
+        message: `Generating module ${modulesCompleted + 1}/${total}...` 
+      };
     }
-    if (state === 'lesson_plans_complete') return { percentage: 25, message: 'Lesson plans ready' };
-    if (state === 'generating_content') {
-      const contentProgress = totalLessons > 0 ? (lessonsGenerated / totalLessons) * 70 : 0;
-      return { percentage: 25 + contentProgress, message: `Generating lessons (${lessonsGenerated}/${totalLessons})...` };
+    
+    // Handle dynamic module_X_complete states
+    if (effectiveState.match && effectiveState.match(/^module_\d+_complete$/)) {
+      const match = effectiveState.match(/module_(\d+)_complete/);
+      if (match) {
+        const completedModule = parseInt(match[1], 10);
+        const total = totalModules || completedModule;
+        const moduleProgress = total > 0 ? (completedModule / total) * 85 : 0;
+        const percentage = Math.min(10 + moduleProgress, 95);
+        return { 
+          percentage, 
+          message: `Module ${completedModule}/${total} complete` 
+        };
+      }
     }
-    if (state === 'content_complete') return { percentage: 95, message: 'Finalizing...' };
     
     return { percentage: 0, message: 'Processing...' };
   };
@@ -89,17 +108,17 @@ export default function CapsuleLibraryPage() {
     <main className="bg-background min-h-screen">
       <div className="container mx-auto max-w-7xl py-12 px-4 sm:px-6 lg:px-8">
         {/* Header */}
-        <div className="flex justify-between items-center mb-8">
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-8">
           <div>
-            <h1 className="text-3xl font-bold flex items-center gap-2">
-              <Sparkles className="h-8 w-8 text-primary" />
+            <h1 className="text-2xl sm:text-3xl font-bold flex items-center gap-2">
+              <Sparkles className="h-6 w-6 sm:h-8 sm:w-8 text-primary" />
               My Capsules
             </h1>
-            <p className="text-muted-foreground mt-1">
+            <p className="text-sm sm:text-base text-muted-foreground mt-1">
               Your AI-generated interactive courses
             </p>
           </div>
-          <Button asChild className="gap-2">
+          <Button asChild className="gap-2 w-full sm:w-auto">
             <Link href="/dashboard/capsule">
               <Plus className="h-4 w-4" />
               Create New Capsule

@@ -11,19 +11,12 @@ export const useYouTubeImporter = () => {
   const [loadingText, setLoadingText] = useState('');
   const [error, setError] = useState<string | null>(null);
 
-  const apiKey = process.env.NEXT_PUBLIC_YOUTUBE_API_KEY;
-
   const handleProgress = (p: number, text: string) => {
     setProgress(p);
     setLoadingText(text);
   };
 
   const importFromUrl = async (url: string, options?: { skipTranscript?: boolean }) => {
-    if (!apiKey) {
-      toast.error("Configuration Error: YouTube API key is missing.");
-      return;
-    }
-
     setIsLoading(true);
     setError(null);
     handleProgress(5, "Analyzing URL...");
@@ -38,10 +31,10 @@ export const useYouTubeImporter = () => {
 
       if (playlistId) {
         handleProgress(10, "Playlist detected. Fetching video details...");
-        fetchedVideos = await fetchPlaylistVideos(playlistId, apiKey, handleProgress);
+        fetchedVideos = await fetchPlaylistVideos(playlistId, handleProgress);
       } else if (videoId) {
         handleProgress(25, "Single video detected. Fetching info...");
-        const video = await fetchVideoInfo(videoId, apiKey);
+        const video = await fetchVideoInfo(videoId);
         fetchedVideos = [video];
         handleProgress(75, "Video info fetched.");
       } else {

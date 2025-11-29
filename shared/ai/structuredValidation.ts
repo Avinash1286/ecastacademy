@@ -1,9 +1,31 @@
-import { ZodError, ZodSchema } from "zod";
+import { ZodError, ZodType, ZodTypeDef } from "zod";
 import { StructuredRepairRequest, repairStructuredJson } from "@shared/ai/generation";
-import { AIModelConfig } from "@shared/ai/centralized";
+import type { AIModelConfig } from "@shared/ai/core";
 
 const DEFAULT_ATTEMPTS = 5;
 const PROMPT_TRUNCATION_LIMIT = 12000;
+
+/**
+ * Strip markdown code fences from AI responses
+ * Handles ```json ... ```, ``` ... ```, and inline ` ... `
+ */
+function stripMarkdownFences(raw: string): string {
+  let result = raw.trim();
+  
+  // Pattern for ```json ... ``` or ``` ... ```
+  const fenceMatch = result.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/m);
+  if (fenceMatch && fenceMatch[1]) {
+    return fenceMatch[1].trim();
+  }
+  
+  // Try to find JSON object/array within text (handles leading/trailing text)
+  const jsonMatch = result.match(/([\[{][\s\S]*[\]}])/m);
+  if (jsonMatch && jsonMatch[1]) {
+    return jsonMatch[1].trim();
+  }
+  
+  return result;
+}
 
 const truncateForPrompt = (value: string): string => {
   if (!value) return value;
@@ -27,20 +49,22 @@ const buildErrorMessage = (error: unknown): string => {
   return "Unknown validation error";
 };
 
-type JsonValidationOptions<T> = {
-  schema?: ZodSchema<T>;
+// Using ZodType with any to accept schemas with transforms
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type JsonValidationOptions<T = any> = {
+  schema?: ZodType<T, ZodTypeDef, unknown>;
   schemaName?: string;
   schemaDescription?: string;
   originalInput?: string;
   format?: string;
   maxAttempts?: number;
-  /** AI model configuration for repair attempts */
-  modelConfig?: AIModelConfig;
+  /** AI model configuration for repair attempts - REQUIRED, must be configured in admin panel */
+  modelConfig: AIModelConfig;
 };
 
 export const validateAndCorrectJson = async <T>(
   jsonString: string,
-  options: JsonValidationOptions<T> = {}
+  options: JsonValidationOptions<T>
 ): Promise<string> => {
   const {
     schema,
@@ -52,12 +76,22 @@ export const validateAndCorrectJson = async <T>(
     modelConfig,
   } = options;
 
-  let currentJson = jsonString;
+  if (!modelConfig) {
+    throw new Error(
+      "AI model configuration is required for JSON validation/repair. " +
+      "Please configure the model in the admin panel."
+    );
+  }
+
+  // Pre-process: strip markdown fences from initial input
+  let currentJson = stripMarkdownFences(jsonString);
   let lastError: unknown;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
-      const parsed = JSON.parse(currentJson);
+      // Always strip markdown fences before parsing (AI may add them in repairs too)
+      const cleanJson = stripMarkdownFences(currentJson);
+      const parsed = JSON.parse(cleanJson);
       if (schema) {
         const validated = schema.parse(parsed);
         return JSON.stringify(validated, null, 2);
@@ -85,7 +119,9 @@ export const validateAndCorrectJson = async <T>(
   }
 
   try {
-    const parsed = JSON.parse(currentJson);
+    // Also strip markdown fences in final attempt
+    const cleanJson = stripMarkdownFences(currentJson);
+    const parsed = JSON.parse(cleanJson);
     if (schema) {
       const validated = schema.parse(parsed);
       return JSON.stringify(validated, null, 2);

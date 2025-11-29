@@ -27,10 +27,6 @@ declare module "next-auth" {
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL!;
 const deployKey = process.env.CONVEX_DEPLOY_KEY;
 
-console.log('🔍 [AUTH CONFIG] Convex URL:', convexUrl);
-console.log('🔍 [AUTH CONFIG] Has Deploy Key:', !!deployKey);
-console.log('🔍 [AUTH CONFIG] Deploy Key preview:', deployKey ? deployKey.substring(0, 30) + '...' : 'none');
-
 // Create Convex client
 const convex = createConvexClient();
 
@@ -60,12 +56,10 @@ const authConfig: NextAuthConfig = {
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-      allowDangerousEmailAccountLinking: true,
     }),
     GitHubProvider({
       clientId: process.env.GITHUB_CLIENT_ID!,
       clientSecret: process.env.GITHUB_CLIENT_SECRET!,
-      allowDangerousEmailAccountLinking: true,
     }),
     CredentialsProvider({
       id: "credentials",
@@ -165,7 +159,7 @@ const authConfig: NextAuthConfig = {
 
   session: {
     strategy: "jwt",
-    maxAge: 30 * 24 * 60 * 60, // 30 days
+    maxAge: 7 * 24 * 60 * 60, // 7 days
   },
 
   callbacks: {

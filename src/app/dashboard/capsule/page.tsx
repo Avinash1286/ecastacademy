@@ -8,10 +8,10 @@ import { useQuery, useMutation, useAction } from 'convex/react';
 import { api } from '../../../../convex/_generated/api';
 import { Doc, Id } from '../../../../convex/_generated/dataModel';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Upload, Sparkles, FileText, Loader2, CheckCircle2, AlertTriangle, Clock, Trash2, RefreshCw } from 'lucide-react';
+import { Paperclip, FileText, Loader2, CheckCircle2, AlertTriangle, Clock, Trash2, RefreshCw, ArrowUp, X, Sparkles } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 import { toast } from 'sonner';
 
@@ -41,7 +41,7 @@ export default function CapsulePage() {
 
   // Get generation jobs for progress tracking
   const generationJobs = useQuery(
-    api.capsulesV2.getActiveGenerationJobs,
+    api.generationJobs.getActiveGenerationJobs,
     userId ? { userId } : 'skip'
   );
 
@@ -50,30 +50,49 @@ export default function CapsulePage() {
   const canSubmit = !!pdfFile || ideaText.trim().length > 0;
 
   // Helper to get generation progress for a capsule
+  // Updated for module-wise pipeline: outline (1 call) + modules (1 call per module)
   const getGenerationProgress = (capsuleId: Id<'capsules'>) => {
     if (!generationJobs) return null;
     const job = generationJobs.find(j => j.capsuleId === capsuleId);
     if (!job) return null;
+
+    // Calculate progress percentage based on state and modules generated
+    const { state, currentModuleIndex, totalModules, currentStage } = job;
+    const effectiveState = currentStage || state;
+
+    if (effectiveState === 'completed') return { percentage: 100, message: 'Complete!' };
+    if (effectiveState === 'failed') return null;
+    if (effectiveState === 'idle') return { percentage: 0, message: 'Starting...' };
+    if (effectiveState === 'generating_outline') return { percentage: 5, message: 'Generating outline...' };
+    if (effectiveState === 'outline_complete') return { percentage: 10, message: 'Outline ready' };
     
-    // Calculate progress percentage based on state and lessons generated
-    const { state, lessonsGenerated, totalLessons, lessonPlansGenerated, totalModules } = job;
-    
-    if (state === 'completed') return { percentage: 100, message: 'Complete!' };
-    if (state === 'failed') return null;
-    if (state === 'idle') return { percentage: 0, message: 'Starting...' };
-    if (state === 'generating_outline') return { percentage: 5, message: 'Generating outline...' };
-    if (state === 'outline_complete') return { percentage: 10, message: 'Outline ready' };
-    if (state === 'generating_lesson_plans') {
-      const planProgress = totalModules > 0 ? (lessonPlansGenerated / totalModules) * 15 : 0;
-      return { percentage: 10 + planProgress, message: `Planning modules (${lessonPlansGenerated}/${totalModules})...` };
+    // Module-wise content generation
+    if (effectiveState === 'generating_module_content' || effectiveState.startsWith('module_')) {
+      const modulesCompleted = currentModuleIndex || 0;
+      const total = totalModules || 1;
+      const moduleProgress = total > 0 ? (modulesCompleted / total) * 85 : 0;
+      const percentage = Math.min(10 + moduleProgress, 95);
+      return { 
+        percentage, 
+        message: `Generating module ${modulesCompleted + 1}/${total}...` 
+      };
     }
-    if (state === 'lesson_plans_complete') return { percentage: 25, message: 'Lesson plans ready' };
-    if (state === 'generating_content') {
-      const contentProgress = totalLessons > 0 ? (lessonsGenerated / totalLessons) * 70 : 0;
-      return { percentage: 25 + contentProgress, message: `Generating lessons (${lessonsGenerated}/${totalLessons})...` };
-    }
-    if (state === 'content_complete') return { percentage: 95, message: 'Finalizing...' };
     
+    // Handle dynamic module_X_complete states
+    if (effectiveState.match(/^module_\d+_complete$/)) {
+      const match = effectiveState.match(/module_(\d+)_complete/);
+      if (match) {
+        const completedModule = parseInt(match[1], 10);
+        const total = totalModules || completedModule;
+        const moduleProgress = total > 0 ? (completedModule / total) * 85 : 0;
+        const percentage = Math.min(10 + moduleProgress, 95);
+        return { 
+          percentage, 
+          message: `Module ${completedModule}/${total} complete` 
+        };
+      }
+    }
+
     return { percentage: 0, message: 'Processing...' };
   };
 
@@ -290,22 +309,89 @@ export default function CapsulePage() {
 
   return (
     <main className="bg-background min-h-screen">
-      <div className="container mx-auto max-w-5xl py-12 px-4 sm:px-6 lg:px-8">
-        <div className="text-center mb-12">
-          <div className="flex justify-center items-center gap-2 mb-4">
-            <Sparkles className="h-8 w-8 text-primary" />
-            <h1 className="text-4xl font-bold">Capsule Studio</h1>
+      <div className="container mx-auto max-w-4xl py-16 px-4 sm:px-6 lg:px-8">
+        {/* Hero Section */}
+        <div className="text-center mb-16">
+          <h1 className="text-4xl md:text-5xl font-bold mb-10">
+            What do you want to learn?
+          </h1>
+
+          {/* Search/Input Bar with Attach Button */}
+          <div
+            className={`relative max-w-2xl mx-auto ${dragActive ? 'ring-2 ring-primary ring-offset-2 rounded-full' : ''}`}
+            onDragEnter={handleDrag}
+            onDragLeave={handleDrag}
+            onDragOver={handleDrag}
+            onDrop={handleDrop}
+          >
+            {/* Attached file indicator */}
+            {pdfFile && (
+              <div className="absolute -top-10 left-0 right-0 flex justify-center">
+                <div className="inline-flex items-center gap-2 bg-primary/10 text-primary px-3 py-1.5 rounded-full text-sm">
+                  <FileText className="h-4 w-4" />
+                  <span className="max-w-[200px] truncate">{pdfFile.name}</span>
+                  <button
+                    onClick={() => setPdfFile(null)}
+                    className="hover:bg-primary/20 rounded-full p-0.5"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="relative flex items-center">
+              {/* Attach file button */}
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="absolute left-2 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full hover:bg-muted"
+                onClick={() => fileInputRef.current?.click()}
+                title="Attach PDF file"
+              >
+                <Paperclip className="h-5 w-5 text-muted-foreground" />
+              </Button>
+
+              <Input
+                value={ideaText}
+                onChange={(e) => setIdeaText(e.target.value)}
+                placeholder="Learn anything"
+                className="h-14 pl-14 pr-14 rounded-full text-base bg-card border-border/50"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && canSubmit && !isUploading) {
+                    handleGenerate();
+                  }
+                }}
+              />
+
+              {/* Submit button */}
+              <Button
+                onClick={handleGenerate}
+                disabled={isUploading || !canSubmit}
+                size="icon"
+                className="absolute right-2 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full"
+              >
+                {isUploading ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : (
+                  <ArrowUp className="h-5 w-5" />
+                )}
+              </Button>
+            </div>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="application/pdf"
+              onChange={handleFileChange}
+              className="hidden"
+            />
           </div>
-          <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
-            Drop a PDF or describe what you want to learn. Our AI will detect the best source and build an interactive learning capsule for you.
-          </p>
-          <p className="text-xs text-muted-foreground/60 mt-2">
-            Made & powered by <span className="font-semibold">together.ai</span>
-          </p>
         </div>
 
         {!isAuthenticated && status !== 'loading' && (
-          <div className="mb-10 rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-100">
+          <div className="mb-10 rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-100 text-center">
             Please{' '}
             <Link href="/auth/signin" className="underline font-semibold">
               sign in
@@ -314,148 +400,68 @@ export default function CapsulePage() {
           </div>
         )}
 
-        <Card className="border-2 border-border/50 bg-gradient-to-br from-background via-muted/10 to-background">
-          <CardContent className="p-8 space-y-8">
-            <div className="space-y-3">
-              <label className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                Describe your capsule
-              </label>
-              <Textarea
-                value={ideaText}
-                onChange={(e) => setIdeaText(e.target.value)}
-                placeholder={'e.g. Upload a syllabus or write "Teach me MERN stack basics with quizzes and drag-drop exercises."'}
-                className="min-h-[140px] resize-none"
-              />
-              <p className="text-xs text-muted-foreground">
-                Paste a topic, outline, or extra guidance. When a PDF is attached, this text becomes AI instructions.
-              </p>
-            </div>
-
-            <div
-              className={`rounded-2xl border-2 border-dashed p-8 text-center transition ${dragActive ? 'border-primary bg-primary/5' : 'border-border/70'
-                } ${pdfFile ? 'bg-muted/30' : ''}`}
-              onDragEnter={handleDrag}
-              onDragLeave={handleDrag}
-              onDragOver={handleDrag}
-              onDrop={handleDrop}
-            >
-              {pdfFile ? (
-                <div className="space-y-2">
-                  <div className="inline-flex items-center gap-3 rounded-full bg-background px-4 py-2 text-sm font-medium">
-                    <FileText className="h-4 w-4" />
-                    {pdfFile.name}
-                    <span className="text-muted-foreground">
-                      {(pdfFile.size / 1024 / 1024).toFixed(2)} MB
-                    </span>
-                  </div>
-                  <div className="flex justify-center gap-3">
-                    <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
-                      Replace file
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={() => setPdfFile(null)}>
-                      Remove
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-muted">
-                    <Upload className="h-8 w-8 text-muted-foreground" />
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-lg font-medium">Drop a PDF syllabus or course material</p>
-                    <p className="text-sm text-muted-foreground">We will auto-detect the best source. PDF is optional if you only need a topic-based capsule.</p>
-                  </div>
-                  <div className="flex justify-center gap-3">
-                    <Button onClick={() => fileInputRef.current?.click()} className="gap-2">
-                      <Upload className="h-4 w-4" />
-                      Upload PDF
-                    </Button>
-                    <Button variant="outline" onClick={() => setIdeaText((prev) => prev || 'Teach me ...')}>
-                      Need inspiration?
-                    </Button>
-                  </div>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="application/pdf"
-                    onChange={handleFileChange}
-                    className="hidden"
-                  />
-                </div>
-              )}
-            </div>
-
-            <div className="flex flex-col sm:flex-row gap-4 sm:items-center sm:justify-between">
-              <div className="text-sm text-muted-foreground">
-                {pdfFile ? 'PDF detected. Guidance text will steer AI tone and difficulty.' : 'No file uploaded yet. We will generate from your description.'}
-              </div>
-              <Button
-                onClick={handleGenerate}
-                disabled={isUploading || !canSubmit}
-                size="lg"
-                className="gap-2 px-8"
-              >
-                {isUploading ? (
-                  <>
-                    <Loader2 className="h-5 w-5 animate-spin" />
-                    Generating...
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="h-5 w-5" />
-                    {isAuthenticated ? 'Generate Capsule' : 'Sign in to Generate'}
-                  </>
-                )}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        <section className="mt-14">
+        {/* My Capsules Section */}
+        <section className="mt-16">
           <div className="flex items-center justify-between mb-6">
-            <div>
-              <p className="text-sm uppercase font-semibold tracking-wide text-muted-foreground">Library preview</p>
-              <h2 className="text-2xl font-bold">Recent capsules</h2>
+            <div className="flex items-center gap-4">
+              <h2 className="text-xl font-semibold">My Capsules</h2>
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Clock className="h-4 w-4" />
+                <span>Newest</span>
+              </div>
             </div>
-            <Button variant="ghost" onClick={() => router.push('/dashboard/capsule/library')}>
-              View all
-            </Button>
+            {capsuleList.length > 0 && (
+              <Button
+                variant="ghost"
+                className="text-sm"
+                onClick={() => router.push('/dashboard/capsule/library')}
+              >
+                View all
+              </Button>
+            )}
           </div>
 
           {!isAuthenticated && status !== 'loading' ? (
-            <Card>
-              <CardContent className="p-6 text-center text-muted-foreground">
-                Sign in to see your generated capsules.
+            <Card className="border-2 border-dashed border-border/50">
+              <CardContent className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+                <Sparkles className="h-12 w-12 mb-4 text-primary/50" />
+                <p className="text-lg font-medium mb-2">Sign in to create capsules</p>
+                <p className="text-sm text-center max-w-md">
+                  Create personalized learning capsules from PDFs or topics
+                </p>
               </CardContent>
             </Card>
           ) : isCapsulesLoading ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {[...Array(4)].map((_, idx) => (
-                <Card key={idx} className="h-32 animate-pulse bg-muted/40" />
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {[...Array(3)].map((_, idx) => (
+                <Card key={idx} className="h-48 animate-pulse bg-muted/40" />
               ))}
             </div>
           ) : capsuleList.length === 0 ? (
-            <Card>
-              <CardContent className="p-6 text-center text-muted-foreground">
-                No capsules yet. Generate one above to see it here.
+            <Card className="border-2 border-dashed border-border/50">
+              <CardContent className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+                <Sparkles className="h-12 w-12 mb-4 text-primary/50" />
+                <p className="text-lg font-medium mb-2">Generate your First Capsule</p>
+                <p className="text-sm text-center max-w-md">
+                  Enter a topic or attach a PDF above to create your first interactive learning capsule
+                </p>
               </CardContent>
             </Card>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {capsuleList.slice(0, 4).map((capsule) => (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Show only 3 newest capsules */}
+              {capsuleList.slice(0, 3).map((capsule) => (
                 <Card
                   key={capsule._id}
-                  className="cursor-pointer transition hover:border-primary/70 group relative"
+                  className="cursor-pointer transition-all hover:border-primary/50 hover:shadow-md group relative bg-card"
                   onClick={() => handleCapsuleClick(capsule._id, capsule.status as CapsuleStatus)}
                 >
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-lg font-semibold line-clamp-1">{capsule.title}</CardTitle>
-                    <div className="flex items-center gap-2">
-                      <Badge className={`gap-1 border ${statusBadgeClasses(capsule.status as CapsuleStatus)}`}>
-                        {statusIcon(capsule.status as CapsuleStatus)}
-                        <span className="capitalize">{capsule.status}</span>
-                      </Badge>
+                  <CardContent className="p-5 min-h-[220px] flex flex-col">
+                    {/* Header with icon and actions */}
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-primary/20 to-primary/10 flex items-center justify-center shrink-0">
+                        <FileText className="h-5 w-5 text-primary" />
+                      </div>
                       <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         {capsule.status === 'failed' && (
                           <Button
@@ -485,40 +491,48 @@ export default function CapsulePage() {
                         </Button>
                       </div>
                     </div>
-                  </CardHeader>
-                  <CardContent className="space-y-2">
-                    {capsule.description && (
-                      <p className="text-sm text-muted-foreground line-clamp-2">{capsule.description}</p>
+
+                    {/* Title */}
+                    <h3 className="font-semibold text-base line-clamp-2 mb-2">{capsule.title}</h3>
+
+                    {/* Description - with more lines visible */}
+                    {capsule.description ? (
+                      <p className="text-sm text-muted-foreground line-clamp-3 mb-3">{capsule.description}</p>
+                    ) : (
+                      <p className="text-sm text-muted-foreground/50 italic mb-3">
+                        {capsule.status === 'processing' ? 'Generating...' : 'No description'}
+                      </p>
                     )}
-                    
+
                     {/* Progress bar for generating capsules */}
                     {capsule.status === 'processing' && (() => {
                       const progress = getGenerationProgress(capsule._id);
                       if (!progress) return null;
                       return (
-                        <div className="space-y-1">
-                          <Progress value={progress.percentage} className="h-2" />
-                          <div className="flex items-center justify-between text-xs text-muted-foreground">
-                            <span>{progress.message}</span>
-                            <span className="font-medium">{Math.round(progress.percentage)}%</span>
-                          </div>
+                        <div className="space-y-1 mb-3">
+                          <Progress value={progress.percentage} className="h-1.5" />
+                          <p className="text-[11px] text-muted-foreground">{progress.message}</p>
                         </div>
                       );
                     })()}
-                    
-                    <div className="flex items-center justify-between text-xs text-muted-foreground">
-                      <span>
-                        Created {capsule.createdAt ? new Date(capsule.createdAt).toLocaleDateString() : '-'}
-                      </span>
-                      <span className="font-medium">
-                        {capsule.status === 'failed'
-                          ? 'Failed'
-                          : capsule.status === 'processing'
-                            ? ''
-                            : capsule.moduleCount
-                              ? `${capsule.moduleCount} modules`
-                              : 'Generating…'}
-                      </span>
+
+                    {/* Footer with status and info */}
+                    <div className="flex items-center justify-between mt-auto pt-3 border-t border-border/50">
+                      <Badge
+                        variant="outline"
+                        className={`text-xs gap-1 ${statusBadgeClasses(capsule.status as CapsuleStatus)}`}
+                      >
+                        {statusIcon(capsule.status as CapsuleStatus)}
+                        <span className="capitalize">{capsule.status}</span>
+                      </Badge>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        {capsule.moduleCount && capsule.status === 'completed' && (
+                          <span>{capsule.moduleCount} modules</span>
+                        )}
+                        {capsule.createdAt && (
+                          <span>{new Date(capsule.createdAt).toLocaleDateString()}</span>
+                        )}
+                      </div>
                     </div>
                   </CardContent>
                 </Card>
@@ -526,24 +540,6 @@ export default function CapsulePage() {
             </div>
           )}
         </section>
-
-        <div className="mt-16 grid grid-cols-1 md:grid-cols-3 gap-6 text-center">
-          <div className="p-6">
-            <div className="text-4xl mb-2">📚</div>
-            <h3 className="font-semibold mb-1">Interactive Learning</h3>
-            <p className="text-sm text-muted-foreground">Engage with quizzes, drag-and-drop, and simulations</p>
-          </div>
-          <div className="p-6">
-            <div className="text-4xl mb-2">⚡</div>
-            <h3 className="font-semibold mb-1">Quick Generation</h3>
-            <p className="text-sm text-muted-foreground">AI-powered course creation in minutes</p>
-          </div>
-          <div className="p-6">
-            <div className="text-4xl mb-2">🎯</div>
-            <h3 className="font-semibold mb-1">Personalized</h3>
-            <p className="text-sm text-muted-foreground">Tailored to your materials and learning style</p>
-          </div>
-        </div>
       </div>
     </main>
   );

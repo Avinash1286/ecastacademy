@@ -9,12 +9,37 @@ import {
   generatedQuizSchemaDescription,
 } from "@/lib/validators/generatedContentSchemas";
 import { resolveWithConvexClient, MissingAIModelMappingError } from "@shared/ai/modelResolver";
+import { withRateLimit, RATE_LIMIT_PRESETS } from "@/lib/security/rateLimit";
+import { auth } from "@/lib/auth/auth.config";
 
 const convex = createConvexClient();
 
 export async function POST(request: NextRequest) {
+  // Apply rate limiting for AI generation
+  const rateLimitResponse = await withRateLimit(request, RATE_LIMIT_PRESETS.AI_GENERATION);
+  if (rateLimitResponse) return rateLimitResponse;
+
+  // Require authentication - AI generation is expensive
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json(
+      { error: "Authentication required" },
+      { status: 401 }
+    );
+  }
+
+  let body;
   try {
-    const { contentItemId } = await request.json();
+    body = await request.json();
+  } catch {
+    return NextResponse.json(
+      { error: "Invalid JSON in request body" },
+      { status: 400 }
+    );
+  }
+
+  try {
+    const { contentItemId } = body;
 
     if (!contentItemId) {
       return NextResponse.json(
@@ -107,12 +132,12 @@ export async function POST(request: NextRequest) {
 
       if (error instanceof Error) {
         const errorMsg = error.message;
-        
+
         // Check for quota exceeded error
         if (errorMsg.includes("quota") || errorMsg.includes("RESOURCE_EXHAUSTED") || errorMsg.includes("429")) {
           userFriendlyMessage = "AI quota exceeded. Please try again in a minute.";
           statusCode = 429;
-        } 
+        }
         // Check for rate limit
         else if (errorMsg.includes("rate limit") || errorMsg.includes("Too Many Requests")) {
           userFriendlyMessage = "Rate limit exceeded. Please wait before trying again.";

@@ -4,12 +4,27 @@ import { generateToken } from "@/lib/auth/utils";
 import { sendEmail } from "@/lib/email/send";
 import { getPasswordResetEmailHTML } from "@/lib/email/templates";
 import { createConvexClient } from "@/lib/convexClient";
+import { withRateLimit, RATE_LIMIT_PRESETS } from "@/lib/security/rateLimit";
 
 const convex = createConvexClient();
 
 export async function POST(request: NextRequest) {
+  // Apply strict rate limiting to prevent brute-force and email bombing
+  const rateLimitResponse = await withRateLimit(request, RATE_LIMIT_PRESETS.AUTH);
+  if (rateLimitResponse) return rateLimitResponse;
+
+  let body;
   try {
-    const { email } = await request.json();
+    body = await request.json();
+  } catch {
+    return NextResponse.json(
+      { error: "Invalid JSON in request body" },
+      { status: 400 }
+    );
+  }
+
+  try {
+    const { email } = body;
 
     if (!email) {
       return NextResponse.json(

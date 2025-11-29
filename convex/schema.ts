@@ -1,6 +1,127 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
+// =============================================================================
+// TYPED QUIZ ANSWER SCHEMAS (Phase 1 - State Management Improvement)
+// =============================================================================
+
+/**
+ * Schema for MCQ (Multiple Choice Question) answers
+ * Stores both index and text for resilience against option order changes
+ */
+const mcqAnswerSchema = v.object({
+  type: v.literal("mcq"),
+  questionId: v.string(),
+  selectedIndex: v.number(),
+  selectedText: v.string(),
+  correctIndex: v.number(),
+  correctText: v.string(),
+  isCorrect: v.boolean(),
+  options: v.array(v.string()),
+  timestamp: v.number(),
+  timeSpentMs: v.optional(v.number()),
+  hintUsed: v.optional(v.boolean()),
+});
+
+/**
+ * Schema for individual blank answers within fill-in-the-blanks questions
+ */
+const blankAnswerSchema = v.object({
+  blankId: v.string(),
+  userAnswer: v.string(),
+  correctAnswer: v.string(),
+  alternatives: v.array(v.string()),
+  isCorrect: v.boolean(),
+  hintUsed: v.optional(v.boolean()),
+});
+
+/**
+ * Schema for Fill-in-the-Blanks answers
+ * Tracks each blank separately for detailed feedback
+ */
+const fillBlanksAnswerSchema = v.object({
+  type: v.literal("fillBlanks"),
+  questionId: v.string(),
+  blanks: v.array(blankAnswerSchema),
+  overallCorrect: v.boolean(),
+  score: v.number(),
+  timestamp: v.number(),
+  timeSpentMs: v.optional(v.number()),
+});
+
+/**
+ * Schema for individual placement results in drag-and-drop questions
+ */
+const placementResultSchema = v.object({
+  itemId: v.string(),
+  itemContent: v.string(),
+  targetId: v.string(),
+  targetLabel: v.string(),
+  isCorrect: v.boolean(),
+});
+
+/**
+ * Schema for Drag-and-Drop answers
+ * Tracks each placement for detailed feedback
+ */
+const dragDropAnswerSchema = v.object({
+  type: v.literal("dragDrop"),
+  questionId: v.string(),
+  placements: v.array(placementResultSchema),
+  overallCorrect: v.boolean(),
+  score: v.number(),
+  timestamp: v.number(),
+  timeSpentMs: v.optional(v.number()),
+  shuffleSeed: v.optional(v.number()),
+});
+
+/**
+ * Union schema for all quiz answer types
+ * Use the `type` field as discriminator
+ */
+const typedQuizAnswerSchema = v.union(
+  mcqAnswerSchema,
+  fillBlanksAnswerSchema,
+  dragDropAnswerSchema,
+);
+
+/**
+ * Schema for attempt records in typed answer history
+ */
+const typedAttemptRecordSchema = v.object({
+  attemptNumber: v.number(),
+  answer: typedQuizAnswerSchema,
+  timestamp: v.number(),
+  timeSpentMs: v.number(),
+});
+
+/**
+ * Schema for question state within mixed lessons
+ */
+const questionStateSchema = v.object({
+  questionIndex: v.number(),
+  questionType: v.union(
+    v.literal("mcq"),
+    v.literal("fillBlanks"),
+    v.literal("dragDrop")
+  ),
+  answered: v.boolean(),
+  answer: v.optional(typedQuizAnswerSchema),
+});
+
+/**
+ * Schema for mixed lesson progress tracking
+ */
+const mixedLessonProgressSchema = v.object({
+  currentQuestionIndex: v.number(),
+  questionStates: v.array(questionStateSchema),
+  allQuestionsAnswered: v.boolean(),
+});
+
+// =============================================================================
+// DATABASE SCHEMA
+// =============================================================================
+
 export default defineSchema({
   // Users table for authentication
   users: defineTable({
@@ -184,6 +305,9 @@ export default defineSchema({
     attempts: v.optional(v.number()), // Number of attempts
     bestScore: v.optional(v.number()), // Best score achieved across attempts
     lastAttemptAt: v.optional(v.number()), // Timestamp of last attempt
+
+    // Optimistic locking version field
+    version: v.optional(v.number()), // Incremented on each update for conflict detection
   })
     .index("by_userId_courseId", ["userId", "courseId"])
     .index("by_userId_contentItemId", ["userId", "contentItemId"])
@@ -290,8 +414,7 @@ export default defineSchema({
 
     // Source information
     sourceType: v.union(v.literal("pdf"), v.literal("topic")),
-    sourcePdfStorageId: v.optional(v.id("_storage")), // Convex file storage ID for large PDFs
-    sourcePdfData: v.optional(v.string()), // Legacy: Base64 PDF data (for small files < 1MB)
+    sourcePdfStorageId: v.optional(v.id("_storage")), // Convex file storage ID for PDFs
     sourcePdfName: v.optional(v.string()),
     sourcePdfMime: v.optional(v.string()),
     sourcePdfSize: v.optional(v.number()),
@@ -363,11 +486,15 @@ export default defineSchema({
     .index("by_capsuleId", ["capsuleId"]),
 
   // Capsule progress tracking (includes quiz answer history)
+  // Capsule progress tracking (includes quiz answer history)
   capsuleProgress: defineTable({
     userId: v.id("users"),
     capsuleId: v.id("capsules"),
     moduleId: v.optional(v.id("capsuleModules")),
     lessonId: v.optional(v.id("capsuleLessons")),
+
+    // Optimistic locking version for concurrent update protection
+    version: v.optional(v.number()),
 
     completed: v.boolean(),
     completedAt: v.optional(v.number()),
@@ -401,27 +528,35 @@ export default defineSchema({
       options: v.optional(v.array(v.string())),
     })),
 
+    // ==========================================================================
+    // NEW: Typed Answer Storage (Phase 1 - State Management Improvement)
+    // These fields use discriminated unions for type-safe answer storage
+    // ==========================================================================
+    
+    /**
+     * Type-safe last answer using discriminated union schema.
+     * This replaces the legacy lastAnswer field with proper typing.
+     * During migration, both fields are populated (dual-write).
+     */
+    typedLastAnswer: v.optional(typedQuizAnswerSchema),
+    
+    /**
+     * Full attempt history with typed answers.
+     * Each attempt stores the complete answer data for replay/analysis.
+     */
+    typedAttemptHistory: v.optional(v.array(typedAttemptRecordSchema)),
+    
+    /**
+     * Progress state for mixed lessons.
+     * Tracks per-question progress for lessons with multiple questions.
+     */
+    mixedLessonProgress: v.optional(mixedLessonProgressSchema),
+
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_userId_capsuleId", ["userId", "capsuleId"])
     .index("by_userId_lessonId", ["userId", "lessonId"])
-    .index("by_capsuleId", ["capsuleId"]),
-
-  capsuleGenerationRuns: defineTable({
-    capsuleId: v.id("capsules"),
-    status: v.union(
-      v.literal("queued"),
-      v.literal("running"),
-      v.literal("completed"),
-      v.literal("failed")
-    ),
-    stage: v.optional(v.string()),
-    errorMessage: v.optional(v.string()),
-    reviewJson: v.optional(v.string()),
-    createdAt: v.number(),
-    updatedAt: v.number(),
-  })
     .index("by_capsuleId", ["capsuleId"]),
 
   // AI Model Management
@@ -455,30 +590,33 @@ export default defineSchema({
     .index("by_bucketKey", ["bucketKey"]),
 
   // Generation jobs for tracking capsule generation progress
+  // Module-wise pipeline: outline (1 call) + module content (1 call per module)
   generationJobs: defineTable({
     capsuleId: v.id("capsules"),
     generationId: v.string(), // Unique generation ID
     
-    // State machine state
-    state: v.union(
-      v.literal("idle"),
-      v.literal("generating_outline"),
-      v.literal("outline_complete"),
-      v.literal("generating_lesson_plans"),
-      v.literal("lesson_plans_complete"),
-      v.literal("generating_content"),
-      v.literal("content_complete"),
-      v.literal("completed"),
-      v.literal("failed")
-    ),
+    // Optimistic locking version for concurrent update protection
+    // Optional to support existing documents created before this field was added
+    version: v.optional(v.number()),
+    
+    // State machine state - uses string to allow dynamic states like "module_1_complete"
+    // Stages: idle → generating_outline → outline_complete 
+    //         → generating_module_content → module_X_complete → completed / failed
+    state: v.string(),
+    
+    // For backwards compatibility, keep currentStage field as string
+    currentStage: v.optional(v.string()),
     
     // Progress tracking
     outlineGenerated: v.boolean(),
-    lessonPlansGenerated: v.number(),
-    lessonsGenerated: v.number(),
+    modulesGenerated: v.optional(v.number()), // Number of modules with content generated
     totalModules: v.number(),
     totalLessons: v.number(),
     currentModuleIndex: v.number(),
+    
+    // Legacy fields for backwards compatibility
+    lessonPlansGenerated: v.number(),
+    lessonsGenerated: v.number(),
     currentLessonIndex: v.number(),
     
     // Timing
@@ -489,6 +627,7 @@ export default defineSchema({
     // Error tracking
     lastError: v.optional(v.string()),
     lastErrorCode: v.optional(v.string()),
+    errorMessage: v.optional(v.string()), // Used by markGenerationFailed
     retryCount: v.number(),
     
     // Token usage
@@ -496,36 +635,80 @@ export default defineSchema({
     
     // Intermediate results (JSON stringified)
     outlineJson: v.optional(v.string()),
-    lessonPlansJson: v.optional(v.string()),
-    generatedContentJson: v.optional(v.string()), // Stores partially generated content for resumption
+    lessonPlansJson: v.optional(v.string()), // Legacy - module-wise doesn't use separate lesson plans
+    modulesContentJson: v.optional(v.string()), // Stores module content as it's generated
+    generatedContentJson: v.optional(v.string()), // Legacy - for backwards compatibility
+    
+    // Failed lesson tracking (P2 - Reliability)
+    failedLessonIds: v.optional(v.array(v.string())),
+    failedLessonCount: v.optional(v.number()),
+    stallCount: v.optional(v.number()), // For health check tracking
   })
     .index("by_capsuleId", ["capsuleId"])
     .index("by_generationId", ["generationId"])
-    .index("by_state", ["state"]),
+    .index("by_state", ["state"])
+    .index("by_updatedAt", ["updatedAt"]), // For efficient stale job lookup
 
-  // Generation metrics for observability
-  generationMetrics: defineTable({
+  // Dead letter queue for failed generations (retained for analysis)
+  generationFailures: defineTable({
     generationId: v.string(),
     capsuleId: v.id("capsules"),
+    userId: v.optional(v.id("users")),
     
-    // Stage metrics
-    stage: v.string(),
-    stageDurationMs: v.number(),
-    stageTokensUsed: v.number(),
-    stageSuccess: v.boolean(),
-    stageError: v.optional(v.string()),
+    // Error details
+    errorCode: v.string(),
+    errorMessage: v.string(),
     
-    // Request details
-    provider: v.string(),
-    model: v.string(),
-    attempt: v.number(),
+    // Context at failure time
+    failedStage: v.string(),
+    totalTokensUsed: v.number(),
+    retryCount: v.number(),
+    
+    // Input snapshot (for debugging)
+    inputSnapshot: v.optional(v.string()), // JSON stringified input (sanitized)
+    
+    // Resolution tracking
+    resolved: v.boolean(),
+    resolvedAt: v.optional(v.number()),
+    resolution: v.optional(v.string()), // Notes about how it was resolved
     
     // Timestamps
-    startedAt: v.number(),
-    completedAt: v.number(),
+    createdAt: v.number(),
   })
     .index("by_generationId", ["generationId"])
     .index("by_capsuleId", ["capsuleId"])
-    .index("by_stage", ["stage"])
-    .index("by_provider", ["provider"]),
+    .index("by_userId", ["userId"])
+    .index("by_errorCode", ["errorCode"])
+    .index("by_resolved", ["resolved"])
+    .index("by_createdAt", ["createdAt"]),
+
+  // =============================================================================
+  // Audit Logs - Security and compliance tracking
+  // =============================================================================
+  auditLogs: defineTable({
+    userId: v.id("users"),
+    action: v.string(), // "capsule_generation_started", "capsule_generation_completed", etc.
+    resourceType: v.string(), // "capsule", "lesson", "user"
+    resourceId: v.string(), // ID of the affected resource
+    
+    // Additional context
+    metadata: v.optional(v.any()), // Action-specific data (sanitized)
+    
+    // Request context (if available)
+    ipAddress: v.optional(v.string()),
+    userAgent: v.optional(v.string()),
+    
+    // Result
+    success: v.boolean(),
+    errorMessage: v.optional(v.string()),
+    
+    // Timestamps
+    timestamp: v.number(),
+  })
+    .index("by_userId", ["userId"])
+    .index("by_action", ["action"])
+    .index("by_resourceType", ["resourceType"])
+    .index("by_resourceId", ["resourceId"])
+    .index("by_timestamp", ["timestamp"])
+    .index("by_userId_timestamp", ["userId", "timestamp"]),
 });

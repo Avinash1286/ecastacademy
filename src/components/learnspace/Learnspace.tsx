@@ -79,8 +79,6 @@ export default function Learnspace({ initialChapters, courseId, isCertification 
       }
       const details: { notes: InteractiveNotesProps; quiz: Quiz; transcript: string | null } = await response.json();
       
-      console.log('Fetched chapter details:', details); // Debug log
-      
       setActiveChapter(prev => ({
         ...prev,
         video: prev.video ? {

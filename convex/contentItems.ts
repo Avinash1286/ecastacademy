@@ -1,6 +1,8 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { recalculateCourseProgressSync } from "./completions";
+import { requireAuthenticatedUser } from "./utils/auth";
+import { validateContentItemFields, validatePositiveNumber } from "./utils/validation";
 
 // Create a content item
 export const createContentItem = mutation({
@@ -30,6 +32,24 @@ export const createContentItem = mutation({
     resourceTitle: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    // Auth check
+    const { user } = await requireAuthenticatedUser(ctx);
+    
+    // Validate input
+    validateContentItemFields({
+      title: args.title,
+      textContent: args.textContent,
+      resourceUrl: args.resourceUrl,
+      resourceTitle: args.resourceTitle,
+    });
+    validatePositiveNumber(args.order, "Order");
+    if (args.maxPoints !== undefined) {
+      validatePositiveNumber(args.maxPoints, "Max points");
+    }
+    if (args.passingScore !== undefined) {
+      validatePositiveNumber(args.passingScore, "Passing score");
+    }
+    
     const now = Date.now();
 
     // Get chapter to find courseId
@@ -42,6 +62,11 @@ export const createContentItem = mutation({
     const course = await ctx.db.get(chapter.courseId);
     if (!course) {
       throw new Error("Course not found");
+    }
+    
+    // Check if user is admin or course creator
+    if (user.role !== "admin" && course.createdBy !== user._id.toString()) {
+      throw new Error("Unauthorized: You can only add content to your own courses");
     }
 
     // Auto-determine grading based on course type and content type
@@ -107,6 +132,47 @@ export const updateContentItem = mutation({
     resourceTitle: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    // Auth check
+    const { user } = await requireAuthenticatedUser(ctx);
+    
+    // Validate input
+    validateContentItemFields({
+      title: args.title,
+      textContent: args.textContent,
+      resourceUrl: args.resourceUrl,
+      resourceTitle: args.resourceTitle,
+    });
+    if (args.order !== undefined) {
+      validatePositiveNumber(args.order, "Order");
+    }
+    if (args.maxPoints !== undefined) {
+      validatePositiveNumber(args.maxPoints, "Max points");
+    }
+    if (args.passingScore !== undefined) {
+      validatePositiveNumber(args.passingScore, "Passing score");
+    }
+    
+    // Get content item and verify ownership
+    const contentItem = await ctx.db.get(args.id);
+    if (!contentItem) {
+      throw new Error("Content item not found");
+    }
+    
+    const chapter = await ctx.db.get(contentItem.chapterId);
+    if (!chapter) {
+      throw new Error("Chapter not found");
+    }
+    
+    const course = await ctx.db.get(chapter.courseId);
+    if (!course) {
+      throw new Error("Course not found");
+    }
+    
+    // Check if user is admin or course creator
+    if (user.role !== "admin" && course.createdBy !== user._id.toString()) {
+      throw new Error("Unauthorized: You can only update content in your own courses");
+    }
+    
     const { id, ...updates } = args;
 
     await ctx.db.patch(id, updates);
@@ -124,6 +190,17 @@ export const toggleContentItemGrading = mutation({
     allowRetakes: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
+    // Auth check
+    const { user } = await requireAuthenticatedUser(ctx);
+    
+    // Validate input
+    if (args.maxPoints !== undefined) {
+      validatePositiveNumber(args.maxPoints, "Max points");
+    }
+    if (args.passingScore !== undefined) {
+      validatePositiveNumber(args.passingScore, "Passing score");
+    }
+    
     const contentItem = await ctx.db.get(args.contentItemId);
     if (!contentItem) {
       throw new Error("Content item not found");
@@ -138,6 +215,11 @@ export const toggleContentItemGrading = mutation({
     const course = await ctx.db.get(chapter.courseId);
     if (!course) {
       throw new Error("Course not found");
+    }
+    
+    // Check if user is admin or course creator
+    if (user.role !== "admin" && course.createdBy !== user._id.toString()) {
+      throw new Error("Unauthorized: You can only modify content in your own courses");
     }
 
     await ctx.db.patch(args.contentItemId, {
@@ -159,6 +241,51 @@ export const deleteContentItem = mutation({
     id: v.id("contentItems"),
   },
   handler: async (ctx, args) => {
+    // Auth check
+    const { user } = await requireAuthenticatedUser(ctx);
+    
+    // Get content item and verify ownership
+    const contentItem = await ctx.db.get(args.id);
+    if (!contentItem) {
+      throw new Error("Content item not found");
+    }
+    
+    const chapter = await ctx.db.get(contentItem.chapterId);
+    if (!chapter) {
+      throw new Error("Chapter not found");
+    }
+    
+    const course = await ctx.db.get(chapter.courseId);
+    if (!course) {
+      throw new Error("Course not found");
+    }
+    
+    // Check if user is admin or course creator
+    if (user.role !== "admin" && course.createdBy !== user._id.toString()) {
+      throw new Error("Unauthorized: You can only delete content from your own courses");
+    }
+    
+    // Delete any progress records for this content item
+    const progressRecords = await ctx.db
+      .query("progress")
+      .withIndex("by_userId_contentItemId")
+      .filter((q) => q.eq(q.field("contentItemId"), args.id))
+      .collect();
+    
+    for (const record of progressRecords) {
+      await ctx.db.delete(record._id);
+    }
+    
+    // Delete any quiz attempts for this content item
+    const quizAttempts = await ctx.db
+      .query("quizAttempts")
+      .withIndex("by_contentItemId", (q) => q.eq("contentItemId", args.id))
+      .collect();
+    
+    for (const attempt of quizAttempts) {
+      await ctx.db.delete(attempt._id);
+    }
+    
     await ctx.db.delete(args.id);
     return { id: args.id };
   },
@@ -218,6 +345,36 @@ export const reorderContentItems = mutation({
     ),
   },
   handler: async (ctx, args) => {
+    // Auth check
+    const { user } = await requireAuthenticatedUser(ctx);
+    
+    // Validate all updates have positive order numbers
+    for (const item of args.items) {
+      validatePositiveNumber(item.order, "Order");
+    }
+    
+    // Verify all items belong to courses the user owns
+    for (const item of args.items) {
+      const contentItem = await ctx.db.get(item.id);
+      if (!contentItem) {
+        throw new Error(`Content item not found: ${item.id}`);
+      }
+      
+      const chapter = await ctx.db.get(contentItem.chapterId);
+      if (!chapter) {
+        throw new Error("Chapter not found");
+      }
+      
+      const course = await ctx.db.get(chapter.courseId);
+      if (!course) {
+        throw new Error("Course not found");
+      }
+      
+      if (user.role !== "admin" && course.createdBy !== user._id.toString()) {
+        throw new Error("Unauthorized: You can only reorder content in your own courses");
+      }
+    }
+    
     for (const item of args.items) {
       await ctx.db.patch(item.id, { order: item.order });
     }
@@ -239,6 +396,30 @@ export const updateTextQuizStatus = mutation({
     textQuizError: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    // Auth check
+    const { user } = await requireAuthenticatedUser(ctx);
+    
+    // Get content item and verify ownership
+    const contentItem = await ctx.db.get(args.contentItemId);
+    if (!contentItem) {
+      throw new Error("Content item not found");
+    }
+    
+    const chapter = await ctx.db.get(contentItem.chapterId);
+    if (!chapter) {
+      throw new Error("Chapter not found");
+    }
+    
+    const course = await ctx.db.get(chapter.courseId);
+    if (!course) {
+      throw new Error("Course not found");
+    }
+    
+    // Check if user is admin or course creator
+    if (user.role !== "admin" && course.createdBy !== user._id.toString()) {
+      throw new Error("Unauthorized: You can only update content in your own courses");
+    }
+    
     const { contentItemId, status, textQuiz, textQuizError } = args;
 
     const updates: {
@@ -309,10 +490,18 @@ export const syncContentItemsGradingStatus = mutation({
     courseId: v.id("courses"),
   },
   handler: async (ctx, args) => {
+    // Auth check
+    const { user } = await requireAuthenticatedUser(ctx);
+    
     // Get the course
     const course = await ctx.db.get(args.courseId);
     if (!course) {
       throw new Error("Course not found");
+    }
+    
+    // Check if user is admin or course creator
+    if (user.role !== "admin" && course.createdBy !== user._id.toString()) {
+      throw new Error("Unauthorized: You can only modify your own courses");
     }
 
     // Get all chapters for this course

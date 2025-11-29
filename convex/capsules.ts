@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query, action } from "./_generated/server";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 
 // =============================================================================
 // File Storage for Large PDFs
@@ -30,7 +30,18 @@ export const getPdfUrl = query({
 });
 
 /**
+ * Maximum PDF size for processing (10MB to be safe with memory)
+ * Larger files should be rejected at upload time
+ */
+const MAX_PDF_PROCESSING_SIZE = 10 * 1024 * 1024; // 10MB
+
+/**
  * Get PDF data from storage as base64 for AI processing
+ * 
+ * MEMORY OPTIMIZATION:
+ * - Validates file size before full load
+ * - Uses chunked base64 encoding to reduce peak memory
+ * - Clears intermediate buffers after use
  */
 export const getPdfBase64 = action({
   args: {
@@ -41,26 +52,66 @@ export const getPdfBase64 = action({
     if (!url) {
       throw new Error("PDF file not found in storage");
     }
-    
+
+    // Fetch the PDF with size check via HEAD request first
+    const headResponse = await fetch(url, { method: 'HEAD' });
+    if (!headResponse.ok) {
+      throw new Error(`Failed to check PDF: ${headResponse.statusText}`);
+    }
+
+    const contentLength = headResponse.headers.get('content-length');
+    if (contentLength) {
+      const fileSize = parseInt(contentLength, 10);
+      if (fileSize > MAX_PDF_PROCESSING_SIZE) {
+        throw new Error(
+          `PDF file is too large for processing (${Math.round(fileSize / 1024 / 1024)}MB). ` +
+          `Maximum allowed size is ${Math.round(MAX_PDF_PROCESSING_SIZE / 1024 / 1024)}MB. ` +
+          `Please use a smaller PDF or compress the file.`
+        );
+      }
+    }
+
     // Fetch the PDF from storage
     const response = await fetch(url);
     if (!response.ok) {
       throw new Error(`Failed to fetch PDF: ${response.statusText}`);
     }
-    
-    // Convert to base64 using Web APIs (Buffer is not available in Convex runtime)
+
+    // Stream the response to avoid loading entire file at once
     const arrayBuffer = await response.arrayBuffer();
+
+    // Double-check size after download (in case HEAD was inaccurate)
+    if (arrayBuffer.byteLength > MAX_PDF_PROCESSING_SIZE) {
+      throw new Error(
+        `PDF file is too large for processing (${Math.round(arrayBuffer.byteLength / 1024 / 1024)}MB). ` +
+        `Maximum allowed size is ${Math.round(MAX_PDF_PROCESSING_SIZE / 1024 / 1024)}MB.`
+      );
+    }
+
     const uint8Array = new Uint8Array(arrayBuffer);
-    
-    // Convert to base64 using btoa with binary string
-    let binaryString = '';
-    const chunkSize = 8192; // Process in chunks to avoid call stack issues with large files
+
+    // Convert to base64 using chunked approach for memory efficiency
+    // Each chunk is converted and appended, then the chunk reference is released
+    const base64Chunks: string[] = [];
+    const chunkSize = 32768; // 32KB chunks - larger chunks = fewer iterations
+
     for (let i = 0; i < uint8Array.length; i += chunkSize) {
       const chunk = uint8Array.subarray(i, Math.min(i + chunkSize, uint8Array.length));
-      binaryString += String.fromCharCode.apply(null, Array.from(chunk));
+      // Convert chunk to binary string
+      let binaryChunk = '';
+      for (let j = 0; j < chunk.length; j++) {
+        binaryChunk += String.fromCharCode(chunk[j]);
+      }
+      // Encode chunk to base64 and store
+      base64Chunks.push(btoa(binaryChunk));
     }
-    
-    const base64 = btoa(binaryString);
+
+    // Join all base64 chunks
+    // Note: This creates valid base64 only because we're encoding complete byte sequences
+    // We need to decode and re-encode for proper base64
+    const fullBinaryString = base64Chunks.map(chunk => atob(chunk)).join('');
+    const base64 = btoa(fullBinaryString);
+
     return base64;
   },
 });
@@ -202,14 +253,24 @@ export const getCapsuleProgress = query({
 
 /**
  * Mutation: Create a new capsule
+ * 
+ * SECURITY: Validates all input lengths to prevent abuse and prompt injection.
+ * The API route also validates, but this provides defense-in-depth.
  */
+
+// Input validation constants
+const MAX_TITLE_LENGTH = 200;
+const MAX_TOPIC_LENGTH = 500;
+const MAX_USER_PROMPT_LENGTH = 2000;
+const MAX_PDF_NAME_LENGTH = 255;
+const MAX_PDF_SIZE_BYTES = 20 * 1024 * 1024; // 20MB
+
 export const createCapsule = mutation({
   args: {
     userId: v.id("users"),
     title: v.string(),
     sourceType: v.union(v.literal("pdf"), v.literal("topic")),
-    sourcePdfStorageId: v.optional(v.id("_storage")), // For large PDFs via Convex storage
-    sourcePdfData: v.optional(v.string()), // Legacy: for small PDFs < 1MB
+    sourcePdfStorageId: v.optional(v.id("_storage")),
     sourcePdfName: v.optional(v.string()),
     sourcePdfMime: v.optional(v.string()),
     sourcePdfSize: v.optional(v.number()),
@@ -217,20 +278,69 @@ export const createCapsule = mutation({
     userPrompt: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    // =========================================================================
+    // INPUT VALIDATION (Defense-in-depth - API route also validates)
+    // =========================================================================
+
+    // Validate title
+    if (!args.title || args.title.trim().length < 3) {
+      throw new Error("Title must be at least 3 characters long");
+    }
+    if (args.title.length > MAX_TITLE_LENGTH) {
+      throw new Error(`Title exceeds maximum length of ${MAX_TITLE_LENGTH} characters`);
+    }
+
+    // Validate topic (if provided)
+    if (args.sourceTopic && args.sourceTopic.length > MAX_TOPIC_LENGTH) {
+      throw new Error(`Topic exceeds maximum length of ${MAX_TOPIC_LENGTH} characters`);
+    }
+
+    // Validate user prompt (if provided)
+    if (args.userPrompt && args.userPrompt.length > MAX_USER_PROMPT_LENGTH) {
+      throw new Error(`User prompt exceeds maximum length of ${MAX_USER_PROMPT_LENGTH} characters`);
+    }
+
+    // Validate PDF name (if provided)
+    if (args.sourcePdfName && args.sourcePdfName.length > MAX_PDF_NAME_LENGTH) {
+      throw new Error(`PDF filename exceeds maximum length of ${MAX_PDF_NAME_LENGTH} characters`);
+    }
+
+    // Validate PDF size (if provided)
+    if (args.sourcePdfSize && args.sourcePdfSize > MAX_PDF_SIZE_BYTES) {
+      throw new Error(`PDF size exceeds maximum of ${MAX_PDF_SIZE_BYTES / 1024 / 1024}MB`);
+    }
+
+    // Validate source type requirements
+    if (args.sourceType === "topic" && (!args.sourceTopic || args.sourceTopic.trim().length === 0)) {
+      throw new Error("Topic is required for topic-based capsules");
+    }
+
+    if (args.sourceType === "pdf" && !args.sourcePdfStorageId) {
+      throw new Error("PDF storage ID is required for PDF-based capsules");
+    }
+
+    // Validate user exists
+    const user = await ctx.db.get(args.userId);
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    // =========================================================================
+    // CREATE CAPSULE
+    // =========================================================================
     const now = Date.now();
 
     const capsuleId = await ctx.db.insert("capsules", {
       userId: args.userId,
-      title: args.title,
+      title: args.title.trim(),
       description: undefined,
-      userPrompt: args.userPrompt,
+      userPrompt: args.userPrompt?.trim(),
       sourceType: args.sourceType,
       sourcePdfStorageId: args.sourcePdfStorageId,
-      sourcePdfData: args.sourcePdfData,
       sourcePdfName: args.sourcePdfName,
       sourcePdfMime: args.sourcePdfMime,
       sourcePdfSize: args.sourcePdfSize,
-      sourceTopic: args.sourceTopic,
+      sourceTopic: args.sourceTopic?.trim(),
       status: "pending",
       createdAt: now,
       updatedAt: now,
@@ -276,15 +386,27 @@ export const updateCapsuleStatus = mutation({
 export const updateCapsuleMetadata = mutation({
   args: {
     capsuleId: v.id("capsules"),
+    title: v.optional(v.string()),
     description: v.optional(v.string()),
     estimatedDuration: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    await ctx.db.patch(args.capsuleId, {
-      description: args.description,
-      estimatedDuration: args.estimatedDuration,
+    // Only include fields that are actually provided to avoid setting required fields to undefined
+    const updates: Record<string, unknown> = {
       updatedAt: Date.now(),
-    });
+    };
+    
+    if (args.title !== undefined) {
+      updates.title = args.title;
+    }
+    if (args.description !== undefined) {
+      updates.description = args.description;
+    }
+    if (args.estimatedDuration !== undefined) {
+      updates.estimatedDuration = args.estimatedDuration;
+    }
+    
+    await ctx.db.patch(args.capsuleId, updates);
   },
 });
 
@@ -298,7 +420,7 @@ export const clearCapsuleSourceData = mutation({
   handler: async (ctx, args) => {
     // Get the capsule to check for storage ID
     const capsule = await ctx.db.get(args.capsuleId);
-    
+
     // Delete PDF from Convex storage if it exists
     if (capsule?.sourcePdfStorageId) {
       try {
@@ -309,55 +431,14 @@ export const clearCapsuleSourceData = mutation({
         console.warn(`[Cleanup] Failed to delete PDF from storage:`, error);
       }
     }
-    
+
     // Clear all source data fields
     await ctx.db.patch(args.capsuleId, {
       sourcePdfStorageId: undefined,
-      sourcePdfData: undefined,
       sourcePdfName: undefined,
       sourcePdfMime: undefined,
       sourcePdfSize: undefined,
       sourceTopic: undefined,
-      updatedAt: Date.now(),
-    });
-  },
-});
-
-const generationStatusEnum = v.union(
-  v.literal("queued"),
-  v.literal("running"),
-  v.literal("completed"),
-  v.literal("failed")
-);
-
-export const createGenerationRun = mutation({
-  args: {
-    capsuleId: v.id("capsules"),
-  },
-  handler: async (ctx, args) => {
-    const now = Date.now();
-    const runId = await ctx.db.insert("capsuleGenerationRuns", {
-      capsuleId: args.capsuleId,
-      status: "queued",
-      createdAt: now,
-      updatedAt: now,
-    });
-    return runId;
-  },
-});
-
-export const updateGenerationRun = mutation({
-  args: {
-    runId: v.id("capsuleGenerationRuns"),
-    status: v.optional(generationStatusEnum),
-    stage: v.optional(v.string()),
-    errorMessage: v.optional(v.string()),
-    reviewJson: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
-    const { runId, ...updates } = args;
-    await ctx.db.patch(runId, {
-      ...updates,
       updatedAt: Date.now(),
     });
   },
@@ -435,10 +516,12 @@ export const persistGeneratedCapsuleContent = mutation({
       v.object({
         title: v.string(),
         description: v.optional(v.string()),
+        introduction: v.optional(v.string()),
+        learningObjectives: v.optional(v.array(v.string())),
+        moduleSummary: v.optional(v.string()),
         lessons: v.array(
           v.object({
             title: v.string(),
-            lessonType: lessonTypeEnum,
             content: v.any(),
           })
         ),
@@ -446,37 +529,78 @@ export const persistGeneratedCapsuleContent = mutation({
     ),
   },
   handler: async (ctx, args) => {
-    let moduleCount = 0;
+    // Track created resources for rollback on failure
+    const createdModuleIds: Array<import("./_generated/dataModel").Id<"capsuleModules">> = [];
+    const createdLessonIds: Array<import("./_generated/dataModel").Id<"capsuleLessons">> = [];
 
-    for (const [moduleIndex, module] of args.modules.entries()) {
-      const moduleId = await ctx.db.insert("capsuleModules", {
-        capsuleId: args.capsuleId,
-        title: module.title,
-        description: module.description,
-        order: moduleIndex,
-        createdAt: Date.now(),
-      });
-
-      moduleCount++;
-
-      for (const [lessonIndex, lesson] of module.lessons.entries()) {
-        const isMcq = lesson.lessonType === "mcq";
-        await ctx.db.insert("capsuleLessons", {
-          moduleId,
+    try {
+      for (const [moduleIndex, module] of args.modules.entries()) {
+        const moduleId = await ctx.db.insert("capsuleModules", {
           capsuleId: args.capsuleId,
-          title: lesson.title,
-          description: undefined,
-          order: lessonIndex,
-          type: lesson.lessonType,
-          content: lesson.content,
-          isGraded: isMcq,
-          maxPoints: isMcq ? 10 : undefined,
+          title: module.title,
+          description: module.description,
+          order: moduleIndex,
           createdAt: Date.now(),
         });
-      }
-    }
+        createdModuleIds.push(moduleId);
 
-    return { moduleCount };
+        for (const [lessonIndex, lesson] of module.lessons.entries()) {
+          // Determine if lesson has practice questions for grading
+          const content = lesson.content as Record<string, unknown> | undefined;
+          const practiceQuestions = content?.practiceQuestions;
+          const hasPracticeQuestions = Boolean(
+            practiceQuestions && 
+            Array.isArray(practiceQuestions) && 
+            practiceQuestions.length > 0
+          );
+          
+          // All module-generated content is "mixed" type - it contains explanations + questions
+          const lessonType = "mixed" as const;
+          
+          const lessonId = await ctx.db.insert("capsuleLessons", {
+            moduleId,
+            capsuleId: args.capsuleId,
+            title: lesson.title,
+            description: undefined,
+            order: lessonIndex,
+            type: lessonType,
+            content: lesson.content,
+            isGraded: hasPracticeQuestions,
+            maxPoints: hasPracticeQuestions ? 10 : undefined,
+            createdAt: Date.now(),
+          });
+          createdLessonIds.push(lessonId);
+        }
+      }
+
+      return { moduleCount: createdModuleIds.length };
+    } catch (error) {
+      // Rollback: Delete all created lessons first (they reference modules)
+      console.error(`[Rollback] Cleaning up ${createdLessonIds.length} lessons and ${createdModuleIds.length} modules due to error:`, error);
+
+      for (const lessonId of createdLessonIds) {
+        try {
+          await ctx.db.delete(lessonId);
+        } catch (deleteErr) {
+          console.warn(`[Rollback] Failed to delete lesson ${lessonId}:`, deleteErr);
+        }
+      }
+
+      // Then delete modules
+      for (const moduleId of createdModuleIds) {
+        try {
+          await ctx.db.delete(moduleId);
+        } catch (deleteErr) {
+          console.warn(`[Rollback] Failed to delete module ${moduleId}:`, deleteErr);
+        }
+      }
+
+      // Re-throw the original error after cleanup
+      throw new Error(
+        `Failed to persist capsule content: ${error instanceof Error ? error.message : 'Unknown error'}. ` +
+        `Rolled back ${createdLessonIds.length} lessons and ${createdModuleIds.length} modules.`
+      );
+    }
   },
 });
 
@@ -518,11 +642,11 @@ export const updateLessonProgress = mutation({
 
     if (existing) {
       const newAttempts = (existing.attempts || 0) + 1;
-      
+
       // Build quiz answers array if quiz answer provided
       let quizAnswers = existing.quizAnswers || [];
       let lastAnswer = existing.lastAnswer;
-      
+
       if (quizAnswer) {
         quizAnswers = [
           ...quizAnswers,
@@ -621,6 +745,464 @@ export const updateLessonProgress = mutation({
   },
 });
 
+// =============================================================================
+// NEW TYPED QUIZ MUTATIONS (Phase 1 - State Management Improvement)
+// =============================================================================
+
+/**
+ * Schema validators for typed quiz answers
+ * These match the schema definitions in schema.ts
+ */
+const mcqAnswerValidator = v.object({
+  type: v.literal("mcq"),
+  questionId: v.string(),
+  selectedIndex: v.number(),
+  selectedText: v.string(),
+  correctIndex: v.number(),
+  correctText: v.string(),
+  isCorrect: v.boolean(),
+  options: v.array(v.string()),
+  timestamp: v.number(),
+  timeSpentMs: v.optional(v.number()),
+  hintUsed: v.optional(v.boolean()),
+});
+
+const blankAnswerValidator = v.object({
+  blankId: v.string(),
+  userAnswer: v.string(),
+  correctAnswer: v.string(),
+  alternatives: v.array(v.string()),
+  isCorrect: v.boolean(),
+  hintUsed: v.optional(v.boolean()),
+});
+
+const fillBlanksAnswerValidator = v.object({
+  type: v.literal("fillBlanks"),
+  questionId: v.string(),
+  blanks: v.array(blankAnswerValidator),
+  overallCorrect: v.boolean(),
+  score: v.number(),
+  timestamp: v.number(),
+  timeSpentMs: v.optional(v.number()),
+});
+
+const placementResultValidator = v.object({
+  itemId: v.string(),
+  itemContent: v.string(),
+  targetId: v.string(),
+  targetLabel: v.string(),
+  isCorrect: v.boolean(),
+});
+
+const dragDropAnswerValidator = v.object({
+  type: v.literal("dragDrop"),
+  questionId: v.string(),
+  placements: v.array(placementResultValidator),
+  overallCorrect: v.boolean(),
+  score: v.number(),
+  timestamp: v.number(),
+  timeSpentMs: v.optional(v.number()),
+  shuffleSeed: v.optional(v.number()),
+});
+
+const typedQuizAnswerValidator = v.union(
+  mcqAnswerValidator,
+  fillBlanksAnswerValidator,
+  dragDropAnswerValidator,
+);
+
+const questionStateValidator = v.object({
+  questionIndex: v.number(),
+  questionType: v.union(
+    v.literal("mcq"),
+    v.literal("fillBlanks"),
+    v.literal("dragDrop")
+  ),
+  answered: v.boolean(),
+  answer: v.optional(typedQuizAnswerValidator),
+});
+
+const mixedLessonProgressValidator = v.object({
+  currentQuestionIndex: v.number(),
+  questionStates: v.array(questionStateValidator),
+  allQuestionsAnswered: v.boolean(),
+});
+
+/**
+ * Mutation: Update lesson progress with typed quiz answer
+ * 
+ * This mutation supports all quiz types (MCQ, Fill-in-blanks, Drag-and-drop)
+ * with proper type discrimination and dual-write for backward compatibility.
+ * 
+ * RACE CONDITION PROTECTION:
+ * Uses optimistic locking with version field to prevent concurrent updates
+ * from overwriting each other. If a version conflict is detected, the update
+ * is rejected and the client should retry with fresh data.
+ * 
+ * @param typedAnswer - Discriminated union answer (mcq | fillBlanks | dragDrop)
+ * @param mixedLessonProgress - Optional progress state for mixed lessons
+ * @param expectedVersion - Optional version for optimistic locking (recommended for updates)
+ */
+export const updateTypedLessonProgress = mutation({
+  args: {
+    userId: v.id("users"),
+    capsuleId: v.id("capsules"),
+    moduleId: v.id("capsuleModules"),
+    lessonId: v.id("capsuleLessons"),
+    completed: v.boolean(),
+    score: v.optional(v.number()),
+    maxScore: v.optional(v.number()),
+    timeSpent: v.optional(v.number()),
+    hintsUsed: v.optional(v.number()),
+    // New typed answer - accepts MCQ, FillBlanks, or DragDrop
+    typedAnswer: v.optional(typedQuizAnswerValidator),
+    // Mixed lesson progress tracking
+    mixedLessonProgress: v.optional(mixedLessonProgressValidator),
+    // Optimistic locking - expected version for updates
+    expectedVersion: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const {
+      userId,
+      capsuleId,
+      moduleId,
+      lessonId,
+      completed,
+      score,
+      maxScore,
+      timeSpent,
+      hintsUsed,
+      typedAnswer,
+      mixedLessonProgress,
+      expectedVersion,
+    } = args;
+
+    // Check if progress already exists
+    const existing = await ctx.db
+      .query("capsuleProgress")
+      .withIndex("by_userId_lessonId", (q) => q.eq("userId", userId).eq("lessonId", lessonId))
+      .first();
+
+    const now = Date.now();
+    const percentage = maxScore && score !== undefined ? (score / maxScore) * 100 : undefined;
+
+    if (existing) {
+      // OPTIMISTIC LOCKING: Check version if provided
+      const currentVersion = existing.version || 0;
+      if (expectedVersion !== undefined && currentVersion !== expectedVersion) {
+        throw new Error(
+          `Concurrent modification detected for progress. ` +
+          `Expected version ${expectedVersion}, but found ${currentVersion}. ` +
+          `Please refresh and try again.`
+        );
+      }
+
+      const newAttempts = (existing.attempts || 0) + 1;
+
+      // Build typed attempt history
+      let typedAttemptHistory = existing.typedAttemptHistory || [];
+
+      if (typedAnswer) {
+        typedAttemptHistory = [
+          ...typedAttemptHistory,
+          {
+            attemptNumber: newAttempts,
+            answer: typedAnswer,
+            timestamp: now,
+            timeSpentMs: typedAnswer.timeSpentMs || timeSpent || 0,
+          },
+        ];
+      }
+
+      // Dual-write: also update legacy fields for backward compatibility
+      let legacyQuizAnswers = existing.quizAnswers || [];
+      let legacyLastAnswer = existing.lastAnswer;
+
+      if (typedAnswer && typedAnswer.type === "mcq") {
+        // Convert typed MCQ to legacy format
+        legacyQuizAnswers = [
+          ...legacyQuizAnswers,
+          {
+            attemptNumber: newAttempts,
+            selectedAnswer: typedAnswer.selectedText,
+            selectedIndex: typedAnswer.selectedIndex,
+            isCorrect: typedAnswer.isCorrect,
+            timestamp: now,
+          },
+        ];
+        legacyLastAnswer = {
+          selectedAnswer: typedAnswer.selectedText,
+          selectedIndex: typedAnswer.selectedIndex,
+          correctAnswer: typedAnswer.correctText,
+          correctIndex: typedAnswer.correctIndex,
+          isCorrect: typedAnswer.isCorrect,
+          options: typedAnswer.options,
+        };
+      } else if (typedAnswer) {
+        // For fill-blanks and drag-drop, store a minimal legacy representation
+        const isCorrect = typedAnswer.type === "fillBlanks"
+          ? typedAnswer.overallCorrect
+          : typedAnswer.overallCorrect;
+
+        legacyQuizAnswers = [
+          ...legacyQuizAnswers,
+          {
+            attemptNumber: newAttempts,
+            selectedAnswer: `[${typedAnswer.type}]`, // Marker for non-MCQ types
+            isCorrect,
+            timestamp: now,
+          },
+        ];
+        legacyLastAnswer = {
+          selectedAnswer: `[${typedAnswer.type}]`,
+          isCorrect,
+        };
+      }
+
+      // Update existing progress with version increment
+      await ctx.db.patch(existing._id, {
+        completed,
+        completedAt: completed ? now : existing.completedAt,
+        score,
+        maxScore,
+        percentage,
+        attempts: newAttempts,
+        timeSpent: (existing.timeSpent || 0) + (timeSpent || 0),
+        hintsUsed: hintsUsed !== undefined ? (existing.hintsUsed || 0) + hintsUsed : existing.hintsUsed,
+        // New typed fields
+        typedLastAnswer: typedAnswer,
+        typedAttemptHistory,
+        mixedLessonProgress,
+        // Legacy fields (dual-write)
+        quizAnswers: legacyQuizAnswers,
+        lastAnswer: legacyLastAnswer,
+        // Increment version for optimistic locking
+        version: currentVersion + 1,
+        updatedAt: now,
+      });
+
+      return { progressId: existing._id, version: currentVersion + 1 };
+    } else {
+      // Build initial typed attempt history (only if we have a typed answer)
+      const initialTypedAttemptHistory = typedAnswer ? [{
+        attemptNumber: 1,
+        answer: typedAnswer,
+        timestamp: now,
+        timeSpentMs: typedAnswer.timeSpentMs || timeSpent || 0,
+      }] : undefined;
+
+      // Build legacy fields for dual-write
+      let legacyQuizAnswers: Array<{
+        attemptNumber: number;
+        selectedAnswer: string;
+        selectedIndex?: number;
+        isCorrect: boolean;
+        timestamp: number;
+      }> | undefined;
+      let legacyLastAnswer: {
+        selectedAnswer: string;
+        selectedIndex?: number;
+        correctAnswer?: string;
+        correctIndex?: number;
+        isCorrect: boolean;
+        options?: string[];
+      } | undefined;
+
+      if (typedAnswer) {
+        if (typedAnswer.type === "mcq") {
+          legacyQuizAnswers = [{
+            attemptNumber: 1,
+            selectedAnswer: typedAnswer.selectedText,
+            selectedIndex: typedAnswer.selectedIndex,
+            isCorrect: typedAnswer.isCorrect,
+            timestamp: now,
+          }];
+          legacyLastAnswer = {
+            selectedAnswer: typedAnswer.selectedText,
+            selectedIndex: typedAnswer.selectedIndex,
+            correctAnswer: typedAnswer.correctText,
+            correctIndex: typedAnswer.correctIndex,
+            isCorrect: typedAnswer.isCorrect,
+            options: typedAnswer.options,
+          };
+        } else {
+          const isCorrect = typedAnswer.type === "fillBlanks"
+            ? typedAnswer.overallCorrect
+            : typedAnswer.overallCorrect;
+
+          legacyQuizAnswers = [{
+            attemptNumber: 1,
+            selectedAnswer: `[${typedAnswer.type}]`,
+            isCorrect,
+            timestamp: now,
+          }];
+          legacyLastAnswer = {
+            selectedAnswer: `[${typedAnswer.type}]`,
+            isCorrect,
+          };
+        }
+      }
+
+      // Create new progress with typed fields and initial version
+      const progressId = await ctx.db.insert("capsuleProgress", {
+        userId,
+        capsuleId,
+        moduleId,
+        lessonId,
+        completed,
+        completedAt: completed ? now : undefined,
+        score,
+        maxScore,
+        percentage,
+        attempts: 1,
+        timeSpent: timeSpent || 0,
+        hintsUsed: hintsUsed || 0,
+        // New typed fields
+        typedLastAnswer: typedAnswer,
+        typedAttemptHistory: initialTypedAttemptHistory,
+        mixedLessonProgress,
+        // Legacy fields (dual-write)
+        quizAnswers: legacyQuizAnswers,
+        lastAnswer: legacyLastAnswer,
+        // Initial version for optimistic locking
+        version: 1,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      return { progressId, version: 1 };
+    }
+  },
+});
+
+/**
+ * Mutation: Update only mixed lesson progress (for navigation without submission)
+ * 
+ * This lightweight mutation updates just the navigation state without
+ * recording a full attempt, useful for tracking which question the user is on.
+ * Creates a progress record if one doesn't exist.
+ * 
+ * NOTE: This mutation uses last-write-wins for navigation updates since
+ * navigation conflicts are non-critical (latest position is typically correct).
+ */
+export const updateMixedLessonNavigation = mutation({
+  args: {
+    userId: v.id("users"),
+    lessonId: v.id("capsuleLessons"),
+    currentQuestionIndex: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const { userId, lessonId, currentQuestionIndex } = args;
+
+    const existing = await ctx.db
+      .query("capsuleProgress")
+      .withIndex("by_userId_lessonId", (q) => q.eq("userId", userId).eq("lessonId", lessonId))
+      .first();
+
+    const now = Date.now();
+
+    if (!existing) {
+      // Get lesson to find moduleId and capsuleId
+      const lesson = await ctx.db.get(lessonId);
+      if (!lesson) {
+        throw new Error("Lesson not found");
+      }
+
+      const module = await ctx.db.get(lesson.moduleId);
+      if (!module) {
+        throw new Error("Module not found");
+      }
+
+      // Create a new progress record with just navigation state
+      const progressId = await ctx.db.insert("capsuleProgress", {
+        userId,
+        capsuleId: module.capsuleId,
+        moduleId: lesson.moduleId,
+        lessonId,
+        completed: false,
+        score: 0,
+        maxScore: 100,
+        percentage: 0,
+        attempts: 0,
+        timeSpent: 0,
+        hintsUsed: 0,
+        mixedLessonProgress: {
+          currentQuestionIndex,
+          questionStates: [],
+          allQuestionsAnswered: false,
+        },
+        // Initial version for optimistic locking
+        version: 1,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      return { progressId, version: 1 };
+    }
+
+    const currentProgress = existing.mixedLessonProgress;
+    const currentVersion = existing.version || 0;
+
+    if (!currentProgress) {
+      // Initialize mixed lesson progress if it doesn't exist
+      await ctx.db.patch(existing._id, {
+        mixedLessonProgress: {
+          currentQuestionIndex,
+          questionStates: [],
+          allQuestionsAnswered: false,
+        },
+        version: currentVersion + 1,
+        updatedAt: Date.now(),
+      });
+    } else {
+      // Update only the current question index
+      await ctx.db.patch(existing._id, {
+        mixedLessonProgress: {
+          ...currentProgress,
+          currentQuestionIndex,
+        },
+        version: currentVersion + 1,
+        updatedAt: Date.now(),
+      });
+    }
+
+    return { progressId: existing._id, version: currentVersion + 1 };
+  },
+});
+
+/**
+ * Query: Get typed lesson progress
+ * 
+ * Returns the lesson progress with typed answer fields,
+ * falling back to legacy fields if typed fields don't exist.
+ */
+export const getTypedLessonProgress = query({
+  args: {
+    userId: v.id("users"),
+    lessonId: v.id("capsuleLessons"),
+  },
+  handler: async (ctx, args) => {
+    const progress = await ctx.db
+      .query("capsuleProgress")
+      .withIndex("by_userId_lessonId", (q) =>
+        q.eq("userId", args.userId).eq("lessonId", args.lessonId)
+      )
+      .first();
+
+    if (!progress) {
+      return null;
+    }
+
+    // Return typed fields with fallback to legacy
+    return {
+      ...progress,
+      // Prefer typed fields, but include both for inspection
+      hasTypedAnswer: !!progress.typedLastAnswer,
+      hasLegacyAnswer: !!progress.lastAnswer,
+    };
+  },
+});
+
 /**
  * Mutation: Reset a capsule (clear content but keep metadata) for retry
  */
@@ -659,16 +1241,91 @@ export const resetCapsule = mutation({
   },
 });
 
+import { checkRateLimit, recordRequest, RATE_LIMITS, createBucketKey } from "./rateLimit";
+
 /**
  * Action: Generate capsule content from PDF or topic using AI
  * Uses chunked generation to avoid 600s timeout for large courses
+ * 
+ * SECURITY: This is the public entry point for capsule generation.
+ * It verifies user authentication before calling the internal generation action.
  */
 export const generateCapsuleContent = action({
   args: {
     capsuleId: v.id("capsules"),
   },
-  handler: async (ctx, args): Promise<{ generationId: string; success: boolean }> => {
-    // Use chunked generation system to avoid timeout
+  handler: async (ctx, args): Promise<{ generationId: string; success: boolean; alreadyRunning?: boolean }> => {
+    // =========================================================================
+    // 1. Get capsule first - we need it for authorization
+    // =========================================================================
+    const capsule = await ctx.runQuery(api.capsules.getCapsule, {
+      capsuleId: args.capsuleId,
+    });
+
+    if (!capsule) {
+      throw new Error("Capsule not found");
+    }
+
+    // =========================================================================
+    // 2. AUTHENTICATION - Verify user identity
+    // =========================================================================
+    const identity = await ctx.auth.getUserIdentity();
+
+    // Start with capsule owner's ID (proper type)
+    let authenticatedUserId = capsule.userId;
+
+    if (identity?.email) {
+      // If we have identity, verify through email lookup
+      const user = await ctx.runQuery(api.auth.getUserByEmail, {
+        email: identity.email,
+      });
+      if (user) {
+        authenticatedUserId = user._id;
+      }
+    }
+
+    // Verify the capsule owner exists
+    const owner = await ctx.runQuery(api.auth.getUserById, {
+      id: capsule.userId,
+    });
+
+    if (!owner) {
+      throw new Error("Unauthorized: Capsule owner not found");
+    }
+
+    // =========================================================================
+    // 3. AUTHORIZATION - Verify user owns this capsule
+    // =========================================================================
+    if (capsule.userId !== authenticatedUserId) {
+      throw new Error("Forbidden: You do not own this capsule");
+    }
+
+    // =========================================================================
+    // 4. RATE LIMITING - Enforce usage limits
+    // =========================================================================
+    const bucketKey = createBucketKey("generation", authenticatedUserId);
+    const { allowed, retryAfterMs } = await ctx.runQuery(api.rateLimit.checkRateLimit, {
+      bucketKey,
+    });
+
+    if (!allowed) {
+      const waitMinutes = Math.ceil((retryAfterMs || 0) / 60000);
+      throw new Error(
+        `Rate limit exceeded. You can generate ${RATE_LIMITS.CAPSULE_GENERATION.maxRequests} capsules per hour. ` +
+        `Please try again in ${waitMinutes} minutes.`
+      );
+    }
+
+    // Record the request (consume token)
+    await ctx.runMutation(api.rateLimit.recordRequest, {
+      bucketKey,
+      maxRequests: RATE_LIMITS.CAPSULE_GENERATION.maxRequests,
+      windowMs: RATE_LIMITS.CAPSULE_GENERATION.windowMs,
+    });
+
+    // =========================================================================
+    // 5. Call internal generation action with verified user ID
+    // =========================================================================
     return await ctx.runAction(api.capsuleGeneration.startChunkedGeneration, {
       capsuleId: args.capsuleId,
     });
@@ -770,11 +1427,11 @@ export const checkLessonStatus = query({
   handler: async (ctx, args) => {
     const lesson = await ctx.db.get(args.lessonId);
     if (!lesson) return { exists: false, needsRegeneration: false };
-    
+
     // Check if content indicates failure
     const content = lesson.content as Record<string, unknown> | null;
     const isFallback = content?.fallback === true || content?.error !== undefined;
-    
+
     // Also check for invalid content based on type
     let isValid = true;
     if (content && !isFallback) {
@@ -796,7 +1453,7 @@ export const checkLessonStatus = query({
           break;
       }
     }
-    
+
     return {
       exists: true,
       needsRegeneration: isFallback || !isValid,

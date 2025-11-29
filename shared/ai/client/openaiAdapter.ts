@@ -57,6 +57,14 @@ export class OpenAIAdapter {
       );
     }
     
+    if (!config.modelId) {
+      throw new CapsuleError(
+        ErrorCode.CONFIG_ERROR,
+        "Model ID is required. Please configure the AI model in the admin panel.",
+        { provider: "openai" }
+      );
+    }
+    
     this.config = config;
     this.client = new OpenAI({ 
       apiKey,

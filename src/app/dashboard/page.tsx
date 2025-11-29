@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState, useCallback } from 'react';
 import { useQuery } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
 import type { Course } from '@/lib/types';
@@ -9,31 +9,34 @@ import { CoursesPageHeader } from '@/components/dashboard/CoursesPageHeader';
 import { CourseGrid } from '@/components/dashboard/CourseGrid';
 import { CourseGridSkeleton } from '@/components/dashboard/CourseGridSkeleton';
 import { useDashboard } from '@/context/DashboardContext';
-import { BookOpen } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { BookOpen, Loader2 } from 'lucide-react';
+
+const COURSES_PER_PAGE = 12;
 
 const CoursesPage = () => {
-  const { searchTerm } = useDashboard();
+  const { debouncedSearchTerm } = useDashboard();
+  const [cursor, setCursor] = useState<string | undefined>(undefined);
+  const [allLoadedCourses, setAllLoadedCourses] = useState<Course[]>([]);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   
-  // Fetch all published courses
-  const allCourses = useQuery(api.courses.getAllCourses, { limit: 100, offset: 0 });
+  // Fetch courses with cursor-based pagination
+  const queryArgs = { 
+    limit: COURSES_PER_PAGE,
+    ...(cursor ? { cursor } : {})
+  };
+  
+  const coursesResult = useQuery(api.courses.getAllCourses, queryArgs);
 
-  const loading = allCourses === undefined;
+  // Track if this is initial load or load more
+  const isInitialLoading = coursesResult === undefined && allLoadedCourses.length === 0;
 
-  // Filter all courses based on search
-  const filteredAllCourses = useMemo(() => {
-    if (!allCourses) return [];
-    if (!searchTerm) return allCourses;
-    return allCourses.filter(
-      (course) =>
-        course.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        course.description?.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-  }, [allCourses, searchTerm]);
-
-  // Transform to Course type for display
-  const allCoursesForGrid: Course[] = useMemo(() => {
-    if (!filteredAllCourses) return [];
-    return filteredAllCourses.map(course => ({
+  // Combine loaded courses with new results
+  const displayCourses = useMemo(() => {
+    if (!coursesResult?.courses) return allLoadedCourses;
+    
+    // Transform new courses to Course type
+    const newCourses: Course[] = coursesResult.courses.map(course => ({
       id: course._id,
       name: course.name,
       description: course.description || '',
@@ -42,7 +45,46 @@ const CoursesPage = () => {
       isCertification: course.isCertification,
       passingGrade: course.passingGrade,
     }));
-  }, [filteredAllCourses]);
+
+    // If no cursor was set, this is fresh data (first load or reset)
+    if (!cursor) {
+      return newCourses;
+    }
+    
+    // Otherwise append to existing courses (avoiding duplicates)
+    const existingIds = new Set(allLoadedCourses.map(c => c.id));
+    const uniqueNewCourses = newCourses.filter(c => !existingIds.has(c.id));
+    return [...allLoadedCourses, ...uniqueNewCourses];
+  }, [coursesResult?.courses, cursor, allLoadedCourses]);
+
+  // Filter courses based on search
+  const filteredCourses = useMemo(() => {
+    if (!debouncedSearchTerm) return displayCourses;
+    return displayCourses.filter(
+      (course) =>
+        course.name.toLowerCase().includes(debouncedSearchTerm.toLowerCase()) ||
+        course.description?.toLowerCase().includes(debouncedSearchTerm.toLowerCase())
+    );
+  }, [displayCourses, debouncedSearchTerm]);
+
+  // Handle load more
+  const handleLoadMore = useCallback(() => {
+    if (coursesResult?.nextCursor) {
+      setIsLoadingMore(true);
+      setAllLoadedCourses(displayCourses);
+      setCursor(coursesResult.nextCursor);
+    }
+  }, [coursesResult?.nextCursor, displayCourses]);
+
+  // Reset loading state when new data arrives
+  useMemo(() => {
+    if (coursesResult !== undefined) {
+      setIsLoadingMore(false);
+    }
+  }, [coursesResult]);
+
+  // Check if there are more courses to load
+  const hasMore = coursesResult?.hasMore ?? false;
 
   return (
     <main className="bg-background min-h-screen">
@@ -50,18 +92,42 @@ const CoursesPage = () => {
         <div className="space-y-8">
           <CoursesPageHeader />
           
-          {loading ? (
+          {isInitialLoading ? (
             <CourseGridSkeleton />
-          ) : allCoursesForGrid.length === 0 ? (
+          ) : filteredCourses.length === 0 ? (
             <div className="text-center py-12 px-4">
               <BookOpen className="mx-auto h-12 w-12 text-muted-foreground/50 mb-4" />
               <h3 className="text-lg font-semibold mb-2">No Courses Available</h3>
               <p className="text-muted-foreground">
-                {searchTerm ? 'No courses found matching your search.' : 'No courses found. Check back later!'}
+                {debouncedSearchTerm ? 'No courses found matching your search.' : 'No courses found. Check back later!'}
               </p>
             </div>
           ) : (
-            <CourseGrid courses={allCoursesForGrid} />
+            <>
+              <CourseGrid courses={filteredCourses} />
+              
+              {/* Load More Button */}
+              {hasMore && !debouncedSearchTerm && (
+                <div className="flex justify-center pt-8">
+                  <Button
+                    onClick={handleLoadMore}
+                    disabled={isLoadingMore}
+                    variant="outline"
+                    size="lg"
+                    className="min-w-[200px]"
+                  >
+                    {isLoadingMore ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Loading...
+                      </>
+                    ) : (
+                      'Load More Courses'
+                    )}
+                  </Button>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>

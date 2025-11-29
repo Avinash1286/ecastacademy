@@ -2,12 +2,37 @@ import { NextRequest, NextResponse } from "next/server";
 import { api } from "../../../../../convex/_generated/api";
 import { Id } from "../../../../../convex/_generated/dataModel";
 import { createConvexClient } from "@/lib/convexClient";
+import { withRateLimit, RATE_LIMIT_PRESETS } from "@/lib/security/rateLimit";
+import { auth } from "@/lib/auth/auth.config";
+import { logger } from "@/lib/logging/logger";
 
 const convex = createConvexClient();
 
 export async function POST(request: NextRequest) {
+  // Apply rate limiting
+  const rateLimitResponse = await withRateLimit(request, RATE_LIMIT_PRESETS.VIDEO_CREATE);
+  if (rateLimitResponse) return rateLimitResponse;
+
+  // Require authentication for video creation
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json(
+      { error: "Authentication required" },
+      { status: 401 }
+    );
+  }
+
+  let body;
   try {
-    const body = await request.json();
+    body = await request.json();
+  } catch {
+    return NextResponse.json(
+      { error: "Invalid JSON in request body" },
+      { status: 400 }
+    );
+  }
+
+  try {
     const { videos } = body;
 
     if (!videos || !Array.isArray(videos) || videos.length === 0) {
@@ -15,6 +40,30 @@ export async function POST(request: NextRequest) {
         { error: "No videos provided" },
         { status: 400 }
       );
+    }
+
+    // Validate video array size (prevent abuse)
+    if (videos.length > 50) {
+      return NextResponse.json(
+        { error: "Maximum 50 videos per request" },
+        { status: 400 }
+      );
+    }
+
+    // Validate each video has required fields
+    for (const video of videos) {
+      if (!video.id || typeof video.id !== 'string') {
+        return NextResponse.json(
+          { error: "Each video must have a valid 'id' field" },
+          { status: 400 }
+        );
+      }
+      if (!/^[a-zA-Z0-9_-]{11}$/.test(video.id)) {
+        return NextResponse.json(
+          { error: `Invalid YouTube video ID format: ${video.id}` },
+          { status: 400 }
+        );
+      }
     }
 
     let created = 0;
@@ -65,7 +114,7 @@ export async function POST(request: NextRequest) {
           videoIds: createdVideoIds,
         });
       } catch (error) {
-        console.error("Failed to trigger sequential processing:", error);
+        logger.error("Failed to trigger sequential processing", { videoCount: createdVideoIds.length }, error as Error);
       }
     }
 
@@ -79,10 +128,10 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error) {
-    console.error("[VIDEO_CREATE_API_ERROR]", error);
-    const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
+    logger.error("[VIDEO_CREATE_API] Video creation failed", undefined, error as Error);
+    // Don't leak internal error details to client
     return NextResponse.json(
-      { error: `Failed to create videos: ${errorMessage}` },
+      { error: "Failed to create videos. Please try again later." },
       { status: 500 }
     );
   }

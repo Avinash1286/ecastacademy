@@ -99,7 +99,7 @@ export default function CourseBuilderPage() {
   const [deletingContentId, setDeletingContentId] = useState<Id<"contentItems"> | null>(null);
   const [reorderingChaptersLoading, setReorderingChaptersLoading] = useState(false);
   const [reorderingContentLoading, setReorderingContentLoading] = useState(false);
-  
+
   // Delete confirmation dialog states
   const [deleteDialog, setDeleteDialog] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{
@@ -107,11 +107,11 @@ export default function CourseBuilderPage() {
     id: Id<"chapters"> | Id<"contentItems">;
     title: string;
   } | null>(null);
-  
+
   // Video selector dialog states
   const [videoSelectorDialog, setVideoSelectorDialog] = useState(false);
   const [videoSearchQuery, setVideoSearchQuery] = useState("");
-  
+
   // Drag and drop states
   const [draggedChapterIndex, setDraggedChapterIndex] = useState<number | null>(null);
   const [draggedContentIndex, setDraggedContentIndex] = useState<number | null>(null);
@@ -124,7 +124,7 @@ export default function CourseBuilderPage() {
   const [selectedVideoId, setSelectedVideoId] = useState("");
   const [textContent, setTextContent] = useState("");
   const [resourceUrl, setResourceUrl] = useState("");
-  
+
   // Grading configuration states
   const [isGraded, setIsGraded] = useState(false);
   const [maxPoints, setMaxPoints] = useState("100");
@@ -132,12 +132,12 @@ export default function CourseBuilderPage() {
   const [allowRetakes, setAllowRetakes] = useState(true);
 
   const completedVideos = videos?.filter((v) => v.status === "completed") || [];
-  
+
   // Filter videos by search query
   const filteredVideos = completedVideos.filter((video) =>
     video.title.toLowerCase().includes(videoSearchQuery.toLowerCase())
   );
-  
+
   const handleSelectVideo = (videoId: string, videoTitle: string) => {
     setSelectedVideoId(videoId);
     setContentTitle(videoTitle);
@@ -272,8 +272,8 @@ export default function CourseBuilderPage() {
       ?.find((ch) => ch._id === selectedChapterId)
       ?.contentItems || [];
 
-  setCreatingContent(true);
-  try {
+    setCreatingContent(true);
+    try {
       const baseData = {
         chapterId: selectedChapterId,
         type: contentType,
@@ -440,7 +440,7 @@ export default function CourseBuilderPage() {
     } catch (error) {
       // Show clean error message
       const errorMessage = error instanceof Error ? error.message : "Failed to generate quiz";
-      
+
       // Show different messages based on error type
       if (errorMessage.includes("quota") || errorMessage.includes("Rate limit")) {
         toast.error(errorMessage, {
@@ -449,7 +449,7 @@ export default function CourseBuilderPage() {
       } else {
         toast.error(errorMessage);
       }
-      
+
       console.error("Quiz generation error:", error);
     } finally {
       setGeneratingQuizForContentId(null);
@@ -640,7 +640,7 @@ export default function CourseBuilderPage() {
       ) : (
         <div className="space-y-4">
           {chapters.map((chapter, index) => (
-            <Card 
+            <Card
               key={chapter._id}
               draggable={!reorderingChaptersLoading}
               onDragStart={() => handleChapterDragStart(index)}
@@ -710,161 +710,161 @@ export default function CourseBuilderPage() {
                       const isGeneratingQuiz = generatingQuizForContentId === item._id;
                       const textQuizStatus = item.type === "text" ? item.textQuizStatus : null;
                       const isGeneratingNotes = item.type === "video" && generatingNotesForContentId === item._id;
-                      
+
                       return (
-                      <div
-                        key={item._id}
-                        draggable={!reorderingContentLoading}
-                        onDragStart={() => handleContentDragStart(chapter._id, itemIndex)}
-                        onDragOver={handleContentDragOver}
-                        onDrop={(e) => handleContentDrop(e, chapter._id, itemIndex)}
-                        className={`flex items-center justify-between p-3 border rounded-lg hover:bg-accent/50 transition-colors cursor-move ${reorderingContentLoading ? 'opacity-50 pointer-events-none' : ''}`}
-                      >
-                        <div className="flex items-center gap-3 flex-1">
-                          <GripVertical className="h-4 w-4 text-muted-foreground cursor-grab active:cursor-grabbing" />
-                          {getContentIcon(item.type)}
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium">{item.title}</span>
-                              {getContentTypeBadge(item.type)}
-                              {item.isGraded && (
-                                <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950 dark:text-amber-400 dark:border-amber-800">
-                                  Graded
-                                </Badge>
-                              )}
-                              {item.type === "video" && (
-                                videoDetails?.notes ? (
-                                  <Badge variant="outline" className="text-green-600">
-                                    <CheckCircle className="h-3 w-3 mr-1" />
-                                    Notes Ready
+                        <div
+                          key={item._id}
+                          draggable={!reorderingContentLoading}
+                          onDragStart={() => handleContentDragStart(chapter._id, itemIndex)}
+                          onDragOver={handleContentDragOver}
+                          onDrop={(e) => handleContentDrop(e, chapter._id, itemIndex)}
+                          className={`flex items-center justify-between p-3 border rounded-lg hover:bg-accent/50 transition-colors cursor-move ${reorderingContentLoading ? 'opacity-50 pointer-events-none' : ''}`}
+                        >
+                          <div className="flex items-center gap-3 flex-1">
+                            <GripVertical className="h-4 w-4 text-muted-foreground cursor-grab active:cursor-grabbing" />
+                            {getContentIcon(item.type)}
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium">{item.title}</span>
+                                {getContentTypeBadge(item.type)}
+                                {item.isGraded && (
+                                  <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950 dark:text-amber-400 dark:border-amber-800">
+                                    Graded
                                   </Badge>
-                                ) : (
-                                  <Badge variant="outline" className="text-yellow-600">
-                                    <AlertCircle className="h-3 w-3 mr-1" />
-                                    Notes Missing
-                                  </Badge>
-                                )
-                              )}
-                              {item.type === "text" && textQuizStatus && (
-                                <>
-                                  {textQuizStatus === "pending" && (
-                                    <Badge variant="outline" className="text-yellow-600">
-                                      <AlertCircle className="h-3 w-3 mr-1" />
-                                      Quiz Pending
-                                    </Badge>
-                                  )}
-                                  {textQuizStatus === "processing" && (
-                                    <Badge variant="outline" className="text-blue-600">
-                                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                                      Generating Quiz
-                                    </Badge>
-                                  )}
-                                  {textQuizStatus === "completed" && (
+                                )}
+                                {item.type === "video" && (
+                                  videoDetails?.notes ? (
                                     <Badge variant="outline" className="text-green-600">
                                       <CheckCircle className="h-3 w-3 mr-1" />
-                                      Quiz Ready
+                                      Notes Ready
                                     </Badge>
-                                  )}
-                                  {textQuizStatus === "failed" && (
-                                    <Badge variant="outline" className="text-red-600">
+                                  ) : (
+                                    <Badge variant="outline" className="text-yellow-600">
                                       <AlertCircle className="h-3 w-3 mr-1" />
-                                      Quiz Failed
+                                      Notes Missing
                                     </Badge>
-                                  )}
-                                </>
+                                  )
+                                )}
+                                {item.type === "text" && textQuizStatus && (
+                                  <>
+                                    {textQuizStatus === "pending" && (
+                                      <Badge variant="outline" className="text-yellow-600">
+                                        <AlertCircle className="h-3 w-3 mr-1" />
+                                        Quiz Pending
+                                      </Badge>
+                                    )}
+                                    {textQuizStatus === "processing" && (
+                                      <Badge variant="outline" className="text-blue-600">
+                                        <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                        Generating Quiz
+                                      </Badge>
+                                    )}
+                                    {textQuizStatus === "completed" && (
+                                      <Badge variant="outline" className="text-green-600">
+                                        <CheckCircle className="h-3 w-3 mr-1" />
+                                        Quiz Ready
+                                      </Badge>
+                                    )}
+                                    {textQuizStatus === "failed" && (
+                                      <Badge variant="outline" className="text-red-600">
+                                        <AlertCircle className="h-3 w-3 mr-1" />
+                                        Quiz Failed
+                                      </Badge>
+                                    )}
+                                  </>
+                                )}
+                              </div>
+                              {videoDetails && videoDetails.durationInSeconds && (
+                                <p className="text-xs text-muted-foreground">
+                                  {Math.floor(videoDetails.durationInSeconds / 60)}:{String(videoDetails.durationInSeconds % 60).padStart(2, '0')} • {videoDetails.channelTitle}
+                                </p>
                               )}
                             </div>
-                            {videoDetails && videoDetails.durationInSeconds && (
-                              <p className="text-xs text-muted-foreground">
-                                {Math.floor(videoDetails.durationInSeconds / 60)}:{String(videoDetails.durationInSeconds % 60).padStart(2, '0')} • {videoDetails.channelTitle}
-                              </p>
-                            )}
                           </div>
-                        </div>
-                        <div className="flex gap-2">
-                          {item.type === "video" && (
+                          <div className="flex gap-2">
+                            {item.type === "video" && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleGenerateVideoNotes(item._id)}
+                                disabled={isGeneratingNotes}
+                                title={videoDetails?.notes ? "Regenerate notes" : "Generate notes"}
+                              >
+                                {isGeneratingNotes ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : videoDetails?.notes ? (
+                                  <RotateCcw className="h-4 w-4" />
+                                ) : (
+                                  <Sparkles className="h-4 w-4" />
+                                )}
+                              </Button>
+                            )}
+                            {item.type === "text" && (
+                              <>
+                                {!textQuizStatus || textQuizStatus === "failed" ? (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => textQuizStatus === "failed" ? handleRetryTextQuiz(item._id) : handleGenerateTextQuiz(item._id)}
+                                    disabled={isGeneratingQuiz}
+                                    title={textQuizStatus === "failed" ? "Retry generating quiz" : "Generate quiz from text content"}
+                                  >
+                                    {isGeneratingQuiz ? (
+                                      <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : textQuizStatus === "failed" ? (
+                                      <RotateCcw className="h-4 w-4" />
+                                    ) : (
+                                      <Sparkles className="h-4 w-4" />
+                                    )}
+                                  </Button>
+                                ) : textQuizStatus === "pending" || textQuizStatus === "processing" ? (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    disabled
+                                    title="Quiz generation in progress"
+                                  >
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  </Button>
+                                ) : textQuizStatus === "completed" ? (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => handleGenerateTextQuiz(item._id)}
+                                    disabled={isGeneratingQuiz}
+                                    title="Regenerate quiz"
+                                  >
+                                    {isGeneratingQuiz ? (
+                                      <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                      <RotateCcw className="h-4 w-4" />
+                                    )}
+                                  </Button>
+                                ) : null}
+                              </>
+                            )}
                             <Button
-                              variant="outline"
+                              variant="ghost"
                               size="sm"
-                              onClick={() => handleGenerateVideoNotes(item._id)}
-                              disabled={isGeneratingNotes}
-                              title={videoDetails?.notes ? "Regenerate notes" : "Generate notes"}
+                              onClick={() => openEditContentDialog(item, chapter._id)}
+                              disabled={deletingContentId === item._id}
                             >
-                              {isGeneratingNotes ? (
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDeleteContent(item._id, item.title)}
+                              disabled={deletingContentId === item._id}
+                            >
+                              {deletingContentId === item._id ? (
                                 <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : videoDetails?.notes ? (
-                                <RotateCcw className="h-4 w-4" />
                               ) : (
-                                <Sparkles className="h-4 w-4" />
+                                <Trash2 className="h-4 w-4" />
                               )}
                             </Button>
-                          )}
-                          {item.type === "text" && (
-                            <>
-                              {!textQuizStatus || textQuizStatus === "failed" ? (
-                                <Button 
-                                  variant="outline" 
-                                  size="sm"
-                                  onClick={() => textQuizStatus === "failed" ? handleRetryTextQuiz(item._id) : handleGenerateTextQuiz(item._id)}
-                                  disabled={isGeneratingQuiz}
-                                  title={textQuizStatus === "failed" ? "Retry generating quiz" : "Generate quiz from text content"}
-                                >
-                                  {isGeneratingQuiz ? (
-                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                  ) : textQuizStatus === "failed" ? (
-                                    <RotateCcw className="h-4 w-4" />
-                                  ) : (
-                                    <Sparkles className="h-4 w-4" />
-                                  )}
-                                </Button>
-                              ) : textQuizStatus === "pending" || textQuizStatus === "processing" ? (
-                                <Button 
-                                  variant="outline" 
-                                  size="sm"
-                                  disabled
-                                  title="Quiz generation in progress"
-                                >
-                                  <Loader2 className="h-4 w-4 animate-spin" />
-                                </Button>
-                              ) : textQuizStatus === "completed" ? (
-                                <Button 
-                                  variant="outline" 
-                                  size="sm"
-                                  onClick={() => handleGenerateTextQuiz(item._id)}
-                                  disabled={isGeneratingQuiz}
-                                  title="Regenerate quiz"
-                                >
-                                  {isGeneratingQuiz ? (
-                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                  ) : (
-                                    <RotateCcw className="h-4 w-4" />
-                                  )}
-                                </Button>
-                              ) : null}
-                            </>
-                          )}
-                          <Button 
-                            variant="ghost" 
-                            size="sm"
-                            onClick={() => openEditContentDialog(item, chapter._id)}
-                            disabled={deletingContentId === item._id}
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleDeleteContent(item._id, item.title)}
-                            disabled={deletingContentId === item._id}
-                          >
-                            {deletingContentId === item._id ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <Trash2 className="h-4 w-4" />
-                            )}
-                          </Button>
+                          </div>
                         </div>
-                      </div>
                       );
                     })}
                     <Button
@@ -937,8 +937,8 @@ export default function CourseBuilderPage() {
           <div className="space-y-4 py-4">
             <div>
               <Label>Content Type</Label>
-              <Select 
-                value={contentType} 
+              <Select
+                value={contentType}
                 onValueChange={(v) => setContentType(v as ContentType)}
                 disabled={!!editingContentItem}
               >
@@ -1102,8 +1102,8 @@ export default function CourseBuilderPage() {
             <Button variant="outline" onClick={() => setContentDialog(false)}>
               Cancel
             </Button>
-            <Button 
-              onClick={editingContentItem ? handleUpdateContent : handleCreateContent} 
+            <Button
+              onClick={editingContentItem ? handleUpdateContent : handleCreateContent}
               disabled={!contentTitle.trim() || creatingContent || updatingContent}
             >
               {creatingContent || updatingContent ? (
@@ -1138,8 +1138,8 @@ export default function CourseBuilderPage() {
             )}
           </div>
           <DialogFooter>
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               onClick={() => {
                 setDeleteDialog(false);
                 setDeleteTarget(null);
@@ -1148,8 +1148,8 @@ export default function CourseBuilderPage() {
             >
               Cancel
             </Button>
-            <Button 
-              variant="destructive" 
+            <Button
+              variant="destructive"
               onClick={handleConfirmDelete}
               disabled={deletingChapterId !== null || deletingContentId !== null}
             >
@@ -1190,18 +1190,17 @@ export default function CourseBuilderPage() {
               ) : (
                 <div className="divide-y">
                   {filteredVideos.map((video) => {
-                    const duration = video.durationInSeconds 
-                      ? `${Math.floor(video.durationInSeconds / 60)}:${String(video.durationInSeconds % 60).padStart(2, '0')}` 
+                    const duration = video.durationInSeconds
+                      ? `${Math.floor(video.durationInSeconds / 60)}:${String(video.durationInSeconds % 60).padStart(2, '0')}`
                       : 'Unknown';
                     const isSelected = selectedVideoId === video._id;
-                    
+
                     return (
                       <button
                         key={video._id}
                         onClick={() => handleSelectVideo(video._id, video.title)}
-                        className={`w-full p-4 text-left hover:bg-accent transition-colors flex items-start gap-3 ${
-                          isSelected ? 'bg-accent' : ''
-                        }`}
+                        className={`w-full p-4 text-left hover:bg-accent transition-colors flex items-start gap-3 ${isSelected ? 'bg-accent' : ''
+                          }`}
                       >
                         <div className="relative w-32 h-20 flex-shrink-0 bg-muted rounded overflow-hidden">
                           {video.thumbnailUrl ? (
@@ -1238,8 +1237,8 @@ export default function CourseBuilderPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               onClick={() => {
                 setVideoSelectorDialog(false);
                 setVideoSearchQuery("");

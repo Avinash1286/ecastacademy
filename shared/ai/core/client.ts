@@ -410,28 +410,27 @@ function isStreamResponse(value: unknown): value is StreamResponse {
 export const ai = new UnifiedAIClient();
 
 // =============================================================================
-// Legacy Compatibility
+// Vercel AI SDK Client Factory
 // =============================================================================
 
-/**
- * Get an AI client for the Vercel AI SDK
- * 
- * This provides backward compatibility with the old centralized.ts API.
- * Use `ai.generateText()` or `ai.generateStream()` for new code.
- * 
- * @deprecated Use the unified `ai` client instead
- */
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
 import type { LanguageModel } from "ai";
 
-interface LegacyModelConfig {
+interface AIClientConfig {
   provider: "google" | "openai";
   modelId: string;
   apiKey?: string;
 }
 
-export function getAIClient(config: LegacyModelConfig): LanguageModel {
+/**
+ * Get a LanguageModel instance for use with Vercel AI SDK functions
+ * (streamText, generateText, etc.)
+ * 
+ * @param config - Provider and model configuration
+ * @returns LanguageModel instance compatible with Vercel AI SDK
+ */
+export function getAIClient(config: AIClientConfig): LanguageModel {
   if (config.provider === "google") {
     const google = createGoogleGenerativeAI({
       apiKey: config.apiKey ?? process.env.GEMINI_API_KEY,

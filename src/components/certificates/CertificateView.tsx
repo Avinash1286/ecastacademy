@@ -91,6 +91,55 @@ export function CertificateView({
     window.print()
   }
 
+  const [isDownloading, setIsDownloading] = useState(false)
+
+  const handleDownloadSVG = async () => {
+    if (!certificate) return
+    
+    setIsDownloading(true)
+    try {
+      const response = await fetch("/api/certificates/generate-pdf", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          certificateId: certificate.certificateId,
+          userName: certificate.userName,
+          courseName: certificate.courseName,
+          overallGrade: certificate.overallGrade,
+          completionDate: certificate.completionDate,
+          passedItems: certificate.passedItems,
+          totalGradedItems: certificate.totalGradedItems,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to generate certificate")
+      }
+
+      // Get the SVG content
+      const svgContent = await response.text()
+      
+      // Create a blob and download
+      const blob = new Blob([svgContent], { type: "image/svg+xml" })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `certificate-${certificate.certificateId}.svg`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (error) {
+      console.error("Download error:", error)
+      // Fallback to print
+      handlePrint()
+    } finally {
+      setIsDownloading(false)
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-amber-50 via-white to-amber-50/30 dark:from-amber-950/10 dark:via-background dark:to-amber-950/5 py-12 px-4">
       <div className="container mx-auto max-w-5xl">
@@ -102,10 +151,15 @@ export function CertificateView({
           ) : (
             <div className="h-10" />
           )}
-          <Button onClick={handlePrint}>
-            <Download className="h-4 w-4 mr-2" />
-            Download / Print
-          </Button>
+          <div className="flex gap-2">
+            <Button onClick={handleDownloadSVG} disabled={isDownloading}>
+              <Download className="h-4 w-4 mr-2" />
+              {isDownloading ? "Generating..." : "Download Certificate"}
+            </Button>
+            <Button variant="outline" onClick={handlePrint}>
+              Print
+            </Button>
+          </div>
         </div>
 
         <Card className="border-4 border-amber-500 shadow-2xl bg-white dark:bg-card print:shadow-none">

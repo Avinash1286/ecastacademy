@@ -1,7 +1,8 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { api } from '../../../../../../../convex/_generated/api';
 import { Id } from '../../../../../../../convex/_generated/dataModel';
 import { createConvexClient } from '@/lib/convexClient';
+import { withRateLimit, RATE_LIMIT_PRESETS } from '@/lib/security/rateLimit';
 
 const convex = createConvexClient();
 
@@ -35,9 +36,13 @@ async function queryWithRetry<T>(
 }
 
 export async function GET(
-  request: Request,
+  request: NextRequest,
   context: { params: Promise<{ courseId: string; chapterId: string }> }
 ) {
+  // Apply rate limiting for public API
+  const rateLimitResponse = await withRateLimit(request, RATE_LIMIT_PRESETS.PUBLIC_API);
+  if (rateLimitResponse) return rateLimitResponse;
+
   try {
     const params = await context.params;
     const { chapterId } = params;

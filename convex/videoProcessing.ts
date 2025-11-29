@@ -117,7 +117,7 @@ export const processVideoInternal = internalAction({
         throw new Error("Transcript missing for video. Unable to generate notes.");
       }
 
-      // Fetch AI Configs
+      // Fetch AI Configs - These MUST be configured in admin panel
       const notesConfig = await ctx.runQuery(api.aiConfig.getFeatureModel, {
         featureKey: "notes_generation",
       });
@@ -126,15 +126,24 @@ export const processVideoInternal = internalAction({
         featureKey: "quiz_generation",
       });
 
-      const notesModelConfig = notesConfig ? {
+      // Validate that AI models are configured - no fallbacks allowed
+      if (!notesConfig) {
+        throw new Error("AI model for notes generation is not configured. Please configure it in the admin panel.");
+      }
+      
+      if (!quizConfig) {
+        throw new Error("AI model for quiz generation is not configured. Please configure it in the admin panel.");
+      }
+
+      const notesModelConfig = {
         provider: notesConfig.provider,
         modelId: notesConfig.modelId,
-      } : undefined;
+      };
 
-      const quizModelConfig = quizConfig ? {
+      const quizModelConfig = {
         provider: quizConfig.provider,
         modelId: quizConfig.modelId,
-      } : undefined;
+      };
 
       let notesJson = await generateNotes(rawTranscript, {
         videoTitle: video.title,
@@ -147,6 +156,7 @@ export const processVideoInternal = internalAction({
         schemaDescription: interactiveNotesSchemaDescription,
         originalInput: rawTranscript,
         format: "interactive-notes",
+        modelConfig: notesModelConfig,
       });
       const notes = JSON.parse(notesJson);
 
@@ -162,6 +172,7 @@ export const processVideoInternal = internalAction({
         schemaDescription: generatedQuizSchemaDescription,
         originalInput: notesContext,
         format: "interactive-quiz",
+        modelConfig: quizModelConfig,
       });
       const quiz = JSON.parse(quizJson);
 

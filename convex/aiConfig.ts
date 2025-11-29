@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { Doc, Id } from "./_generated/dataModel";
+import { Id } from "./_generated/dataModel";
+import { requireAdminUser } from "./utils/auth";
 
 // Default models to seed
 const DEFAULT_MODELS = [
@@ -60,6 +61,9 @@ const DEFAULT_FEATURES = [
 export const initializeDefaults = mutation({
     args: {},
     handler: async (ctx) => {
+        // Require admin access to initialize AI configuration
+        await requireAdminUser(ctx);
+
         // 1. Seed Models
         const modelIds: Record<string, Id<"aiModels">> = {};
 
@@ -98,6 +102,10 @@ export const initializeDefaults = mutation({
         }
     },
 });
+
+// =============================================================================
+// Query Functions
+// =============================================================================
 
 export const getFeatureModel = query({
     args: { featureKey: v.string() },
@@ -148,6 +156,9 @@ export const upsertModel = mutation({
         isEnabled: v.boolean(),
     },
     handler: async (ctx, args) => {
+        // Require admin access to modify AI models
+        await requireAdminUser(ctx);
+
         const { id, ...data } = args;
         if (id) {
             await ctx.db.patch(id, data);
@@ -163,6 +174,9 @@ export const updateFeatureMapping = mutation({
         modelId: v.id("aiModels"),
     },
     handler: async (ctx, args) => {
+        // Require admin access to update feature mappings
+        await requireAdminUser(ctx);
+
         await ctx.db.patch(args.featureId, {
             currentModelId: args.modelId,
         });
@@ -174,6 +188,9 @@ export const deleteModel = mutation({
         id: v.id("aiModels"),
     },
     handler: async (ctx, args) => {
+        // Require admin access to delete AI models
+        await requireAdminUser(ctx);
+
         // Optional: Check if model is in use before deleting
         // For now, we allow deletion but features might break if they use this model
         // Ideally we should check or reassign, but for this task we just delete

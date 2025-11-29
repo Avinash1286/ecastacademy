@@ -83,7 +83,7 @@ export function ChatPanel({ activeChapter, activeContentItem }: ChatPanelProps) 
     return `${chapterKey}-${transcriptReady ? 'ready' : 'pending'}`;
   }, [chapterKey, transcriptReady]);
 
-  const { data: session } = useSession();
+  const { data: session, status: sessionStatus } = useSession();
   const sessionUser = session?.user as unknown as ExtendedUser | undefined;
   const userId = sessionUser?.id;
 
@@ -93,14 +93,15 @@ export function ChatPanel({ activeChapter, activeContentItem }: ChatPanelProps) 
   const saveMessage = useMutation(api.messages.send);
   const generateResponse = useAction(api.ai.generateTutorResponse);
 
-  // Fetch Session ID
+  // Fetch Session ID - wait for session to be fully loaded
   useEffect(() => {
-    if (!userId || !chatId) return;
+    if (sessionStatus !== "authenticated" || !userId || !chatId) return;
 
     const initSession = async () => {
       try {
+        // Pass userId directly to the mutation
         const id = await getOrCreateSession({
-          userId,
+          userId: userId as Id<"users">,
           chatId,
           chapterId: activeChapter.id,
           contentItemId: activeContentItem?.id,
@@ -114,7 +115,7 @@ export function ChatPanel({ activeChapter, activeContentItem }: ChatPanelProps) 
     };
 
     initSession();
-  }, [userId, chatId, activeChapter.id, activeChapter.course?.id, activeContentItem?.id, videoTitle, getOrCreateSession]);
+  }, [sessionStatus, userId, chatId, activeChapter.id, activeChapter.course?.id, activeContentItem?.id, videoTitle, getOrCreateSession]);
 
   // Paginated Query for Messages
   const { results: historicalMessages, status: queryStatus, loadMore } = usePaginatedQuery(
@@ -235,6 +236,7 @@ export function ChatPanel({ activeChapter, activeContentItem }: ChatPanelProps) 
       recentMessages.push({ role: "user", content: question });
 
       await generateResponse({
+        userId: userId as Id<"users">,
         chatId: chatId, // The action uses chatId to find the session again, or we could pass sessionId if we updated the action. 
         // The action `generateTutorResponse` takes `chatId`.
         messages: recentMessages,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, use, useEffect, useRef } from 'react';
+import { useState, use, useEffect, useRef, useMemo } from 'react';
 import { useQuery, useMutation, useAction } from 'convex/react';
 import { api } from '../../../../../convex/_generated/api';
 import { useRouter } from 'next/navigation';
@@ -11,14 +11,13 @@ import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ChevronLeft, ChevronRight, CheckCircle2, Circle, ShieldAlert, RefreshCw, Loader2, Volume2, VolumeX } from 'lucide-react';
 import { Id } from '../../../../../convex/_generated/dataModel';
+import { buildProgressByLesson, countCompletedLessons, getLessonProgress } from '@/lib/capsuleProgress';
 import { toast } from 'sonner';
 
 // Import lesson components
 import { ConceptLesson } from '@/components/capsule/ConceptLesson';
-import { MCQLesson } from '@/components/capsule/MCQLesson';
-import { FillBlanksLesson } from '@/components/capsule/FillBlanksLesson';
-import { DragDropLesson } from '@/components/capsule/DragDropLesson';
 import { SimulationLesson } from '@/components/capsule/SimulationLesson';
+import { MixedLesson } from '@/components/capsule/MixedLesson';
 import { ConfettiCelebration } from '@/components/ui/ConfettiCelebration';
 import { useSoundEffects } from '@/hooks/useSoundEffects';
 
@@ -52,12 +51,17 @@ export default function CapsuleLearningPage({ params }: PageProps) {
     isAuthenticated && userId ? { userId, capsuleId } : 'skip'
   );
 
+  const progressByLesson = useMemo(
+    () => buildProgressByLesson(userProgress ?? undefined),
+    [userProgress]
+  );
+
   const updateProgress = useMutation(api.capsules.updateLessonProgress);
   const regenerateLesson = useAction(api.capsuleGeneration.regenerateLesson);
 
   // Calculate progress (safe for early returns)
   const totalLessonsCount = capsuleData?.modules?.reduce((acc, m) => acc + m.lessons.length, 0) || 0;
-  const completedLessonsCount = userProgress?.filter(p => p.completed).length || 0;
+  const completedLessonsCount = countCompletedLessons(progressByLesson);
   const progressPercentageValue = totalLessonsCount > 0 ? (completedLessonsCount / totalLessonsCount) * 100 : 0;
 
   // Celebrate when course reaches 100% completion
@@ -115,8 +119,8 @@ export default function CapsuleLearningPage({ params }: PageProps) {
   const currentLesson = currentModule?.lessons[currentLessonIndex];
   const progressPercentage = progressPercentageValue;
 
-  // Get current lesson progress
-  const currentLessonProgress = userProgress?.find(p => p.lessonId === currentLesson?._id);
+  // Get current lesson progress (deduped by lesson)
+  const currentLessonProgress = getLessonProgress(progressByLesson, currentLesson?._id);
   const isLessonCompleted = currentLessonProgress?.completed || false;
 
   const handleLessonComplete = async (score?: number, quizAnswer?: {
@@ -175,6 +179,8 @@ export default function CapsuleLearningPage({ params }: PageProps) {
       setCurrentModuleIndex(currentModuleIndex + 1);
       setCurrentLessonIndex(0);
     }
+    // Scroll to top when navigating to next lesson
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handlePrevious = () => {
@@ -185,6 +191,15 @@ export default function CapsuleLearningPage({ params }: PageProps) {
       setCurrentModuleIndex(currentModuleIndex - 1);
       setCurrentLessonIndex(prevModule.lessons.length - 1);
     }
+    // Scroll to top when navigating to previous lesson
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // Scroll to top when lesson selection changes via sidebar
+  const handleLessonSelect = (moduleIndex: number, lessonIndex: number) => {
+    setCurrentModuleIndex(moduleIndex);
+    setCurrentLessonIndex(lessonIndex);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const isFirstLesson = currentModuleIndex === 0 && currentLessonIndex === 0;
@@ -242,10 +257,7 @@ export default function CapsuleLearningPage({ params }: PageProps) {
                   {capsuleData.modules.map((module, mIndex) => (
                     <div key={module._id}>
                       <button
-                        onClick={() => {
-                          setCurrentModuleIndex(mIndex);
-                          setCurrentLessonIndex(0);
-                        }}
+                        onClick={() => handleLessonSelect(mIndex, 0)}
                         className={`w-full text-left px-3 py-2 rounded text-sm transition-colors ${
                           mIndex === currentModuleIndex
                             ? 'bg-primary text-primary-foreground'
@@ -257,13 +269,12 @@ export default function CapsuleLearningPage({ params }: PageProps) {
                       {mIndex === currentModuleIndex && (
                         <div className="ml-4 mt-1 space-y-1">
                           {module.lessons.map((lesson, lIndex) => {
-                            const isLessonCompleted = userProgress?.some(
-                              (p) => p.lessonId === lesson._id && p.completed
-                            );
+                            const lessonProgress = progressByLesson.get(lesson._id);
+                            const isLessonCompleted = lessonProgress?.completed ?? false;
                             return (
                               <button
                                 key={lesson._id}
-                                onClick={() => setCurrentLessonIndex(lIndex)}
+                                onClick={() => handleLessonSelect(mIndex, lIndex)}
                                 className={`w-full text-left px-2 py-1 rounded text-xs flex items-center gap-2 transition-colors ${
                                   lIndex === currentLessonIndex
                                     ? 'bg-primary/20 text-primary'
@@ -314,8 +325,16 @@ export default function CapsuleLearningPage({ params }: PageProps) {
                     return Array.isArray(content.items) && Array.isArray(content.targets);
                   case 'simulation':
                     return !!content.code;
+                  case 'mixed':
+                    // Mixed type has sections array or other flexible structure
+                    return Array.isArray(content.sections) || 
+                           Array.isArray(content.practiceQuestions) ||
+                           !!content.explanation;
                   default:
-                    return false;
+                    // For unknown types, check if there's any content structure
+                    return Array.isArray(content.sections) || 
+                           !!content.explanation || 
+                           Array.isArray(content.practiceQuestions);
                 }
               };
 
@@ -378,58 +397,16 @@ export default function CapsuleLearningPage({ params }: PageProps) {
                       isCompleted={isLessonCompleted}
                     />
                   )}
-                  {currentLesson.type === 'mcq' && (
-                    <MCQLesson
-                      {...currentLesson.content}
-                      onComplete={(correct) => handleLessonComplete(correct ? 100 : 0)}
-                      onQuizAnswer={(data) => handleLessonComplete(data.isCorrect ? 100 : 0, {
-                        selectedAnswer: data.selectedAnswer,
-                        selectedIndex: data.selectedIndex,
-                        correctAnswer: data.correctAnswer,
-                        correctIndex: data.correctIndex,
-                        isCorrect: data.isCorrect,
-                        options: data.options,
-                      })}
-                      onHintViewed={handleHintUsed}
-                      isCompleted={isLessonCompleted}
-                      lastAnswer={currentLessonProgress?.lastAnswer ? {
-                        selectedIndex: currentLessonProgress.lastAnswer.selectedIndex,
-                        isCorrect: currentLessonProgress.lastAnswer.isCorrect,
-                      } : undefined}
-                    />
-                  )}
-                  {currentLesson.type === 'fillBlanks' && (
-                    <FillBlanksLesson 
-                      {...currentLesson.content} 
-                      onComplete={(score) => handleLessonComplete(score)}
-                      onQuizAnswer={(data) => handleLessonComplete(data.score, {
-                        selectedAnswer: JSON.stringify(data.answers),
-                        correctAnswer: JSON.stringify(data.correctAnswers),
-                        isCorrect: data.isCorrect,
-                      })}
-                      onHintViewed={handleHintUsed}
-                      isCompleted={isLessonCompleted}
-                      lastAnswer={currentLessonProgress?.lastAnswer ? {
-                        answers: JSON.parse(currentLessonProgress.lastAnswer.selectedAnswer || '{}'),
-                      } : undefined}
-                    />
-                  )}
-                  {currentLesson.type === 'dragDrop' && (
-                    <DragDropLesson
-                      {...currentLesson.content}
-                      onComplete={(correct) => handleLessonComplete(correct ? 100 : 0)}
-                      onQuizAnswer={(data) => handleLessonComplete(data.isCorrect ? 100 : 0, {
-                        selectedAnswer: JSON.stringify(data.placements),
-                        isCorrect: data.isCorrect,
-                      })}
-                      isCompleted={isLessonCompleted}
-                      lastAnswer={currentLessonProgress?.lastAnswer ? {
-                        placements: JSON.parse(currentLessonProgress.lastAnswer.selectedAnswer || '{}'),
-                      } : undefined}
-                    />
-                  )}
                   {currentLesson.type === 'simulation' && (
                     <SimulationLesson {...currentLesson.content} onComplete={() => handleLessonComplete()} />
+                  )}
+                  {currentLesson.type === 'mixed' && (
+                    <MixedLesson 
+                      key={`${currentModuleIndex}-${currentLessonIndex}`}
+                      content={currentLesson.content} 
+                      onComplete={() => handleLessonComplete()} 
+                      isCompleted={isLessonCompleted}
+                    />
                   )}
                 </div>
               );
