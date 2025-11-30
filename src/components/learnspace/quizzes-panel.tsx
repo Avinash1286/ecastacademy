@@ -128,8 +128,8 @@ export function QuizzesPanel({
 
 
   return (
-    <ScrollArea className="h-full">
-      <div className="p-4">
+    <ScrollArea className="h-full w-full">
+      <div className="p-2 sm:p-4 overflow-x-hidden">
         {currentView === 'quiz' && quiz && (
           <QuizInterface
             quiz={quiz}

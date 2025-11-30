@@ -5,7 +5,7 @@ import { internal } from "./_generated/api";
 import { recalculateCourseProgressSync } from "./completions";
 import { isTrackableContentItem, mapVideosById } from "./utils/progressUtils";
 import { createTransaction, validatePreconditions } from "./utils/transactions";
-import { requireAuthenticatedUser } from "./utils/auth";
+import { requireAuthenticatedUser, requireAuthenticatedUserWithFallback } from "./utils/auth";
 import { validateCourseFields, validatePositiveNumber } from "./utils/validation";
 
 // Mutation to create a new course
@@ -15,10 +15,11 @@ export const createCourse = mutation({
     description: v.optional(v.string()),
     isCertification: v.optional(v.boolean()),
     passingGrade: v.optional(v.number()),
+    currentUserId: v.optional(v.id("users")), // Fallback for client-side auth
   },
   handler: async (ctx, args) => {
-    // Auth check
-    const { user } = await requireAuthenticatedUser(ctx);
+    // Auth check with fallback
+    const { user } = await requireAuthenticatedUserWithFallback(ctx, args.currentUserId);
     
     // Validate input
     validateCourseFields({ name: args.name, description: args.description });
@@ -54,10 +55,11 @@ export const updateCourse = mutation({
     thumbnailUrl: v.optional(v.string()),
     isCertification: v.optional(v.boolean()),
     passingGrade: v.optional(v.number()),
+    currentUserId: v.optional(v.id("users")), // Fallback for client-side auth
   },
   handler: async (ctx, args) => {
-    // Auth check
-    const { user } = await requireAuthenticatedUser(ctx);
+    // Auth check with fallback
+    const { user } = await requireAuthenticatedUserWithFallback(ctx, args.currentUserId);
     
     // Validate input
     validateCourseFields({ 
@@ -72,7 +74,7 @@ export const updateCourse = mutation({
       }
     }
     
-    const { id, ...updates } = args;
+    const { id, currentUserId, ...updates } = args;
     const now = Date.now();
     
     // Get the current course to check ownership and certification status
@@ -156,10 +158,11 @@ export const updateCourse = mutation({
 export const deleteCourse = mutation({
   args: {
     id: v.id("courses"),
+    currentUserId: v.optional(v.id("users")), // Fallback for client-side auth
   },
   handler: async (ctx, args) => {
-    // Auth check
-    const { user } = await requireAuthenticatedUser(ctx);
+    // Auth check with fallback
+    const { user } = await requireAuthenticatedUserWithFallback(ctx, args.currentUserId);
     
     const courseId = args.id;
     
@@ -768,10 +771,19 @@ export const togglePublishCourse = mutation({
   args: {
     id: v.id("courses"),
     isPublished: v.boolean(),
+    currentUserId: v.optional(v.id("users")), // Fallback for client-side auth
   },
   handler: async (ctx, args) => {
+    // Auth check with fallback
+    const { user } = await requireAuthenticatedUserWithFallback(ctx, args.currentUserId);
+    
     const course = await ctx.db.get(args.id);
     if (!course) throw new Error("Course not found");
+    
+    // Check if user is admin or course creator
+    if (user.role !== "admin" && course.createdBy !== user._id.toString()) {
+      throw new Error("Unauthorized: You can only publish/unpublish your own courses");
+    }
     
     let thumbnailUrl = course.thumbnailUrl;
     

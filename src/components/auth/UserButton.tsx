@@ -33,7 +33,7 @@ export function UserButton() {
     : user.email?.[0]?.toUpperCase() || "U";
 
   const handleSignOut = () => {
-    signOut({ callbackUrl: "/auth/signin" });
+    signOut({ callbackUrl: "/" });
   };
 
   return (

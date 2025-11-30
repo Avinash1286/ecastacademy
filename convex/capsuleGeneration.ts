@@ -196,8 +196,20 @@ export const generateOutline = internalAction({
           throw new Error("No valid JSON found in outline response");
         }
         const parsed = JSON.parse(jsonMatch[0]);
+        
+        // Check for content safety violation
+        if (parsed.error === true && parsed.errorType === "CONTENT_SAFETY_VIOLATION") {
+          const safetyMessage = parsed.message || "This topic cannot be used to create educational content. Please choose a different topic.";
+          console.log(`[Stage 1] Content safety violation detected: ${safetyMessage}`);
+          throw new Error(`⚠️ ${safetyMessage}`);
+        }
+        
         outline = capsuleOutlineSchema.parse(parsed);
       } catch (parseError) {
+        // Re-throw content safety errors as-is
+        if (parseError instanceof Error && parseError.message.startsWith("⚠️")) {
+          throw parseError;
+        }
         console.error("[Stage 1] Failed to parse outline:", parseError);
         throw new Error(`Failed to parse outline: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`);
       }

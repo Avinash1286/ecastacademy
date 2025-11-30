@@ -34,7 +34,7 @@ export function FeatureShowcase({
   className = '',
 }: FeatureShowcaseProps) {
   const ref = useRef(null);
-  const isInView = useInView(ref, { once: true, margin: "-100px" });
+  const isInView = useInView(ref, { once: false, margin: "-100px" });
   const [isPlaying, setIsPlaying] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -132,12 +132,14 @@ export function FeatureShowcase({
               </button>
             </div>
           ) : mediaSrc ? (
-            <div className="aspect-video">
+            <div className="relative w-full">
               <Image
                 src={mediaSrc}
                 alt={mediaAlt}
-                fill
-                className="object-cover"
+                width={1920}
+                height={1080}
+                quality={100}
+                className="w-full h-auto"
               />
             </div>
           ) : (

@@ -3,6 +3,7 @@
 import { motion, useScroll, useTransform } from 'framer-motion';
 import { useRef } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import { ThemeToggle } from '@/components/dashboard/ThemeToggle';
 import { 
@@ -19,7 +20,6 @@ import {
   CheckCircle2,
   Zap,
   MessageSquare,
-  GraduationCap,
   ChevronRight,
 } from 'lucide-react';
 import {
@@ -27,7 +27,6 @@ import {
   StaggerContainer,
   StaggerItem,
   FloatingElement,
-  GlowCard,
   AnimatedBorder,
   PulseButton,
 } from '@/components/landing/AnimatedComponents';
@@ -41,8 +40,9 @@ export function LandingPageClient() {
     offset: ["start start", "end start"]
   });
   
-  const heroY = useTransform(scrollYProgress, [0, 1], [0, 150]);
-  const heroOpacity = useTransform(scrollYProgress, [0, 0.5], [1, 0]);
+  // Reduced parallax movement and slower fade out
+  const heroY = useTransform(scrollYProgress, [0, 1], [0, 80]);
+  const heroOpacity = useTransform(scrollYProgress, [0, 0.8, 1], [1, 1, 0]);
 
   return (
     <div className="min-h-screen bg-background overflow-hidden">
@@ -75,11 +75,13 @@ export function LandingPageClient() {
             </div>
 
             <div className="flex items-center gap-3">
-              <ThemeToggle />
+              <div className="hidden md:block">
+                <ThemeToggle />
+              </div>
               <Link href="/auth/signin">
                 <Button variant="ghost" size="sm">Sign In</Button>
               </Link>
-              <Link href="/auth/signup">
+              <Link href="/auth/signup" className="hidden md:block">
                 <Button size="sm">Get Started</Button>
               </Link>
             </div>
@@ -129,7 +131,7 @@ export function LandingPageClient() {
                 whileHover={{ scale: 1.05 }}
               >
                 <Sparkles className="h-4 w-4 text-primary" />
-                <span>The Future of Learning is Here</span>
+                <span>AI-Assisted Learning is Here</span>
                 <ChevronRight className="h-4 w-4 text-muted-foreground" />
               </motion.div>
             </FadeUp>
@@ -195,33 +197,15 @@ export function LandingPageClient() {
             <FadeUp delay={0.6}>
               <div className="mt-16 relative">
                 <BrowserMockup url="app.ecastacademy.com/learnspace">
-                  {/* 
-                    📸 PLACEHOLDER: Add your LearnSpace screenshot here
-                    
-                    Recommended: Screenshot of the LearnSpace interface showing:
-                    - Video player on the left
-                    - AI Tutor chat or Notes panel on the right
-                    - Some visible content/interaction
-                    
-                    Size: 1200x675px (16:9 aspect ratio)
-                    Format: PNG or WebP for best quality
-                    
-                    Replace this div with:
-                    <img 
-                      src="/images/hero-learnspace.png" 
-                      alt="ECAST Academy LearnSpace Interface"
-                      className="w-full"
-                    />
-                  */}
-                  <div className="aspect-video bg-gradient-to-br from-muted via-muted/80 to-muted/50 flex items-center justify-center">
-                    <div className="text-center p-8">
-                      <div className="w-20 h-20 rounded-2xl bg-primary/20 mx-auto mb-4 flex items-center justify-center">
-                        <Play className="w-10 h-10 text-primary" />
-                      </div>
-                      <p className="text-muted-foreground font-medium">LearnSpace Interface Screenshot</p>
-                      <p className="text-xs text-muted-foreground/60 mt-2">1200x675px recommended</p>
-                    </div>
-                  </div>
+                  <Image 
+                    src="/images/landing/hero-learnspace.png" 
+                    alt="ECAST Academy LearnSpace Interface"
+                    width={1920}
+                    height={1080}
+                    className="w-full"
+                    quality={100}
+                    priority
+                  />
                 </BrowserMockup>
                 
                 {/* Floating decorative elements */}
@@ -291,7 +275,8 @@ export function LandingPageClient() {
               "Interactive prompts and reflection questions"
             ]}
             mediaType="image"
-            mediaAlt="📸 Add screenshot of AI-generated notes from a video"
+            mediaSrc="/images/landing/feature-notes.png"
+            mediaAlt="AI-generated interactive notes from video"
             accentColor="primary"
           />
         </div>
@@ -311,7 +296,8 @@ export function LandingPageClient() {
               "Friendly, encouraging teaching style"
             ]}
             mediaType="image"
-            mediaAlt="📸 Add screenshot of AI Tutor chat interface"
+            mediaSrc="/images/landing/feature-ai-tutor.png"
+            mediaAlt="AI Tutor chat interface"
             accentColor="primary"
             reversed
           />
@@ -332,7 +318,8 @@ export function LandingPageClient() {
               "Adaptive difficulty based on performance"
             ]}
             mediaType="image"
-            mediaAlt="📸 Add screenshot of quiz interface with questions"
+            mediaSrc="/images/landing/feature-quiz.png"
+            mediaAlt="Interactive quiz interface"
             accentColor="purple-500"
           />
         </div>
@@ -368,7 +355,8 @@ export function LandingPageClient() {
               "Share with the community or keep private"
             ]}
             mediaType="image"
-            mediaAlt="📸 Add screenshot of Capsule learning interface"
+            mediaSrc="/images/landing/feature-capsule.png"
+            mediaAlt="Capsule learning interface"
             accentColor="violet-500"
             reversed
           />
@@ -435,63 +423,10 @@ export function LandingPageClient() {
               "Public verification links"
             ]}
             mediaType="image"
-            mediaAlt="📸 Add screenshot of a sample certificate"
+            mediaSrc="/images/landing/feature-certificate.png"
+            mediaAlt="Sample certificate of completion"
             accentColor="amber-500"
           />
-        </div>
-      </section>
-
-      {/* How it Works */}
-      <section className="py-24 md:py-32 bg-muted/30">
-        <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-          <FadeUp>
-            <div className="text-center mb-16">
-              <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold mb-4">
-                Start Learning in 3 Simple Steps
-              </h2>
-              <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-                From passive video watching to active, AI-enhanced learning in minutes.
-              </p>
-            </div>
-          </FadeUp>
-
-          <StaggerContainer className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto" staggerDelay={0.15}>
-            {[
-              {
-                step: "01",
-                title: "Paste Any YouTube Link",
-                description: "Copy any educational video URL and paste it into ECAST Academy. Our AI will analyze and process it.",
-                icon: <Youtube className="h-6 w-6" />,
-              },
-              {
-                step: "02",
-                title: "AI Generates Your Content",
-                description: "In seconds, get interactive notes, quizzes, and access to your personal AI tutor—all from the video.",
-                icon: <Brain className="h-6 w-6" />,
-              },
-              {
-                step: "03",
-                title: "Learn, Test, & Certify",
-                description: "Engage with the content, test your knowledge with quizzes, and earn certificates for completed courses.",
-                icon: <GraduationCap className="h-6 w-6" />,
-              },
-            ].map((item, index) => (
-              <StaggerItem key={index}>
-                <GlowCard>
-                  <div className="relative p-8 rounded-xl border border-border bg-card h-full">
-                    <div className="text-6xl font-bold text-primary/10 absolute top-4 right-4">
-                      {item.step}
-                    </div>
-                    <div className="w-14 h-14 rounded-xl bg-primary/10 flex items-center justify-center mb-6">
-                      <div className="text-primary">{item.icon}</div>
-                    </div>
-                    <h3 className="text-xl font-semibold mb-3">{item.title}</h3>
-                    <p className="text-muted-foreground">{item.description}</p>
-                  </div>
-                </GlowCard>
-              </StaggerItem>
-            ))}
-          </StaggerContainer>
         </div>
       </section>
 

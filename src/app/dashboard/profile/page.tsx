@@ -1,16 +1,21 @@
 "use client"
 
+import { useState } from "react"
 import { useSession } from "next-auth/react"
-import { useQuery } from "convex/react"
+import { useQuery, useMutation } from "convex/react"
 import { api } from "../../../../convex/_generated/api"
 import { Id } from "../../../../convex/_generated/dataModel"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Award, Calendar, TrendingUp, Eye, Mail, User as UserIcon, GraduationCap, Shield } from "lucide-react"
+import { Award, Calendar, TrendingUp, Eye, Mail, User as UserIcon, GraduationCap, Shield, Pencil, X, Check, Loader2, Sun, Moon, Monitor } from "lucide-react"
+import { useTheme } from "next-themes"
+import { toast } from "sonner"
 import Link from "next/link"
 
 // Extend session user type to include id
@@ -23,20 +28,104 @@ interface ExtendedUser {
 }
 
 export default function ProfilePage() {
-  const { data: session, status } = useSession()
+  const { data: session, status, update: updateSession } = useSession()
+  const { theme, setTheme } = useTheme()
+  
+  // Edit name state
+  const [isEditingName, setIsEditingName] = useState(false)
+  const [editedName, setEditedName] = useState("")
+  const [nameError, setNameError] = useState("")
   
   // Get userId from session
   const sessionUser = session?.user as unknown as ExtendedUser | undefined
   const userId = sessionUser?.id
+  
+  // Mutations
+  const updateUserProfile = useMutation(api.auth.updateUserProfile)
+  const [isUpdating, setIsUpdating] = useState(false)
   
   // Query certificates with userId
   const certificates = useQuery(
     api.progress.getUserCertificates,
     userId && status === "authenticated" ? { userId } : "skip"
   )
+  
+  // Query current user data to get the latest name
+  const currentUser = useQuery(
+    api.auth.getUserById,
+    userId && status === "authenticated" ? { id: userId } : "skip"
+  )
+  
+  // Get the display name (prefer database name over session name)
+  const displayName = currentUser?.name || sessionUser?.name || "User"
+
+  // Handle name edit
+  const handleStartEdit = () => {
+    setEditedName(displayName)
+    setNameError("")
+    setIsEditingName(true)
+  }
+  
+  const handleCancelEdit = () => {
+    setIsEditingName(false)
+    setEditedName("")
+    setNameError("")
+  }
+  
+  const validateName = (name: string): string | null => {
+    const trimmed = name.trim()
+    if (trimmed.length < 2) {
+      return "Name must be at least 2 characters long"
+    }
+    if (trimmed.length > 100) {
+      return "Name must be less than 100 characters"
+    }
+    const nameRegex = /^[a-zA-Z\s\-'.]+$/
+    if (!nameRegex.test(trimmed)) {
+      return "Name can only contain letters, spaces, hyphens, apostrophes, and periods"
+    }
+    return null
+  }
+  
+  const handleSaveName = async () => {
+    if (!userId) {
+      toast.error("You must be signed in to update your profile")
+      return
+    }
+    
+    const validationError = validateName(editedName)
+    if (validationError) {
+      setNameError(validationError)
+      return
+    }
+    
+    setIsUpdating(true)
+    try {
+      const result = await updateUserProfile({ userId, name: editedName.trim() })
+      
+      // Update the session with the new name
+      await updateSession({
+        ...session,
+        user: {
+          ...session?.user,
+          name: result.name,
+        },
+      })
+      
+      toast.success("Name updated successfully")
+      setIsEditingName(false)
+      setEditedName("")
+      setNameError("")
+    } catch (error) {
+      console.error("Error updating name:", error)
+      toast.error(error instanceof Error ? error.message : "Failed to update name")
+    } finally {
+      setIsUpdating(false)
+    }
+  }
 
   // Show loading state
-  if (status === "loading" || (status === "authenticated" && userId && certificates === undefined)) {
+  if (status === "loading" || (status === "authenticated" && userId && (certificates === undefined || currentUser === undefined))) {
     return <ProfileSkeleton />
   }
 
@@ -58,8 +147,8 @@ export default function ProfilePage() {
   }
 
   const user = sessionUser as ExtendedUser
-  const initials = user.name
-    ? user.name.split(" ").map((n) => n[0]).join("").toUpperCase()
+  const initials = displayName
+    ? displayName.split(" ").map((n) => n[0]).join("").toUpperCase()
     : user.email?.charAt(0).toUpperCase() || "U"
 
   return (
@@ -70,14 +159,14 @@ export default function ProfilePage() {
           <div className="flex flex-col items-center text-center">
             {/* Profile Picture */}
             <Avatar className="h-32 w-32 mb-4 border-4 border-primary/20">
-              <AvatarImage src={user.image || undefined} alt={user.name || "User"} />
+              <AvatarImage src={user.image || undefined} alt={displayName} />
               <AvatarFallback className="text-4xl font-bold bg-gradient-to-br from-primary/20 to-primary/10">
                 {initials}
               </AvatarFallback>
             </Avatar>
 
             {/* Username */}
-            <h1 className="text-3xl font-bold mb-2">{user.name || "User"}</h1>
+            <h1 className="text-3xl font-bold mb-2">{displayName}</h1>
             
             {/* Email & Role */}
             <div className="flex flex-col sm:flex-row items-center gap-3 text-muted-foreground mb-4">
@@ -175,23 +264,120 @@ export default function ProfilePage() {
               <CardTitle>Profile Settings</CardTitle>
               <CardDescription>Manage your account settings and preferences</CardDescription>
             </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <div>
-                  <label className="text-sm font-medium">Name</label>
-                  <p className="text-muted-foreground">{user.name || "Not set"}</p>
+            <CardContent className="space-y-6">
+              {/* Name Field */}
+              <div className="space-y-2">
+                <Label htmlFor="name" className="text-sm font-medium">Name</Label>
+                {isEditingName ? (
+                  <div className="space-y-2">
+                    <div className="flex gap-2">
+                      <Input
+                        id="name"
+                        value={editedName}
+                        onChange={(e) => {
+                          setEditedName(e.target.value)
+                          setNameError("")
+                        }}
+                        placeholder="Enter your name"
+                        className={nameError ? "border-red-500" : ""}
+                        disabled={isUpdating}
+                        autoFocus
+                      />
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={handleSaveName}
+                        disabled={isUpdating || !editedName.trim()}
+                        title="Save"
+                      >
+                        {isUpdating ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Check className="h-4 w-4 text-green-600" />
+                        )}
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={handleCancelEdit}
+                        disabled={isUpdating}
+                        title="Cancel"
+                      >
+                        <X className="h-4 w-4 text-red-600" />
+                      </Button>
+                    </div>
+                    {nameError && (
+                      <p className="text-sm text-red-500">{nameError}</p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <p className="text-muted-foreground">{displayName}</p>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8"
+                      onClick={handleStartEdit}
+                      title="Edit name"
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                  </div>
+                )}
+              </div>
+
+              {/* Email Field (Read-only) */}
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Email</Label>
+                <p className="text-muted-foreground">{user.email}</p>
+              </div>
+
+              {/* Role Field (Read-only) */}
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Role</Label>
+                <p className="text-muted-foreground">{user.role || "user"}</p>
+              </div>
+
+              {/* Divider */}
+              <div className="border-t pt-6">
+                <h3 className="text-lg font-semibold mb-4">Appearance</h3>
+                
+                {/* Theme Toggle */}
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">Theme</Label>
+                  <p className="text-sm text-muted-foreground mb-3">
+                    Choose your preferred color scheme
+                  </p>
+                  <div className="flex gap-2">
+                    <Button
+                      variant={theme === "light" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setTheme("light")}
+                      className="gap-2"
+                    >
+                      <Sun className="h-4 w-4" />
+                      Light
+                    </Button>
+                    <Button
+                      variant={theme === "dark" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setTheme("dark")}
+                      className="gap-2"
+                    >
+                      <Moon className="h-4 w-4" />
+                      Dark
+                    </Button>
+                    <Button
+                      variant={theme === "system" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setTheme("system")}
+                      className="gap-2"
+                    >
+                      <Monitor className="h-4 w-4" />
+                      System
+                    </Button>
+                  </div>
                 </div>
-                <div>
-                  <label className="text-sm font-medium">Email</label>
-                  <p className="text-muted-foreground">{user.email}</p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium">Role</label>
-                  <p className="text-muted-foreground">{user.role || "user"}</p>
-                </div>
-                <Button variant="outline" disabled>
-                  Edit Profile (Coming Soon)
-                </Button>
               </div>
             </CardContent>
           </Card>

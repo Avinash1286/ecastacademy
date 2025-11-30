@@ -13,6 +13,7 @@ import type * as ai from "../ai.js";
 import type * as aiConfig from "../aiConfig.js";
 import type * as audit from "../audit.js";
 import type * as auth from "../auth.js";
+import type * as bookmarks from "../bookmarks.js";
 import type * as capsuleGeneration from "../capsuleGeneration.js";
 import type * as capsules from "../capsules.js";
 import type * as certificates from "../certificates.js";
@@ -49,6 +50,7 @@ declare const fullApi: ApiFromModules<{
   aiConfig: typeof aiConfig;
   audit: typeof audit;
   auth: typeof auth;
+  bookmarks: typeof bookmarks;
   capsuleGeneration: typeof capsuleGeneration;
   capsules: typeof capsules;
   certificates: typeof certificates;

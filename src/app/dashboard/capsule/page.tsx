@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/badge';
 import { Paperclip, FileText, Loader2, CheckCircle2, AlertTriangle, Clock, Trash2, RefreshCw, ArrowUp, X, Sparkles, Globe, Users, ChevronRight } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 import { toast } from 'sonner';
+import { CapsuleBookmarkButton } from '@/components/capsule/CapsuleBookmarkButton';
 
 type CapsuleStatus = 'pending' | 'processing' | 'completed' | 'failed';
 
@@ -103,6 +104,11 @@ export default function CapsulePage() {
   };
 
   const formatErrorMessage = (error: string) => {
+    // Check for content safety violation (keep the full message)
+    if (error.includes('⚠️') || error.includes('CONTENT_SAFETY') || error.includes('cannot be used to create educational content')) {
+      // Clean up the error but preserve the safety message
+      return error.replace(/^\[.*?\]:\s*/, '').replace(/^Error:\s*/, '').replace(/^⚠️\s*/, '');
+    }
     if (error.includes('429') || error.includes('Quota exceeded')) {
       const retryMatch = error.match(/Please retry in ([0-9.]+)s/);
       if (retryMatch) {
@@ -597,14 +603,20 @@ export default function CapsulePage() {
                   onClick={() => router.push(`/capsule/learn/${capsule._id}`)}
                 >
                   <CardContent className="p-5 min-h-[220px] flex flex-col">
-                    {/* Header with icon */}
+                    {/* Header with icon and bookmark button */}
                     <div className="flex items-start justify-between mb-3">
                       <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-blue-500/20 to-purple-500/20 flex items-center justify-center shrink-0">
                         <Globe className="h-5 w-5 text-blue-500" />
                       </div>
-                      <Badge variant="secondary" className="text-xs bg-blue-500/10 text-blue-600 border-blue-500/20">
-                        Public
-                      </Badge>
+                      <div className="flex items-center gap-2">
+                        <CapsuleBookmarkButton
+                          capsuleId={capsule._id}
+                          userId={userId}
+                        />
+                        <Badge variant="secondary" className="text-xs bg-blue-500/10 text-blue-600 border-blue-500/20">
+                          Public
+                        </Badge>
+                      </div>
                     </div>
 
                     {/* Title */}

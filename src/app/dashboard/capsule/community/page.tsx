@@ -11,7 +11,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Globe, Users, BookOpen, Clock, ArrowLeft, Loader2 } from 'lucide-react';
+import { Globe, Users, BookOpen, Clock, ArrowLeft } from 'lucide-react';
+import { CapsuleBookmarkButton } from '@/components/capsule/CapsuleBookmarkButton';
 
 const CAPSULES_PER_PAGE = 12;
 
@@ -19,6 +20,7 @@ export default function CommunityCapsulePage() {
   const router = useRouter();
   const { data: session } = useSession();
   const userId = session?.user?.id as Id<"users"> | undefined;
+  const isAuthenticated = !!userId;
 
   const [cursor, setCursor] = useState<string | undefined>(undefined);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -43,6 +45,8 @@ export default function CommunityCapsulePage() {
       setTimeout(() => setIsLoadingMore(false), 500);
     }
   }, [communityCapsules?.nextCursor]);
+
+
 
   return (
     <main className="bg-background min-h-screen">
@@ -105,9 +109,15 @@ export default function CommunityCapsulePage() {
                       <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-blue-500/20 to-purple-500/20 flex items-center justify-center shrink-0">
                         <Globe className="h-5 w-5 text-blue-500" />
                       </div>
-                      <Badge variant="secondary" className="text-xs bg-blue-500/10 text-blue-600 border-blue-500/20">
-                        Public
-                      </Badge>
+                      <div className="flex items-center gap-2">
+                        <CapsuleBookmarkButton
+                          capsuleId={capsule._id}
+                          userId={userId}
+                        />
+                        <Badge variant="secondary" className="text-xs bg-blue-500/10 text-blue-600 border-blue-500/20">
+                          Public
+                        </Badge>
+                      </div>
                     </div>
                     <CardTitle className="text-lg line-clamp-2 group-hover:text-primary transition-colors mt-3">
                       {capsule.title}

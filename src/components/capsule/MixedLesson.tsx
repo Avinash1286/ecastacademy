@@ -15,7 +15,11 @@ import {
   DragOverlay, 
   DragStartEvent, 
   useDraggable, 
-  useDroppable 
+  useDroppable,
+  TouchSensor,
+  MouseSensor,
+  useSensor,
+  useSensors,
 } from '@dnd-kit/core';
 import { 
   CheckCircle2, 
@@ -247,9 +251,10 @@ interface MixedLessonProps {
 function DraggableItem({ id, content, isPlaced }: { id: string; content: string; isPlaced: boolean }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id });
   
-  const style = transform ? {
-    transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`,
-  } : undefined;
+  const style: React.CSSProperties = {
+    transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
+    touchAction: 'none', // Prevent browser touch actions like scrolling during drag
+  };
 
   if (isPlaced) return null;
 
@@ -260,7 +265,7 @@ function DraggableItem({ id, content, isPlaced }: { id: string; content: string;
       {...listeners}
       {...attributes}
       className={cn(
-        "px-3 py-2 bg-primary/10 border-2 border-primary/30 rounded-lg cursor-grab flex items-center gap-2 transition-all",
+        "px-3 py-2 bg-primary/10 border-2 border-primary/30 rounded-lg cursor-grab flex items-center gap-2 transition-all select-none",
         isDragging && "opacity-50 cursor-grabbing shadow-lg scale-105"
       )}
     >
@@ -1012,8 +1017,22 @@ function DragDropQuiz({
 
   const activeItem = activeId ? question.items.find(i => i.id === activeId) : null;
 
+  // Configure sensors for both mouse and touch support
+  const mouseSensor = useSensor(MouseSensor, {
+    activationConstraint: {
+      distance: 5, // Require 5px movement before activating drag
+    },
+  });
+  const touchSensor = useSensor(TouchSensor, {
+    activationConstraint: {
+      delay: 150, // Small delay to distinguish from scroll
+      tolerance: 5, // Allow 5px movement during delay
+    },
+  });
+  const sensors = useSensors(mouseSensor, touchSensor);
+
   return (
-    <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+    <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
       <div className="space-y-4">
         <p className="text-sm text-muted-foreground">{question.instruction || "Drag items to their correct targets"}</p>
         

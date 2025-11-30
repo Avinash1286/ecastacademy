@@ -717,4 +717,25 @@ export default defineSchema({
     .index("by_resourceId", ["resourceId"])
     .index("by_timestamp", ["timestamp"])
     .index("by_userId_timestamp", ["userId", "timestamp"]),
+
+  // =============================================================================
+  // Bookmarks - User bookmarks for courses and capsules
+  // =============================================================================
+  bookmarks: defineTable({
+    userId: v.id("users"),
+    
+    // Type of bookmark: "course" for YouTube courses, "capsule" for AI-generated capsules
+    type: v.union(v.literal("course"), v.literal("capsule")),
+    
+    // Reference to the bookmarked item (only one should be set based on type)
+    courseId: v.optional(v.id("courses")),
+    capsuleId: v.optional(v.id("capsules")),
+    
+    // Timestamps
+    createdAt: v.number(),
+  })
+    .index("by_userId", ["userId"])
+    .index("by_userId_type", ["userId", "type"])
+    .index("by_userId_courseId", ["userId", "courseId"])
+    .index("by_userId_capsuleId", ["userId", "capsuleId"]),
 });

@@ -79,6 +79,45 @@ export const updateUser = mutation({
   },
 });
 
+// Secure update user profile (user can only update their own profile)
+export const updateUserProfile = mutation({
+  args: {
+    userId: v.id("users"),
+    name: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const { userId, name } = args;
+    
+    // Validate name
+    const trimmedName = name.trim();
+    if (trimmedName.length < 2) {
+      throw new Error("Name must be at least 2 characters long");
+    }
+    if (trimmedName.length > 100) {
+      throw new Error("Name must be less than 100 characters");
+    }
+    // Basic sanitization - only allow letters, spaces, hyphens, apostrophes, and periods
+    const nameRegex = /^[a-zA-Z\s\-'.]+$/;
+    if (!nameRegex.test(trimmedName)) {
+      throw new Error("Name can only contain letters, spaces, hyphens, apostrophes, and periods");
+    }
+    
+    // Verify user exists
+    const user = await ctx.db.get(userId);
+    if (!user) {
+      throw new Error("User not found");
+    }
+    
+    // Update user name
+    await ctx.db.patch(userId, {
+      name: trimmedName,
+      updatedAt: Date.now(),
+    });
+    
+    return { success: true, name: trimmedName };
+  },
+});
+
 // ============= ACCOUNT OPERATIONS =============
 
 // Link account (OAuth)

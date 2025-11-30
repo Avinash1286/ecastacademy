@@ -113,16 +113,16 @@ const Page = () => {
           {/* Main Content */}
           <div className="lg:col-span-2 order-last lg:order-first space-y-6">
             <div>
-            <div className="flex items-start gap-4 mb-4">
-              <h1 className="text-4xl font-bold flex-1">{course.name}</h1>
+            <div className="flex flex-col gap-3 mb-4">
               {course.isCertification && (
-                <Badge className="bg-amber-500 hover:bg-amber-600 text-white">
+                <Badge className="bg-amber-500 hover:bg-amber-600 text-white w-fit">
                   <Award className="h-4 w-4 mr-1" />
                   Certificate Course
                 </Badge>
               )}
+              <h1 className="text-3xl sm:text-4xl font-bold">{course.name}</h1>
             </div>
-            <p className="text-lg text-muted-foreground">
+            <p className="text-base sm:text-lg text-muted-foreground">
               {course.description || "No description available"}
             </p>
           </div>

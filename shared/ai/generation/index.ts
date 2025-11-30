@@ -4,6 +4,7 @@ import {
   QUIZ_PROMPT, 
   STRUCTURED_REPAIR_PROMPT, 
   TUTOR_CHAT_PROMPT,
+  TUTOR_CHAT_QUIZ_EXTENSION,
   CAPSULE_OUTLINE_PROMPT,
   CAPSULE_MODULE_CONTENT_PROMPT,
   CAPSULE_LESSON_CONTENT_PROMPT,
@@ -78,10 +79,17 @@ export const generateTutorResponse = async (params: {
   chapterTitle?: string;
   modelConfig: AIModelConfig;
 }): Promise<string> => {
+  const MAX_MESSAGE_LENGTH = 1000;
   const transcript = cleanTranscript(params.transcript).slice(0, 4_000_000);
 
   if (!transcript) {
     throw new Error("Transcript is empty. Cannot answer questions yet.");
+  }
+
+  // Validate last message length (server-side security)
+  const lastMessage = params.messages[params.messages.length - 1];
+  if (lastMessage && lastMessage.content.length > MAX_MESSAGE_LENGTH) {
+    throw new Error(`Message too long. Maximum ${MAX_MESSAGE_LENGTH} characters allowed.`);
   }
 
   const conversation = params.messages
@@ -89,7 +97,7 @@ export const generateTutorResponse = async (params: {
     .slice(-8)
     .map((message) => ({
       role: message.role,
-      content: message.content,
+      content: message.content.slice(0, MAX_MESSAGE_LENGTH), // Enforce limit on all messages
     }));
 
   if (conversation.length === 0) {
@@ -108,6 +116,8 @@ export const generateTutorResponse = async (params: {
   const model = getAIClient(validatedConfig);
 
   const system = `${TUTOR_CHAT_PROMPT}
+
+${TUTOR_CHAT_QUIZ_EXTENSION}
 ${contextBlock ? `\n${contextBlock}` : ""}
 \nTranscript:\n${transcript}`;
 
@@ -281,6 +291,10 @@ Module Description: ${input.moduleDescription}
 Lessons to generate content for:
 ${input.lessons.map((l, i) => `${i + 1}. ${l.title}: ${l.description}`).join("\n")}
 
+IMPORTANT: Analyze the course topic "${input.capsuleTitle}" to determine content approach:
+- For humanities/non-technical topics (Philosophy, History, Literature, Psychology, Art, etc.): Focus on rich explanations, examples, thought experiments, and multiple perspectives. Use EMPTY arrays for codeExamples and interactiveVisualizations.
+- For technical/STEM topics: Include code examples and visualizations ONLY when they genuinely enhance understanding.
+
 Generate engaging content for EACH lesson listed above.`;
 
   if (input.sourceType === "pdf" && input.pdfBuffer) {
@@ -328,6 +342,10 @@ Module ${input.moduleIndex + 1}: ${input.moduleTitle}
 
 Generate content for Lesson ${input.lessonIndex + 1}: "${input.lessonTitle}"
 Description: ${input.lessonDescription}
+
+IMPORTANT: Analyze the course topic "${input.capsuleTitle}" to determine content approach:
+- For humanities/non-technical topics (Philosophy, History, Literature, Psychology, Art, etc.): Focus on rich explanations, examples, thought experiments. Use EMPTY arrays for codeExamples and interactiveVisualizations.
+- For technical/STEM topics: Include code examples and visualizations ONLY when they genuinely enhance understanding.
 
 Create focused, engaging content for this lesson.`;
 

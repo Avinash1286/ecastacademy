@@ -1,9 +1,13 @@
 import { generateText } from "ai";
 import { getAIClient } from "@shared/ai/core";
 import { MissingAIModelMappingError, resolveWithConvexCtx } from "@shared/ai/modelResolver";
+import { TUTOR_CHAT_PROMPT, TUTOR_CHAT_QUIZ_EXTENSION } from "@shared/ai/prompts";
 import { action } from "./_generated/server";
 import { v } from "convex/values";
 import { api } from "./_generated/api";
+
+// Maximum allowed message length (must match frontend)
+const MAX_MESSAGE_LENGTH = 1000;
 
 export const generateTutorResponse = action({
     args: {
@@ -26,49 +30,42 @@ export const generateTutorResponse = action({
             throw new Error("User not found");
         }
 
-        // 2. Prepare the prompt
-        const systemPrompt = `You are an expert AI tutor for the eCastAcademy platform.
-    Your goal is to help students understand the course material.
-    
-    Context:
-    ${context || "No specific context provided."}
-    
-    Instructions:
-    - Be helpful, encouraging, and concise.
-    - Use markdown for formatting.
-    - If the user asks about the video/content, refer to the provided context.
-    `;
-
+        // 2. Validate message length (server-side security check)
         const lastMessage = messages[messages.length - 1];
         if (lastMessage.role !== "user") {
             throw new Error("Last message must be from user");
         }
+        
+        if (lastMessage.content.length > MAX_MESSAGE_LENGTH) {
+            throw new Error(`Message too long. Maximum ${MAX_MESSAGE_LENGTH} characters allowed.`);
+        }
 
-        // 3. Save User Message (if not already saved by frontend - but better to do it here or ensure it's done)
-        // Ideally, the frontend calls a mutation to save the user message, THEN calls this action.
-        // But to be safe and atomic, we could call a mutation here. 
-        // However, usually frontend optimistically adds it. 
-        // Let's assume frontend saves USER message, but we are responsible for ASSISTANT message.
+        // 3. Prepare the system prompt with full tutor capabilities including quiz mode
+        const systemPrompt = `${TUTOR_CHAT_PROMPT}
 
-        // Actually, for security, we should probably handle the API call to the LLM here.
+${TUTOR_CHAT_QUIZ_EXTENSION}
+
+Context/Transcript:
+${context || "No specific context provided."}
+`;
 
         try {
             const modelConfig = await resolveWithConvexCtx(ctx, "tutor_chat");
+            
+            // Build conversation history for context
+            const conversationMessages = messages.slice(-8).map(msg => ({
+                role: msg.role as "user" | "assistant",
+                content: msg.content,
+            }));
+
             const { text } = await generateText({
                 model: getAIClient(modelConfig),
                 system: systemPrompt,
-                prompt: lastMessage.content,
+                messages: conversationMessages,
             });
             const aiText = text?.trim() || "I'm sorry, I couldn't generate a response.";
 
             // 4. Save Assistant Message
-            // We need to call a mutation to save the message.
-            // We can't call `ctx.db` directly in an action. We must use `ctx.runMutation`.
-
-            // We need to find the session ID first. 
-            // The frontend passes `chatId` which is a string (UUID), but our tables use `v.id`.
-            // We need a mutation to look up the session and add the message.
-
             await ctx.runMutation(api.messages.saveAIResponse, {
                 userId: userId,
                 chatId: chatId,
@@ -77,7 +74,7 @@ export const generateTutorResponse = action({
 
             return aiText;
 
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error("AI Generation Error:", error);
             if (error instanceof MissingAIModelMappingError) {
                 throw new Error(error.message);

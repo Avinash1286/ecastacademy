@@ -50,6 +50,7 @@ import {
 import { useState, useCallback, useMemo } from "react";
 import { toast } from "sonner";
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 
 type CourseStatus = "draft" | "generating" | "ready" | "failed" | undefined;
 
@@ -69,6 +70,7 @@ type CourseWithStats = {
 const COURSES_PER_PAGE = 20;
 
 export default function CoursesManagementPage() {
+  const { data: session } = useSession();
   const [searchQuery, setSearchQuery] = useState("");
   const [cursor, setCursor] = useState<string | undefined>(undefined);
   const [allCourses, setAllCourses] = useState<CourseWithStats[]>([]);
@@ -150,6 +152,7 @@ export default function CoursesManagementPage() {
         description: courseDescription || undefined,
         isCertification,
         passingGrade: isCertification ? Number(passingGrade) : undefined,
+        currentUserId: session?.user?.id as Id<"users"> | undefined,
       });
       toast.success("Course updated successfully");
       setEditDialogOpen(false);
@@ -168,7 +171,10 @@ export default function CoursesManagementPage() {
     if (!selectedCourse) return;
 
     try {
-      await deleteCourse({ id: selectedCourse.id as Id<"courses"> });
+      await deleteCourse({ 
+        id: selectedCourse.id as Id<"courses">,
+        currentUserId: session?.user?.id as Id<"users"> | undefined,
+      });
       toast.success("Course deleted successfully");
       setDeleteDialogOpen(false);
       setSelectedCourse(null);
@@ -183,6 +189,7 @@ export default function CoursesManagementPage() {
       await togglePublish({
         id: courseId as Id<"courses">,
         isPublished: !currentPublishStatus,
+        currentUserId: session?.user?.id as Id<"users"> | undefined,
       });
       toast.success(currentPublishStatus ? "Course unpublished" : "Course published");
     } catch (error) {

@@ -86,7 +86,7 @@ export const QuizResults = ({
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
+    <div className="mx-auto max-w-3xl space-y-4 sm:space-y-6 w-full">
       {/* Confetti celebration for good quiz results */}
       <ConfettiCelebration 
         show={showConfetti} 
@@ -97,7 +97,7 @@ export const QuizResults = ({
       
       {/* Show "Previous Attempt" banner if viewing history */}
       {isPreviousAttempt && (
-        <Card className="p-4 bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800">
+        <Card className="p-3 sm:p-4 bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800">
           <div className="flex items-center gap-2 text-blue-700 dark:text-blue-400">
             <Clock className="h-5 w-5" />
             <p className="font-semibold">
@@ -107,79 +107,79 @@ export const QuizResults = ({
         </Card>
       )}
 
-      <Card className="p-8 text-center shadow-lg">
-        <Trophy className="mx-auto mb-4 h-16 w-16 text-chart-5 dark:text-chart-3" />
-        <h2 className="mb-2 text-3xl font-bold text-foreground">
+      <Card className="p-4 sm:p-8 text-center shadow-lg">
+        <Trophy className="mx-auto mb-4 h-12 w-12 sm:h-16 sm:w-16 text-chart-5 dark:text-chart-3" />
+        <h2 className="mb-2 text-2xl sm:text-3xl font-bold text-foreground">
           {isPreviousAttempt ? 'Your Previous Result' : 'Quiz Complete!'}
         </h2>
-        <div className={`mb-2 text-6xl font-bold ${getScoreColor()}`}>
+        <div className={`mb-2 text-4xl sm:text-6xl font-bold ${getScoreColor()}`}>
           {score}/{quiz.questions.length}
         </div>
-        <p className="mb-4 text-xl text-muted-foreground">{percentage}% Correct</p>
+        <p className="mb-4 text-lg sm:text-xl text-muted-foreground">{percentage}% Correct</p>
         
         {isGraded && (
-          <div className="mb-4 flex items-center justify-center gap-2">
+          <div className="mb-4 flex flex-wrap items-center justify-center gap-2">
             {passed ? (
-              <Badge className="bg-green-500 hover:bg-green-600 text-white text-base py-1 px-3">
-                <CheckCircle className="h-4 w-4 mr-1" />
+              <Badge className="bg-green-500 hover:bg-green-600 text-white text-sm sm:text-base py-1 px-2 sm:px-3">
+                <CheckCircle className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />
                 Passed
               </Badge>
             ) : (
-              <Badge className="bg-destructive hover:bg-destructive text-white text-base py-1 px-3">
-                <AlertCircle className="h-4 w-4 mr-1" />
+              <Badge className="bg-destructive hover:bg-destructive text-white text-sm sm:text-base py-1 px-2 sm:px-3">
+                <AlertCircle className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />
                 Need {passingScore}% to Pass
               </Badge>
             )}
             {isGraded && (
-              <Badge variant="outline" className="text-base py-1 px-3">
-                <Award className="h-4 w-4 mr-1 text-amber-600" />
+              <Badge variant="outline" className="text-sm sm:text-base py-1 px-2 sm:px-3">
+                <Award className="h-3 w-3 sm:h-4 sm:w-4 mr-1 text-amber-600" />
                 Graded
               </Badge>
             )}
           </div>
         )}
         
-        <p className="text-lg font-semibold text-foreground">{getScoreMessage()}</p>
+        <p className="text-base sm:text-lg font-semibold text-foreground">{getScoreMessage()}</p>
       </Card>
 
-      <Card className="p-6 shadow-lg">
-        <h3 className="mb-6 text-2xl font-bold text-foreground">Review Your Answers</h3>
-        <div className="space-y-6">
+      <Card className="p-3 sm:p-6 shadow-lg">
+        <h3 className="mb-4 sm:mb-6 text-xl sm:text-2xl font-bold text-foreground">Review Your Answers</h3>
+        <div className="space-y-4 sm:space-y-6">
           {quiz.questions.map((question, index) => {
             const userAnswer = userAnswers[index];
             const isCorrect = userAnswer === question.correct;
             
             return (
-              <div key={index} className="border-b border-border pb-6 last:border-b-0">
-                <div className="flex items-start space-x-4">
+              <div key={index} className="border-b border-border pb-4 sm:pb-6 last:border-b-0">
+                <div className="flex items-start gap-2 sm:gap-4">
                   {isCorrect ? (
-                    <CheckCircle className="mt-1 h-5 w-5 flex-shrink-0 text-chart-4 dark:text-chart-2" />
+                    <CheckCircle className="mt-0.5 sm:mt-1 h-4 w-4 sm:h-5 sm:w-5 flex-shrink-0 text-chart-4 dark:text-chart-2" />
                   ) : (
-                    <XCircle className="mt-1 h-5 w-5 flex-shrink-0 text-destructive" />
+                    <XCircle className="mt-0.5 sm:mt-1 h-4 w-4 sm:h-5 sm:w-5 flex-shrink-0 text-destructive" />
                   )}
-                  <div className="flex-1 space-y-3">
-                    <h4 className="font-semibold text-foreground">
+                  <div className="flex-1 min-w-0 space-y-2 sm:space-y-3">
+                    <h4 className="font-semibold text-foreground text-sm sm:text-base break-words">
                       {index + 1}. {question.question}
                     </h4>
                     
                     
                     <div className={cn(
-                      "rounded-lg border p-3",
+                      "rounded-lg border p-2 sm:p-3 text-sm sm:text-base break-words",
                       isCorrect 
                         ? 'border-chart-4/30 bg-chart-4/10 text-chart-4 dark:border-chart-2/30 dark:bg-chart-2/10 dark:text-chart-2' 
                         : 'border-destructive/30 bg-destructive/10 text-destructive'
                     )}>
                       <span className="font-medium">Your answer: </span>
-                      <span>
+                      <span className="break-words">
                         {question.options[userAnswer]}
                       </span>
                     </div>
                     
                     
                     {!isCorrect && (
-                      <div className="rounded-lg border border-chart-4/30 bg-chart-4/10 p-3 text-chart-4 dark:border-chart-2/30 dark:bg-chart-2/10 dark:text-chart-2">
+                      <div className="rounded-lg border border-chart-4/30 bg-chart-4/10 p-2 sm:p-3 text-sm sm:text-base text-chart-4 dark:border-chart-2/30 dark:bg-chart-2/10 dark:text-chart-2 break-words">
                         <span className="font-medium">Correct answer: </span>
-                        <span>
+                        <span className="break-words">
                           {question.options[question.correct]}
                         </span>
                       </div>
@@ -187,8 +187,8 @@ export const QuizResults = ({
                     
                   
                     {question.explanation && (
-                      <div className="rounded-lg border border-secondary/30 bg-secondary/10 p-3">
-                        <p className="text-sm text-muted-foreground">{question.explanation}</p>
+                      <div className="rounded-lg border border-secondary/30 bg-secondary/10 p-2 sm:p-3">
+                        <p className="text-xs sm:text-sm text-muted-foreground break-words">{question.explanation}</p>
                       </div>
                     )}
                   </div>
@@ -201,10 +201,10 @@ export const QuizResults = ({
 
       {/* Attempt History for Graded Quizzes */}
       {isGraded && attemptHistory && attemptHistory.length > 0 && (
-        <Card className="p-6 shadow-lg">
+        <Card className="p-3 sm:p-6 shadow-lg">
           <div className="flex items-center gap-2 mb-4">
-            <Clock className="h-5 w-5 text-muted-foreground" />
-            <h3 className="text-xl font-bold text-foreground">Attempt History</h3>
+            <Clock className="h-4 w-4 sm:h-5 sm:w-5 text-muted-foreground" />
+            <h3 className="text-lg sm:text-xl font-bold text-foreground">Attempt History</h3>
           </div>
           
           <div className="space-y-3">
