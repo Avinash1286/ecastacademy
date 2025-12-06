@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Globe, Users, BookOpen, Clock, ArrowLeft } from 'lucide-react';
+import { Globe, Users, BookOpen, Clock, ArrowLeft, Loader2 } from 'lucide-react';
 import { CapsuleBookmarkButton } from '@/components/capsule/CapsuleBookmarkButton';
 
 const CAPSULES_PER_PAGE = 12;
@@ -20,18 +20,16 @@ export default function CommunityCapsulePage() {
   const router = useRouter();
   const { data: session } = useSession();
   const userId = session?.user?.id as Id<"users"> | undefined;
-  const isAuthenticated = !!userId;
 
   const [cursor, setCursor] = useState<string | undefined>(undefined);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
 
-  // Fetch community capsules with pagination
+  // Fetch community capsules with pagination (includes user's own public capsules)
   const communityCapsules = useQuery(
     api.capsules.getCommunityCapsules,
     {
       limit: CAPSULES_PER_PAGE,
       cursor,
-      excludeUserId: userId,
     }
   );
 
@@ -98,10 +96,12 @@ export default function CommunityCapsulePage() {
         ) : communityCapsules.capsules.length > 0 ? (
           <>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {communityCapsules.capsules.map((capsule) => (
+              {communityCapsules.capsules.map((capsule) => {
+                const isOwn = userId && capsule.userId === userId;
+                return (
                 <Card 
                   key={capsule._id} 
-                  className="overflow-hidden hover:shadow-lg transition-shadow cursor-pointer group"
+                  className={`overflow-hidden hover:shadow-lg transition-shadow cursor-pointer group ${isOwn ? 'ring-1 ring-primary/30' : ''}`}
                   onClick={() => router.push(`/capsule/learn/${capsule._id}`)}
                 >
                   <CardHeader className="pb-4">
@@ -110,13 +110,21 @@ export default function CommunityCapsulePage() {
                         <Globe className="h-5 w-5 text-blue-500" />
                       </div>
                       <div className="flex items-center gap-2">
-                        <CapsuleBookmarkButton
-                          capsuleId={capsule._id}
-                          userId={userId}
-                        />
-                        <Badge variant="secondary" className="text-xs bg-blue-500/10 text-blue-600 border-blue-500/20">
-                          Public
-                        </Badge>
+                        {!isOwn && (
+                          <CapsuleBookmarkButton
+                            capsuleId={capsule._id}
+                            userId={userId}
+                          />
+                        )}
+                        {isOwn ? (
+                          <Badge variant="secondary" className="text-xs bg-green-500/10 text-green-600 border-green-500/20">
+                            Yours
+                          </Badge>
+                        ) : (
+                          <Badge variant="secondary" className="text-xs bg-blue-500/10 text-blue-600 border-blue-500/20">
+                            Public
+                          </Badge>
+                        )}
                       </div>
                     </div>
                     <CardTitle className="text-lg line-clamp-2 group-hover:text-primary transition-colors mt-3">
@@ -152,7 +160,7 @@ export default function CommunityCapsulePage() {
                     </div>
                   </CardContent>
                 </Card>
-              ))}
+              )})}
             </div>
 
             {/* Load More Button */}

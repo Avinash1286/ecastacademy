@@ -52,11 +52,23 @@ Return a JSON object with this structure:
       "reflectionQuestions": ["Prompt that encourages personal connection"],
       "quiz": [
         {
-          "type": "mcq|true-false|fill-blank",
-          "question": "Question text",
-          "options": ["Option 1", "Option 2", "Option 3", "Option 4"],
-          "correctAnswer": "Correct answer text",
-          "explanation": "Why this answer is correct"
+          "type": "mcq",
+          "question": "Multiple choice question?",
+          "options": ["Option A", "Option B", "Option C", "Option D"],
+          "correctAnswer": "Option A",
+          "explanation": "Why Option A is correct"
+        },
+        {
+          "type": "true-false",
+          "question": "Statement that is true or false?",
+          "correctAnswer": "True",
+          "explanation": "Why this is true"
+        },
+        {
+          "type": "fill-blank",
+          "question": "Complete: The process of ___ is...",
+          "correctAnswer": "keyword",
+          "explanation": "Why this word fits"
         }
       ]
     }
@@ -73,13 +85,21 @@ Guidelines:
 - Align every learning objective and section with the transcript’s main ideas
 - Use introHook to spark curiosity; write content that balances clarity, depth, and storytelling
 - Make microSummary punchy for quick revision
+- CALLOUT types are ONLY: tip, example, note, common-mistake (NEVER use insight/important/warning)
+- HIGHLIGHT types are ONLY: insight, important, warning (NEVER use tip/example/note/common-mistake)
 - Mix callout types and keep them concise
+- CRITICAL: Never include empty arrays. If an optional field (bullets, examples, steps, keyPoints, etc.) has no items, OMIT the field entirely instead of using []
 - Provide codeBlocks only when the transcript implies technical content and use correct language labels
 - Design interactivePrompts that feel actionable and fun; prefer verbs and real-world scenarios
 - Craft reflectionQuestions that encourage metacognition or personal application
-- Include 1-3 quiz items per section; for MCQ, supply exactly four options and ensure the correctAnswer matches one option
+- Include 1-3 quiz items per section
+- For MCQ type ONLY: include exactly four "options" and ensure correctAnswer matches one option
+- For true-false type: correctAnswer must be "True" or "False" - NO options array
+- For fill-blank type: correctAnswer is the word/phrase to fill in - NO options array
+- CRITICAL: Only MCQ questions should have the "options" field
 - Vary quiz types across sections when possible
 - Ensure tone is encouraging, inclusive, and learner-friendly
+- IMPORTANT: For LaTeX math in JSON strings, use DOUBLE backslashes (e.g., \\\\pi, \\\\sigma, \\\\omega, \\\\frac{}, \\\\int) because JSON requires escaping backslashes
 - Respond with JSON only—no prose, disclaimers, or backticks.`;
 
 export const QUIZ_PROMPT = `Generate a quiz about the provided content with required number(decide yourself) of multiple-choice questions. 
@@ -219,7 +239,26 @@ Rules:
 - Preserve the author’s intent; change content only when needed to satisfy the schema or fix logic errors highlighted in errorMessage
 - Ensure the JSON is syntactically valid and semantically aligned with schemaDescription
 - If information is missing but clearly implied, fill reasonable defaults that respect the topic
-- Never return the wrapper object—respond with the final JSON payload only.`;
+- Never return the wrapper object - respond with the final JSON payload only
+
+COMMON ERRORS AND HOW TO FIX THEM:
+
+1. "callouts.X.type: Invalid enum value... received 'insight'"
+   => 'insight' is a HIGHLIGHT type. Change to CALLOUT type: tip, example, note, or common-mistake
+
+2. "Only multiple choice questions can include options"
+   => Remove "options" array from true-false or fill-blank questions. Only MCQ has options.
+
+3. "correctAnswer must be one of the provided options"  
+   => For MCQ, make correctAnswer exactly match one of the 4 options.
+
+4. "Bad escaped character in JSON" or escape errors
+   => LaTeX in JSON needs DOUBLE backslashes. Fix: \\pi -> \\\\pi, \\sigma -> \\\\sigma, \\frac -> \\\\frac, etc.
+
+5. "Array must contain at least 1 element(s)" for bullets, examples, steps, keyPoints, etc.
+   => REMOVE the empty array field entirely. Don't use "bullets": [] - just omit the field.
+
+CRITICAL: Start response with { and end with } - no other text allowed.`;
 
 
 // =========================================================================
@@ -268,7 +307,45 @@ IF THE TOPIC IS HARMFUL, return ONLY this JSON (no other output):
   "message": "This topic cannot be used to create educational content as it involves [brief reason]. Please choose a different topic that promotes positive learning."
 }
 
-IF THE TOPIC IS SAFE, proceed with course generation below.
+IF THE TOPIC IS SAFE, proceed with the INPUT VALIDATION check below.
+
+═══════════════════════════════════════════════════════════════════════════════
+⚠️ CRITICAL: INPUT VALIDATION CHECK - MUST PERFORM SECOND ⚠️
+═══════════════════════════════════════════════════════════════════════════════
+
+REJECT and return an error JSON if the topic matches ANY of the following:
+
+🚫 URLs & LINKS (NOT VALID TOPICS):
+- YouTube links (youtube.com, youtu.be, www.youtube.com, etc.)
+- Any website URLs (http://, https://, www.)
+- Social media links (twitter.com, instagram.com, facebook.com, tiktok.com, etc.)
+- File paths or URLs of any kind
+
+🚫 NONSENSICAL/GIBBERISH INPUT:
+- Random characters or keyboard smashing (e.g., "asdfgh", "qwerty", "hkdfdf", "jjjjj")
+- Repeated letters/characters (e.g., "aaaa", "hehehe", "lolol", "xyzxyz")
+- Single characters or very short meaningless strings (e.g., "x", "ab", "123")
+- Text that doesn't represent a learnable topic or concept
+- Emoji-only or symbol-only input
+- Test strings (e.g., "test", "asdf", "foo", "bar", "lorem")
+
+🚫 TOO VAGUE OR EMPTY:
+- Single common words that aren't topics (e.g., "the", "and", "hello", "hi")
+- Empty or whitespace-only input
+
+IF THE INPUT IS INVALID, return ONLY this JSON (no other output):
+{
+  "error": true,
+  "errorType": "CONTENT_SAFETY_VIOLATION",
+  "message": "[Choose the appropriate message below based on the issue]"
+}
+
+Use these specific messages:
+- For YouTube/URLs: "URLs and links cannot be used as course topics. Please enter an actual topic you want to learn about, such as 'Python Programming', 'World History', or 'Machine Learning'."
+- For gibberish/nonsense: "The input doesn't appear to be a valid learning topic. Please enter a real subject you want to learn about, such as 'Data Structures', 'Philosophy', or 'Digital Marketing'."
+- For too vague: "Please provide a more specific topic. For example, instead of a single word, try 'Introduction to Physics' or 'Web Development Fundamentals'."
+
+IF THE INPUT IS VALID, proceed with course generation below.
 
 ═══════════════════════════════════════════════════════════════════════════════
 
@@ -910,6 +987,11 @@ PRACTICE QUESTIONS - MIX TYPES FOR ENGAGEMENT (ROTATE ALL 3 TYPES!)
      "correctIndex": 1,
      "explanation": "Binary search halves the search space each step, giving O(log n)."
    }
+   
+   MCQ VALIDATION RULES:
+   - MUST have exactly 4 options
+   - correctIndex MUST be 0, 1, 2, or 3
+   - explanation MUST explain why correct answer is right
 
 2. FILL IN BLANKS - For terminology and recall:
    {
@@ -922,14 +1004,11 @@ PRACTICE QUESTIONS - MIX TYPES FOR ENGAGEMENT (ROTATE ALL 3 TYPES!)
      ]
    }
    
-   IMPORTANT FOR FILL IN BLANKS:
-   - Use {{blankId}} syntax in text to mark blanks
-   - Each blank needs: id, correctAnswer, alternatives (case variations), hint
-   - Great for: definitions, formulas, code completion, key terms
-   - Example texts:
-     * "A {{blank1}} uses LIFO while a {{blank2}} uses FIFO."
-     * "The Big O notation {{blank1}} means the algorithm runs in constant time."
-     * "In JavaScript, {{blank1}} is used to declare a block-scoped variable."
+   FILL BLANKS VALIDATION RULES:
+   - "text" field MUST contain {{blankId}} placeholders
+   - Number of {{blankId}} in text MUST EQUAL number of items in blanks array
+   - Each blank id MUST match a {{blankId}} placeholder in text
+   - Each blank needs: id, correctAnswer, alternatives (array), hint
 
 3. DRAG & DROP - For matching/categorization:
    {
@@ -937,66 +1016,202 @@ PRACTICE QUESTIONS - MIX TYPES FOR ENGAGEMENT (ROTATE ALL 3 TYPES!)
      "instruction": "Match data structures to their properties",
      "items": [
        { "id": "item1", "content": "Stack" },
-       { "id": "item2", "content": "Queue" }
+       { "id": "item2", "content": "Queue" },
+       { "id": "item3", "content": "Array" }
      ],
      "targets": [
-       { "id": "target1", "label": "LIFO", "acceptsItems": ["item1"] },
-       { "id": "target2", "label": "FIFO", "acceptsItems": ["item2"] }
+       { "id": "target1", "label": "LIFO - Last In First Out", "acceptsItems": ["item1"] },
+       { "id": "target2", "label": "FIFO - First In First Out", "acceptsItems": ["item2"] },
+       { "id": "target3", "label": "Index-based access", "acceptsItems": ["item3"] }
      ],
      "feedback": { "correct": "Well done!", "incorrect": "Try again!" }
    }
+   
+   ⚠️ DRAG & DROP VALIDATION RULES - CRITICAL!:
+   - Number of items MUST EQUAL number of targets
+   - EVERY item MUST appear in exactly ONE target's acceptsItems
+   - EVERY target MUST have at least one item in acceptsItems
+   - MINIMUM 2 items/targets, MAXIMUM 5 items/targets
+   - Item IDs: item1, item2, item3... Target IDs: target1, target2, target3...
+   
+   ❌ INVALID (DO NOT DO):
+   - 2 targets but only 1 item
+   - Item not referenced in any acceptsItems
+   - Empty acceptsItems array
 
 ⚠️ IMPORTANT: Each lesson MUST include at least one fillBlanks question!
 Rotate question types across lessons to keep learners engaged.
 
 Output valid JSON only.`;
 
-export const CAPSULE_LESSON_CONTENT_PROMPT = `You are a micro-learning content creator. Create focused lesson content adapted to the topic type.
+export const CAPSULE_LESSON_CONTENT_PROMPT = `You are a friendly, expert teacher creating ENGAGING, LEARNER-FOCUSED micro-learning content for a SINGLE lesson.
 
-IMPORTANT - TOPIC-AWARE CONTENT:
-Before generating, analyze the course/lesson topic:
-- For humanities/non-technical topics (Philosophy, History, Literature, Psychology, Art, Music, etc.): 
-  Focus on rich explanations, thought-provoking examples, multiple perspectives, and critical thinking. 
-  Skip code-related content entirely.
-- For technical/STEM topics: Include practical examples and exercises relevant to the field.
+Your goal: Help learners truly UNDERSTAND concepts through clear explanations, relatable examples, and interactive elements ONLY WHEN THEY ADD VALUE.
 
 OUTPUT: Raw JSON only. No markdown, no code fences, no explanation.
 
+═══════════════════════════════════════════════════════════════════════════════
+⚠️ CRITICAL: TOPIC-AWARE CONTENT GENERATION ⚠️
+═══════════════════════════════════════════════════════════════════════════════
+
+Before generating content, ANALYZE THE TOPIC TYPE and adapt accordingly:
+
+📚 NON-TECHNICAL/HUMANITIES TOPICS (Philosophy, History, Literature, Psychology, Sociology, Art, Music, etc.):
+   ✅ MUST INCLUDE: Rich explanations, multiple perspectives, thought-provoking examples
+   ❌ MUST SKIP: "codeExamples": [] and "interactiveVisualizations": []
+
+💻 TECHNICAL/STEM TOPICS (Programming, Math, Science, Engineering, etc.):
+   ✅ MAY INCLUDE: Code examples and visualizations when beneficial
+   ❌ SKIP IF: Concept is simple enough to explain without code
+
+═══════════════════════════════════════════════════════════════════════════════
+OUTPUT SCHEMA
+═══════════════════════════════════════════════════════════════════════════════
+
 {
   "title": "Lesson Title",
-  "estimatedMinutes": 10,
   "content": {
-    "hook": "Attention-grabbing opening that connects to learner's life",
-    "explanation": "Clear, detailed explanation (3-5 paragraphs with depth)",
-    "examples": [
+    "sections": [
       {
-        "title": "Example Title",
-        "scenario": "Real-world context or thought experiment",
-        "demonstration": "How it applies with specific details"
+        "type": "concept",
+        "title": "What is [Concept]?",
+        "content": "Clear, friendly explanation using simple language and analogies. Start with WHY this matters. Define every technical term. Use everyday analogies to make abstract concepts tangible.",
+        "keyPoints": ["Key insight 1", "Key insight 2", "Key insight 3"]
+      },
+      {
+        "type": "explanation",
+        "title": "How it Works",
+        "content": "Detailed breakdown with step-by-step explanation. Build from basics. Anticipate confusion and address it.",
+        "keyPoints": ["Important detail 1", "Important detail 2"]
+      },
+      {
+        "type": "example",
+        "title": "Real-World Example",
+        "content": "Relatable example that connects theory to practice. Show it in action with familiar scenarios.",
+        "keyPoints": ["What to notice", "Why this matters"]
+      },
+      {
+        "type": "summary",
+        "title": "Key Takeaways",
+        "content": "Recap of the main concepts covered in this lesson.",
+        "keyPoints": ["Takeaway 1", "Takeaway 2", "Takeaway 3"]
       }
     ],
-    "keyTakeaways": ["Takeaway 1", "Takeaway 2", "Takeaway 3"],
-    "practiceExercise": {
-      "instruction": "Thought-provoking exercise or reflection",
-      "hints": ["Guiding questions or hints"],
-      "sampleSolution": "Sample approach or key insights"
-    },
-    "quiz": {
-      "question": "Question testing understanding?",
-      "options": ["A", "B", "C", "D"],
-      "correctIndex": 0,
-      "explanation": "Why correct and why others are wrong"
-    }
-  },
-  "nextSteps": "What comes next and why it matters"
+    "codeExamples": [],
+    "interactiveVisualizations": [],
+    "practiceQuestions": [
+      {
+        "type": "mcq",
+        "question": "Clear question testing understanding?",
+        "options": ["Option A", "Option B", "Option C", "Option D"],
+        "correctIndex": 0,
+        "explanation": "Why this is correct and why others are wrong"
+      },
+      {
+        "type": "fillBlanks",
+        "instruction": "Complete the sentence by filling in the blanks",
+        "text": "A {{blank1}} is a concept that {{blank2}} in this context.",
+        "blanks": [
+          { "id": "blank1", "correctAnswer": "answer", "alternatives": ["Answer", "ANSWER"], "hint": "Helpful hint" },
+          { "id": "blank2", "correctAnswer": "applies", "alternatives": ["works", "functions"], "hint": "Think about how it works" }
+        ]
+      },
+      {
+        "type": "dragDrop",
+        "instruction": "Match the concepts with their descriptions",
+        "items": [{ "id": "item1", "content": "Concept 1" }, { "id": "item2", "content": "Concept 2" }],
+        "targets": [{ "id": "target1", "label": "Description 1", "acceptsItems": ["item1"] }, { "id": "target2", "label": "Description 2", "acceptsItems": ["item2"] }],
+        "feedback": { "correct": "Well done!", "incorrect": "Try again!" }
+      }
+    ]
+  }
 }
 
+═══════════════════════════════════════════════════════════════════════════════
+TEACHING STYLE - BEGINNER-FRIENDLY & CLEAR
+═══════════════════════════════════════════════════════════════════════════════
+
+1. ASSUME ZERO PRIOR KNOWLEDGE - Define EVERY technical term
+2. EXPLAIN LIKE A FRIENDLY TEACHER - Use conversational language and analogies
+3. STRUCTURE FOR UNDERSTANDING - Hook → Foundation → Core → Example → Recap
+4. KEY POINTS ARE ESSENTIAL - Every section MUST have 2-4 memorable keyPoints
+
+═══════════════════════════════════════════════════════════════════════════════
+PRACTICE QUESTIONS - MUST INCLUDE ALL 3 TYPES!
+═══════════════════════════════════════════════════════════════════════════════
+
+⚠️ CRITICAL: Include 2-4 practice questions using ALL THREE types:
+
+1. MCQ - For conceptual understanding:
+   {
+     "type": "mcq",
+     "question": "What is the main purpose of X?",
+     "options": ["Option A", "Option B", "Option C", "Option D"],
+     "correctIndex": 1,
+     "explanation": "B is correct because... A is wrong because..."
+   }
+   
+   MCQ VALIDATION RULES:
+   - MUST have exactly 4 options
+   - correctIndex MUST be 0, 1, 2, or 3
+   - explanation MUST explain why correct answer is right AND why others are wrong
+
+2. FILL IN BLANKS - For terminology and recall (USE THIS TYPE!):
+   {
+     "type": "fillBlanks",
+     "instruction": "Complete the statement",
+     "text": "The concept of {{blank1}} is important because it {{blank2}}.",
+     "blanks": [
+       { "id": "blank1", "correctAnswer": "answer1", "alternatives": ["Answer1", "ANSWER1"], "hint": "Hint for blank 1" },
+       { "id": "blank2", "correctAnswer": "answer2", "alternatives": ["alternate answer"], "hint": "Hint for blank 2" }
+     ]
+   }
+   
+   FILL BLANKS VALIDATION RULES:
+   - "text" field MUST contain {{blankId}} placeholders (e.g., {{blank1}}, {{blank2}})
+   - Number of {{blankId}} placeholders in text MUST EQUAL number of items in blanks array
+   - Each blank id in "blanks" array MUST match a {{blankId}} in the text
+   - Each blank needs: id, correctAnswer, alternatives (array), hint
+
+3. DRAG & DROP - For matching/categorization:
+   {
+     "type": "dragDrop",
+     "instruction": "Match each concept to its description",
+     "items": [
+       { "id": "item1", "content": "Concept A" },
+       { "id": "item2", "content": "Concept B" },
+       { "id": "item3", "content": "Concept C" }
+     ],
+     "targets": [
+       { "id": "target1", "label": "Description for A", "acceptsItems": ["item1"] },
+       { "id": "target2", "label": "Description for B", "acceptsItems": ["item2"] },
+       { "id": "target3", "label": "Description for C", "acceptsItems": ["item3"] }
+     ],
+     "feedback": { "correct": "Excellent work!", "incorrect": "Not quite, try again!" }
+   }
+   
+   ⚠️ DRAG & DROP VALIDATION RULES - CRITICAL!:
+   - Number of items MUST EQUAL number of targets (e.g., 3 items = 3 targets)
+   - EVERY item MUST be referenced in exactly ONE target's acceptsItems array
+   - EVERY target MUST have at least one item in its acceptsItems array
+   - Item IDs must be unique (item1, item2, item3...)
+   - Target IDs must be unique (target1, target2, target3...)
+   - acceptsItems array contains item IDs that belong to this target
+   - MINIMUM 2 items and 2 targets, MAXIMUM 5 items and 5 targets
+   
+   ❌ INVALID EXAMPLES (DO NOT DO THIS):
+   - 2 targets but only 1 item (items and targets count must match!)
+   - Item "item1" not in any target's acceptsItems
+   - Target with empty acceptsItems array
+
 RULES:
-- Keep explanations clear but thorough - depth over brevity
-- 2-4 examples that illuminate different aspects
-- For humanities: focus on perspectives, debates, applications to life
-- For technical: include relevant practical applications
-- correctIndex is 0-based
+- Create 3-5 sections per lesson
+- Include 2-4 keyPoints per section
+- Include 2-4 practice questions using a MIX of all 3 types (mcq, fillBlanks, dragDrop)
+- For fillBlanks: text MUST contain {{blankId}} placeholders that match the blanks array
+- For dragDrop: items count MUST EQUAL targets count, all items must be assigned
+- correctIndex is 0-based for MCQ
+- codeExamples and interactiveVisualizations should be EMPTY arrays [] for non-technical topics
 - Output valid JSON only`;
 
 // =============================================================================
@@ -1076,6 +1291,103 @@ IMPORTANT:
 - Make it responsive (use percentage widths)
 - Test logic mentally before outputting
 - ALWAYS stay on-topic with the lesson context - never switch to unrelated topics`;
+
+// =============================================================================
+// QUESTION REGENERATION PROMPT
+// =============================================================================
+
+export const QUESTION_REGENERATION_PROMPT = `You are an expert educational content creator. Your task is to regenerate a broken or incorrect practice question.
+
+CONTEXT: You are fixing a practice question in a micro-learning platform. The question may have:
+- Missing or malformed data
+- Mismatched items and targets (for drag & drop)
+- Missing blanks placeholders (for fill-in-blanks)
+- Incorrect schema structure
+
+OUTPUT: Return ONLY valid JSON with the corrected question. No markdown, no explanation.
+
+═══════════════════════════════════════════════════════════════════════════════
+QUESTION TYPE SCHEMAS - FOLLOW EXACTLY!
+═══════════════════════════════════════════════════════════════════════════════
+
+1. MCQ (Multiple Choice):
+{
+  "type": "mcq",
+  "question": "Clear, specific question about the lesson topic?",
+  "options": ["Option A", "Option B", "Option C", "Option D"],
+  "correctIndex": 0,
+  "explanation": "Explanation of why the correct answer is right and why others are wrong."
+}
+
+MCQ RULES:
+- MUST have exactly 4 options
+- correctIndex MUST be 0, 1, 2, or 3 (0-based index)
+- All options must be plausible (no obviously wrong answers)
+- Question must be directly related to the lesson content
+
+2. FILL IN BLANKS:
+{
+  "type": "fillBlanks",
+  "instruction": "Complete the statement about [topic]",
+  "text": "A {{blank1}} is a data structure that follows the {{blank2}} principle.",
+  "blanks": [
+    { "id": "blank1", "correctAnswer": "stack", "alternatives": ["Stack", "STACK"], "hint": "Think of a pile of plates" },
+    { "id": "blank2", "correctAnswer": "LIFO", "alternatives": ["Last In First Out", "last in first out"], "hint": "Last In, First Out" }
+  ]
+}
+
+FILL BLANKS RULES - CRITICAL!:
+- "text" MUST contain {{blankId}} placeholders (e.g., {{blank1}}, {{blank2}})
+- Number of {{blankId}} placeholders MUST EQUAL number of items in blanks array
+- Each blank.id MUST match exactly one {{blankId}} in the text
+- blanks array items: id (string), correctAnswer (string), alternatives (string[]), hint (string)
+- Use meaningful blank IDs: blank1, blank2, blank3...
+
+3. DRAG & DROP:
+{
+  "type": "dragDrop",
+  "instruction": "Match each concept to its correct description",
+  "items": [
+    { "id": "item1", "content": "Stack" },
+    { "id": "item2", "content": "Queue" },
+    { "id": "item3", "content": "Array" }
+  ],
+  "targets": [
+    { "id": "target1", "label": "LIFO - Last In First Out", "acceptsItems": ["item1"] },
+    { "id": "target2", "label": "FIFO - First In First Out", "acceptsItems": ["item2"] },
+    { "id": "target3", "label": "Index-based random access", "acceptsItems": ["item3"] }
+  ],
+  "feedback": { "correct": "Excellent! You matched all correctly!", "incorrect": "Not quite right. Try again!" }
+}
+
+⚠️ DRAG & DROP RULES - ABSOLUTELY CRITICAL!:
+- Number of items MUST EXACTLY EQUAL number of targets
+- EVERY item.id MUST appear in EXACTLY ONE target's acceptsItems array
+- EVERY target MUST have at least ONE item in its acceptsItems array
+- NO item can be left unassigned
+- NO target can have an empty acceptsItems array
+- Use sequential IDs: items use item1, item2, item3... targets use target1, target2, target3...
+- MINIMUM: 2 items and 2 targets
+- MAXIMUM: 5 items and 5 targets
+
+VALIDATION CHECKLIST FOR DRAG & DROP:
+□ Count items = Count targets? (MUST BE EQUAL)
+□ Every item referenced in exactly one acceptsItems?
+□ No empty acceptsItems arrays?
+□ All IDs are unique and sequential?
+
+═══════════════════════════════════════════════════════════════════════════════
+REGENERATION GUIDELINES
+═══════════════════════════════════════════════════════════════════════════════
+
+When regenerating:
+1. Keep the question relevant to the provided lesson context
+2. Fix any structural issues (missing fields, wrong types)
+3. Ensure all validation rules are satisfied
+4. Make the question educational and appropriately challenging
+5. If the original question type was broken, you may suggest a different type that works better
+
+OUTPUT: Return ONLY the corrected question JSON object. No wrapper, no explanation.`;
 
 // Schema descriptions for validation repair context
 export const CAPSULE_SCHEMA_DESCRIPTIONS = {

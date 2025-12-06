@@ -35,6 +35,7 @@ import {
     AlertDialogTitle,
     AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { useSession } from "next-auth/react";
 
 // Types for AI models and features
 interface AIModel {
@@ -54,12 +55,15 @@ interface AIFeature {
 }
 
 export default function AIAdminPage() {
+    const { data: session } = useSession();
     const models = useQuery(api.aiConfig.getAllModels);
     const features = useQuery(api.aiConfig.getAllFeatures);
     const upsertModel = useMutation(api.aiConfig.upsertModel);
     const deleteModel = useMutation(api.aiConfig.deleteModel);
     const updateFeatureMapping = useMutation(api.aiConfig.updateFeatureMapping);
     const initializeDefaults = useMutation(api.aiConfig.initializeDefaults);
+
+    const currentUserId = session?.user?.id as Id<"users"> | undefined;
 
     const [isAddingModel, setIsAddingModel] = useState(false);
     const [newModel, setNewModel] = useState({
@@ -71,7 +75,7 @@ export default function AIAdminPage() {
 
     const handleAddModel = async () => {
         try {
-            await upsertModel(newModel);
+            await upsertModel({ ...newModel, currentUserId });
             setIsAddingModel(false);
             setNewModel({
                 name: "",
@@ -93,6 +97,7 @@ export default function AIAdminPage() {
                 provider: model.provider,
                 modelId: model.modelId,
                 isEnabled,
+                currentUserId,
             });
             toast.success("Model updated");
         } catch {
@@ -102,7 +107,7 @@ export default function AIAdminPage() {
 
     const handleDeleteModel = async (id: Id<"aiModels">) => {
         try {
-            await deleteModel({ id });
+            await deleteModel({ id, currentUserId });
             toast.success("Model deleted successfully");
         } catch {
             toast.error("Failed to delete model");
@@ -111,7 +116,7 @@ export default function AIAdminPage() {
 
     const handleFeatureChange = async (featureId: Id<"aiFeatures">, modelId: Id<"aiModels">) => {
         try {
-            await updateFeatureMapping({ featureId, modelId });
+            await updateFeatureMapping({ featureId, modelId, currentUserId });
             toast.success("Feature mapping updated");
         } catch {
             toast.error("Failed to update feature mapping");

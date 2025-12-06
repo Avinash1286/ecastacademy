@@ -12,8 +12,20 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Progress } from '@/components/ui/progress';
 import { Switch } from '@/components/ui/switch';
-import { Sparkles, Clock, BookOpen, Plus, Loader2, CheckCircle2, XCircle, Globe, Lock } from 'lucide-react';
+import { Sparkles, Clock, BookOpen, Plus, Loader2, CheckCircle2, XCircle, Globe, Lock, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
+import { useState } from 'react';
 
 export default function CapsuleLibraryPage() {
   const router = useRouter();
@@ -31,6 +43,12 @@ export default function CapsuleLibraryPage() {
 
   // Mutation for toggling visibility
   const toggleVisibility = useMutation(api.capsules.toggleCapsuleVisibility);
+  
+  // Mutation for deleting a capsule
+  const deleteCapsule = useMutation(api.capsules.deleteCapsule);
+  
+  // State for delete confirmation
+  const [deletingCapsuleId, setDeletingCapsuleId] = useState<Id<'capsules'> | null>(null);
 
   // Get generation jobs for progress tracking
   const generationJobs = useQuery(
@@ -106,6 +124,25 @@ export default function CapsuleLibraryPage() {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to update visibility';
       toast.error(message);
+    }
+  };
+
+  // Handle capsule deletion
+  const handleDeleteCapsule = async (capsuleId: Id<'capsules'>) => {
+    if (!userId) return;
+
+    setDeletingCapsuleId(capsuleId);
+    try {
+      await deleteCapsule({
+        capsuleId,
+        userId,
+      });
+      toast.success('Capsule deleted successfully');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to delete capsule';
+      toast.error(message);
+    } finally {
+      setDeletingCapsuleId(null);
     }
   };
 
@@ -185,7 +222,43 @@ export default function CapsuleLibraryPage() {
                     <CardTitle className="text-lg line-clamp-2 group-hover:text-primary transition-colors">
                       {capsule.title}
                     </CardTitle>
-                    <StatusBadge status={capsule.status} />
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <StatusBadge status={capsule.status} />
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                            onClick={(e) => e.stopPropagation()}
+                            disabled={deletingCapsuleId === capsule._id}
+                          >
+                            {deletingCapsuleId === capsule._id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-4 w-4" />
+                            )}
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Delete Capsule</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Are you sure you want to delete &quot;{capsule.title}&quot;? This will permanently remove the capsule and all its modules, lessons, and progress. This action cannot be undone.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={() => handleDeleteCapsule(capsule._id)}
+                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            >
+                              Delete
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </div>
                   </div>
                   {capsule.description && (
                     <p className="text-sm text-muted-foreground line-clamp-2 mt-2">

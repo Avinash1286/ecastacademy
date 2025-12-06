@@ -1,6 +1,7 @@
 import { v } from "convex/values";
-import { mutation, query, action } from "./_generated/server";
+import { mutation, query, action, internalMutation } from "./_generated/server";
 import { api, internal } from "./_generated/api";
+import { requireAuthenticatedUser, requireAuthenticatedUserWithFallback } from "./utils/auth";
 
 // =============================================================================
 // File Storage for Large PDFs
@@ -9,10 +10,13 @@ import { api, internal } from "./_generated/api";
 /**
  * Generate an upload URL for PDF files
  * This allows uploading files up to 20MB to Convex storage
+ * SECURITY: Requires authentication to prevent abuse
  */
 export const generateUploadUrl = mutation({
   args: {},
   handler: async (ctx) => {
+    // Require authentication to prevent abuse of storage
+    await requireAuthenticatedUser(ctx);
     return await ctx.storage.generateUploadUrl();
   },
 });
@@ -273,6 +277,9 @@ export const getCapsuleModules = query({
       .withIndex("by_capsuleId_order", (q) => q.eq("capsuleId", args.capsuleId))
       .collect();
 
+    // Sort by order to ensure consistent ordering
+    modules.sort((a, b) => a.order - b.order);
+
     return modules;
   },
 });
@@ -287,6 +294,9 @@ export const getModuleLessons = query({
       .query("capsuleLessons")
       .withIndex("by_moduleId_order", (q) => q.eq("moduleId", args.moduleId))
       .collect();
+
+    // Sort by order to ensure consistent ordering
+    lessons.sort((a, b) => a.order - b.order);
 
     return lessons;
   },
@@ -324,12 +334,18 @@ export const getCapsuleWithContent = query({
       .withIndex("by_capsuleId_order", (q) => q.eq("capsuleId", args.capsuleId))
       .collect();
 
+    // Sort modules by order to ensure consistent ordering
+    modules.sort((a, b) => a.order - b.order);
+
     const modulesWithLessons = await Promise.all(
       modules.map(async (module) => {
         const lessons = await ctx.db
           .query("capsuleLessons")
           .withIndex("by_moduleId_order", (q) => q.eq("moduleId", module._id))
           .collect();
+
+        // Sort lessons by order to ensure consistent ordering
+        lessons.sort((a, b) => a.order - b.order);
 
         return {
           ...module,
@@ -481,8 +497,10 @@ export const createCapsule = mutation({
 
 /**
  * Mutation: Update capsule status
+ * SECURITY: Restricted to internal use only via internalMutation pattern
+ * External status updates should go through authenticated mutations
  */
-export const updateCapsuleStatus = mutation({
+export const updateCapsuleStatus = internalMutation({
   args: {
     capsuleId: v.id("capsules"),
     status: v.union(
@@ -511,8 +529,9 @@ export const updateCapsuleStatus = mutation({
 
 /**
  * Mutation: Update capsule metadata
+ * SECURITY: Restricted to internal use only via internalMutation pattern
  */
-export const updateCapsuleMetadata = mutation({
+export const updateCapsuleMetadata = internalMutation({
   args: {
     capsuleId: v.id("capsules"),
     title: v.optional(v.string()),
@@ -541,8 +560,9 @@ export const updateCapsuleMetadata = mutation({
 
 /**
  * Mutation: Clear stored source payloads after processing and delete PDF from storage
+ * SECURITY: Restricted to internal use only
  */
-export const clearCapsuleSourceData = mutation({
+export const clearCapsuleSourceData = internalMutation({
   args: {
     capsuleId: v.id("capsules"),
   },
@@ -575,8 +595,9 @@ export const clearCapsuleSourceData = mutation({
 
 /**
  * Mutation: Create a module for a capsule
+ * SECURITY: Restricted to internal use only (during capsule generation)
  */
-export const createModule = mutation({
+export const createModule = internalMutation({
   args: {
     capsuleId: v.id("capsules"),
     title: v.string(),
@@ -598,6 +619,7 @@ export const createModule = mutation({
 
 /**
  * Mutation: Create a lesson for a module
+ * SECURITY: Restricted to internal use only (during capsule generation)
  */
 const lessonTypeEnum = v.union(
   v.literal("concept"),
@@ -608,7 +630,7 @@ const lessonTypeEnum = v.union(
   v.literal("mixed")
 );
 
-export const createLesson = mutation({
+export const createLesson = internalMutation({
   args: {
     moduleId: v.id("capsuleModules"),
     capsuleId: v.id("capsules"),
@@ -638,7 +660,10 @@ export const createLesson = mutation({
   },
 });
 
-export const persistGeneratedCapsuleContent = mutation({
+/**
+ * SECURITY: Restricted to internal use only (during capsule generation)
+ */
+export const persistGeneratedCapsuleContent = internalMutation({
   args: {
     capsuleId: v.id("capsules"),
     modules: v.array(
@@ -735,6 +760,7 @@ export const persistGeneratedCapsuleContent = mutation({
 
 /**
  * Mutation: Update or create progress for a lesson
+ * SECURITY: Verifies the authenticated user matches the userId parameter
  */
 export const updateLessonProgress = mutation({
   args: {
@@ -759,6 +785,24 @@ export const updateLessonProgress = mutation({
   },
   handler: async (ctx, args) => {
     const { userId, capsuleId, moduleId, lessonId, completed, score, maxScore, timeSpent, quizAnswer, hintsUsed } = args;
+
+    // SECURITY: Verify the authenticated user matches the userId parameter
+    // Uses fallback to support NextAuth sessions where Convex auth context isn't available
+    const { user } = await requireAuthenticatedUserWithFallback(ctx, userId);
+    if (user._id !== userId) {
+      throw new Error("Unauthorized: You can only update your own progress");
+    }
+
+    // Verify the capsule exists and is accessible
+    const capsule = await ctx.db.get(capsuleId);
+    if (!capsule) {
+      throw new Error("Capsule not found");
+    }
+    
+    // SECURITY: Only allow progress updates on capsules the user owns OR public capsules
+    if (capsule.userId !== userId && !capsule.isPublic) {
+      throw new Error("Unauthorized: Cannot access this capsule");
+    }
 
     // Check if progress already exists
     const existing = await ctx.db
@@ -968,6 +1012,8 @@ const mixedLessonProgressValidator = v.object({
  * from overwriting each other. If a version conflict is detected, the update
  * is rejected and the client should retry with fresh data.
  * 
+ * SECURITY: Verifies authenticated user matches userId parameter
+ * 
  * @param typedAnswer - Discriminated union answer (mcq | fillBlanks | dragDrop)
  * @param mixedLessonProgress - Optional progress state for mixed lessons
  * @param expectedVersion - Optional version for optimistic locking (recommended for updates)
@@ -1005,6 +1051,24 @@ export const updateTypedLessonProgress = mutation({
       mixedLessonProgress,
       expectedVersion,
     } = args;
+
+    // SECURITY: Verify the authenticated user matches the userId parameter
+    // Uses fallback to support NextAuth sessions where Convex auth context isn't available
+    const { user } = await requireAuthenticatedUserWithFallback(ctx, userId);
+    if (user._id !== userId) {
+      throw new Error("Unauthorized: You can only update your own progress");
+    }
+
+    // Verify the capsule exists and is accessible
+    const capsule = await ctx.db.get(capsuleId);
+    if (!capsule) {
+      throw new Error("Capsule not found");
+    }
+    
+    // SECURITY: Only allow progress updates on capsules the user owns OR public capsules
+    if (capsule.userId !== userId && !capsule.isPublic) {
+      throw new Error("Unauthorized: Cannot access this capsule");
+    }
 
     // Check if progress already exists
     const existing = await ctx.db
@@ -1463,14 +1527,58 @@ export const generateCapsuleContent = action({
 
 /**
  * Mutation: Delete a capsule and all its content
+ * Also cancels any active generation jobs to stop background processing
  */
 export const deleteCapsule = mutation({
-  args: { capsuleId: v.id("capsules") },
+  args: { 
+    capsuleId: v.id("capsules"),
+    userId: v.id("users"),
+  },
   handler: async (ctx, args) => {
+    const { capsuleId, userId } = args;
+
+    // Get the capsule to verify ownership
+    const capsule = await ctx.db.get(capsuleId);
+    if (!capsule) {
+      throw new Error("Capsule not found");
+    }
+
+    // Security: Verify ownership
+    if (capsule.userId !== userId) {
+      throw new Error("You do not have permission to delete this capsule");
+    }
+
+    // First, cancel any active generation jobs for this capsule
+    // This prevents scheduled tasks from continuing after deletion
+    const jobs = await ctx.db
+      .query("generationJobs")
+      .withIndex("by_capsuleId", (q) => q.eq("capsuleId", capsuleId))
+      .collect();
+    
+    for (const job of jobs) {
+      // Mark active jobs as cancelled so scheduled tasks will abort
+      if (
+        job.state !== "completed" &&
+        job.state !== "failed" &&
+        job.state !== "cancelled"
+      ) {
+        await ctx.db.patch(job._id, {
+          state: "cancelled",
+          lastError: "Generation cancelled: capsule was deleted",
+          updatedAt: Date.now(),
+          completedAt: Date.now(),
+          version: (job.version || 0) + 1,
+        });
+        console.log(`[DeleteCapsule] Cancelled generation job ${job.generationId}`);
+      }
+      // Delete the job record
+      await ctx.db.delete(job._id);
+    }
+
     // Delete all progress
     const progress = await ctx.db
       .query("capsuleProgress")
-      .withIndex("by_capsuleId", (q) => q.eq("capsuleId", args.capsuleId))
+      .withIndex("by_capsuleId", (q) => q.eq("capsuleId", capsuleId))
       .collect();
 
     for (const p of progress) {
@@ -1480,7 +1588,7 @@ export const deleteCapsule = mutation({
     // Delete all lessons
     const lessons = await ctx.db
       .query("capsuleLessons")
-      .withIndex("by_capsuleId", (q) => q.eq("capsuleId", args.capsuleId))
+      .withIndex("by_capsuleId", (q) => q.eq("capsuleId", capsuleId))
       .collect();
 
     for (const lesson of lessons) {
@@ -1490,15 +1598,25 @@ export const deleteCapsule = mutation({
     // Delete all modules
     const capsuleModules = await ctx.db
       .query("capsuleModules")
-      .withIndex("by_capsuleId", (q) => q.eq("capsuleId", args.capsuleId))
+      .withIndex("by_capsuleId", (q) => q.eq("capsuleId", capsuleId))
       .collect();
 
     for (const mod of capsuleModules) {
       await ctx.db.delete(mod._id);
     }
 
+    // Delete any stored PDF (capsule was already fetched above for ownership check)
+    if (capsule.sourcePdfStorageId) {
+      try {
+        await ctx.storage.delete(capsule.sourcePdfStorageId);
+        console.log(`[DeleteCapsule] Deleted PDF from storage: ${capsule.sourcePdfStorageId}`);
+      } catch (error) {
+        console.warn(`[DeleteCapsule] Failed to delete PDF from storage:`, error);
+      }
+    }
+
     // Delete the capsule itself
-    await ctx.db.delete(args.capsuleId);
+    await ctx.db.delete(capsuleId);
   },
 });
 
@@ -1532,13 +1650,19 @@ export const getModule = query({
 
 /**
  * Update lesson content (for regeneration)
+ * SECURITY: Internal mutation - can only be called from server-side code (actions)
  */
-export const updateLessonContent = mutation({
+export const updateLessonContent = internalMutation({
   args: {
     lessonId: v.id("capsuleLessons"),
     content: v.any(),
   },
   handler: async (ctx, args) => {
+    const lesson = await ctx.db.get(args.lessonId);
+    if (!lesson) {
+      throw new Error("Lesson not found");
+    }
+    
     await ctx.db.patch(args.lessonId, {
       content: args.content,
     });

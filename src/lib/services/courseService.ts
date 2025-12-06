@@ -149,6 +149,7 @@ type ChapterResponse = {
     thumbnailUrl?: string;
     durationInSeconds?: number;
   } | null;
+  isContentLoaded?: boolean; // Flag to indicate if full content (notes/quiz) is loaded
 };
 
 export async function getCourseChapters(courseId: string): Promise<ChapterResponse[]> {
@@ -157,7 +158,9 @@ export async function getCourseChapters(courseId: string): Promise<ChapterRespon
     throw new Error('Invalid course ID');
   }
   
-  const chapters = await convex.query(api.courses.getChaptersWithVideosByCourseId, {
+  // Use lazy loading: first chapter gets full content, others get minimal info
+  // Transcript is NEVER loaded here - only loaded by AI tutor chat on demand
+  const chapters = await convex.query(api.courses.getChaptersWithVideosLazy, {
     courseId: courseId as Id<"courses">,
   });
   
@@ -180,7 +183,8 @@ export async function getCourseChapters(courseId: string): Promise<ChapterRespon
               ...item.videoDetails,
               thumbnailUrl: item.videoDetails.thumbnailUrl ?? null,
               durationInSeconds: item.videoDetails.durationInSeconds ?? null,
-              transcript: item.videoDetails.transcript ?? null,
+              transcript: null, // Never include transcript
+              hasTranscript: item.videoDetails.hasTranscript ?? false,
             }
           : item.videoDetails ?? null;
 
@@ -194,6 +198,7 @@ export async function getCourseChapters(courseId: string): Promise<ChapterRespon
       } as ContentItem;
     }) ?? [],
     video: chapter.video,
+    isContentLoaded: chapter.isContentLoaded,
   }));
 }
 

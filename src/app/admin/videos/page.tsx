@@ -17,27 +17,109 @@ import {
   Search,
   RotateCw,
   Play,
-  Plus
+  Plus,
+  Trash2
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { toast } from "sonner";
 import Image from "next/image";
 import Link from "next/link";
+import { useSession } from "next-auth/react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 type VideoStatus = "pending" | "processing" | "completed" | "failed" | undefined;
 
-export default function VideosLibraryPage() {
-  const [searchQuery, setSearchQuery] = useState("");
-  
-  // Fetch all videos
-  const allVideos = useQuery(api.videoProcessing.getVideosByStatus, {});
-  const retryVideo = useMutation(api.videoProcessing.retryFailedVideo);
+type VideoData = {
+  _id: Id<"videos">;
+  title: string;
+  url: string;
+  thumbnailUrl?: string;
+  channelTitle?: string;
+  durationInSeconds?: number;
+  status?: VideoStatus;
+  errorMessage?: string;
+  createdAt: number;
+};
 
-  // Filter videos by search only
-  const filteredVideos = allVideos?.filter(video => {
-    const matchesSearch = video.title.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesSearch;
-  }) || [];
+const VIDEOS_PER_PAGE = 12;
+
+export default function VideosLibraryPage() {
+  const { data: session } = useSession();
+  const [searchQuery, setSearchQuery] = useState("");
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [videoToDelete, setVideoToDelete] = useState<{ id: Id<"videos">; title: string } | null>(null);
+  const [cursor, setCursor] = useState<string | undefined>(undefined);
+  const [allLoadedVideos, setAllLoadedVideos] = useState<VideoData[]>([]);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  
+  // Fetch videos with cursor-based pagination
+  const queryArgs = { 
+    limit: VIDEOS_PER_PAGE,
+    ...(cursor ? { cursor } : {})
+  };
+  
+  const videosResult = useQuery(api.videoProcessing.getVideosPaginated, queryArgs);
+  const retryVideo = useMutation(api.videoProcessing.retryFailedVideo);
+  const deleteVideo = useMutation(api.videos.deleteVideo);
+
+  // Track if this is initial load
+  const isInitialLoading = videosResult === undefined && allLoadedVideos.length === 0;
+
+  // Combine loaded videos with new results
+  const displayVideos = useMemo(() => {
+    if (!videosResult?.videos) return allLoadedVideos;
+    
+    const newVideos = videosResult.videos as VideoData[];
+
+    // If no cursor was set, this is fresh data (first load or reset)
+    if (!cursor) {
+      return newVideos;
+    }
+    
+    // Otherwise append to existing videos (avoiding duplicates)
+    const existingIds = new Set(allLoadedVideos.map(v => v._id));
+    const uniqueNewVideos = newVideos.filter(v => !existingIds.has(v._id));
+    return [...allLoadedVideos, ...uniqueNewVideos];
+  }, [videosResult?.videos, cursor, allLoadedVideos]);
+
+  // Filter videos based on search
+  const filteredVideos = useMemo(() => {
+    if (!searchQuery) return displayVideos;
+    return displayVideos.filter(video => 
+      video.title.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+  }, [displayVideos, searchQuery]);
+
+  // Handle load more
+  const handleLoadMore = useCallback(() => {
+    if (videosResult?.nextCursor) {
+      setIsLoadingMore(true);
+      setAllLoadedVideos(displayVideos);
+      setCursor(videosResult.nextCursor);
+    }
+  }, [videosResult?.nextCursor, displayVideos]);
+
+  // Reset loading state when new data arrives
+  useMemo(() => {
+    if (videosResult !== undefined) {
+      setIsLoadingMore(false);
+    }
+  }, [videosResult]);
+
+  // Check if there are more videos to load
+  const hasMore = videosResult?.hasMore ?? false;
+
+  // Get total count for display
+  const totalVideosLoaded = displayVideos.length;
 
   const handleRetry = async (videoId: string) => {
     try {
@@ -46,6 +128,29 @@ export default function VideosLibraryPage() {
     } catch (error) {
       toast.error("Failed to retry video");
       console.error(error);
+    }
+  };
+
+  const openDeleteDialog = (videoId: Id<"videos">, title: string) => {
+    setVideoToDelete({ id: videoId, title });
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDelete = async () => {
+    if (!videoToDelete) return;
+    try {
+      await deleteVideo({ 
+        id: videoToDelete.id,
+        currentUserId: session?.user?.id as Id<"users"> | undefined,
+      });
+      toast.success("Video deleted successfully");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to delete video";
+      toast.error(message);
+      console.error(error);
+    } finally {
+      setDeleteDialogOpen(false);
+      setVideoToDelete(null);
     }
   };
 
@@ -64,7 +169,7 @@ export default function VideosLibraryPage() {
     }
   };
 
-  if (allVideos === undefined) {
+  if (isInitialLoading) {
     return <LoadingSkeleton />;
   }
 
@@ -83,7 +188,7 @@ export default function VideosLibraryPage() {
         </div>
         <div className="flex items-center gap-4">
           <div className="text-sm text-muted-foreground">
-            {allVideos?.length || 0} videos
+            {totalVideosLoaded}{hasMore ? '+' : ''} videos
           </div>
           <Button asChild>
             <Link href="/admin/addvideos">
@@ -178,6 +283,16 @@ export default function VideosLibraryPage() {
                       <RotateCw className="w-4 h-4" />
                     </Button>
                   )}
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => openDeleteDialog(video._id, video.title)}
+                    title="Delete video"
+                    className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
                 </div>
 
                 <div className="text-xs text-muted-foreground">
@@ -188,6 +303,49 @@ export default function VideosLibraryPage() {
           ))
         )}
       </div>
+
+      {/* Load More Button */}
+      {hasMore && !searchQuery && (
+        <div className="flex justify-center pt-8">
+          <Button
+            onClick={handleLoadMore}
+            disabled={isLoadingMore}
+            variant="outline"
+            size="lg"
+            className="min-w-[200px]"
+          >
+            {isLoadingMore ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Loading...
+              </>
+            ) : (
+              'Load More Videos'
+            )}
+          </Button>
+        </div>
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Video</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete &quot;{videoToDelete?.title}&quot;? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setVideoToDelete(null)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

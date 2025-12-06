@@ -5,6 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Maximize2, Minimize2, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 const escapeScript = (value?: string) => value?.replace(/<\/script/gi, '<\\/script') ?? '';
 
@@ -326,7 +328,11 @@ export function SimulationLesson({
               </Button>
             </div>
             {description && (
-              <p className="text-sm text-muted-foreground mt-1">{description}</p>
+              <div className="prose prose-sm dark:prose-invert max-w-none mt-1">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {description}
+                </ReactMarkdown>
+              </div>
             )}
           </CardHeader>
           <CardContent className="p-0">

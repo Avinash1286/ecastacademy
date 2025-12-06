@@ -78,7 +78,6 @@ function isCircuitOpen(provider: string): boolean {
     const timeSinceFailure = Date.now() - state.lastFailure;
     if (timeSinceFailure >= CONFIG.resetTimeout) {
       state.state = 'HALF_OPEN';
-      console.log(`[TranscriptCircuit] ${provider}: OPEN -> HALF_OPEN`);
       return false;
     }
     return true;
@@ -94,7 +93,6 @@ function recordSuccess(provider: string): void {
   if (state.state === 'HALF_OPEN') {
     state.state = 'CLOSED';
     state.failures = 0;
-    console.log(`[TranscriptCircuit] ${provider}: HALF_OPEN -> CLOSED (recovered)`);
   } else {
     state.failures = 0;
   }
@@ -107,10 +105,8 @@ function recordFailure(provider: string): void {
   
   if (state.state === 'HALF_OPEN') {
     state.state = 'OPEN';
-    console.log(`[TranscriptCircuit] ${provider}: HALF_OPEN -> OPEN (still failing)`);
   } else if (state.failures >= CONFIG.failureThreshold) {
     state.state = 'OPEN';
-    console.log(`[TranscriptCircuit] ${provider}: CLOSED -> OPEN (${state.failures} failures)`);
   }
 }
 
@@ -118,36 +114,90 @@ function recordFailure(provider: string): void {
 // Provider Implementations
 // =============================================================================
 
+// Helper for delays
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * Fetch with exponential backoff retry for rate limiting
+ */
+async function fetchWithRetry(
+  url: string,
+  options: RequestInit,
+  maxRetries: number = 4,
+  initialDelay: number = 1000
+): Promise<Response> {
+  let lastError: Error | null = null;
+  
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), CONFIG.requestTimeout);
+    
+    try {
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal,
+      });
+      
+      clearTimeout(timeoutId);
+      
+      // Handle rate limiting (429) with retry
+      if (response.status === 429) {
+        if (attempt < maxRetries) {
+          const delay = initialDelay * Math.pow(2, attempt);
+          // Add jitter to prevent thundering herd
+          const jitter = delay * (0.75 + Math.random() * 0.5);
+          await sleep(jitter);
+          continue;
+        }
+        throw new Error(`Rate limited (429) after ${maxRetries} retries`);
+      }
+      
+      // Handle server errors (5xx) with retry
+      if (response.status >= 500 && attempt < maxRetries) {
+        const delay = initialDelay * Math.pow(2, attempt);
+        await sleep(delay);
+        continue;
+      }
+      
+      return response;
+    } catch (error) {
+      clearTimeout(timeoutId);
+      lastError = error instanceof Error ? error : new Error(String(error));
+      
+      // Retry on network errors (but not on abort)
+      if (lastError.name !== 'AbortError' && attempt < maxRetries) {
+        const delay = initialDelay * Math.pow(2, attempt);
+        await sleep(delay);
+        continue;
+      }
+      
+      throw lastError;
+    }
+  }
+  
+  throw lastError || new Error('Max retries exceeded');
+}
+
 const PROVIDERS: TranscriptProvider[] = [
   {
     name: 'youtubetotranscript',
     fetchTranscript: async (videoId: string) => {
       const url = `https://youtubetotranscript.com/transcript?v=${videoId}`;
       
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), CONFIG.requestTimeout);
+      const response = await fetchWithRetry(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.5',
+        },
+      });
       
-      try {
-        const response = await fetch(url, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-          },
-          signal: controller.signal,
-        });
-        
-        clearTimeout(timeoutId);
-        
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-        
-        const html = await response.text();
-        return parseYouTubeToTranscript(html);
-      } finally {
-        clearTimeout(timeoutId);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
+      
+      const html = await response.text();
+      return parseYouTubeToTranscript(html);
     },
   },
   // Additional providers can be added here
@@ -205,7 +255,6 @@ export async function fetchAndParseTranscriptEnhanced(
   if (!options.skipCache) {
     const cached = transcriptCache.get(videoId);
     if (cached && Date.now() - cached.timestamp < CONFIG.cacheTtl) {
-      console.log(`[Transcript] Cache hit for ${videoId} (provider: ${cached.provider})`);
       return {
         transcript: cached.transcript,
         provider: cached.provider,
@@ -220,7 +269,6 @@ export async function fetchAndParseTranscriptEnhanced(
   for (const provider of PROVIDERS) {
     // Skip if circuit is open
     if (isCircuitOpen(provider.name)) {
-      console.log(`[Transcript] Skipping ${provider.name} (circuit OPEN)`);
       errors.push({
         provider: provider.name,
         error: 'Circuit breaker is open',
@@ -229,7 +277,6 @@ export async function fetchAndParseTranscriptEnhanced(
     }
     
     try {
-      console.log(`[Transcript] Trying ${provider.name} for ${videoId}`);
       const transcript = await provider.fetchTranscript(videoId);
       
       // Success!
@@ -242,8 +289,6 @@ export async function fetchAndParseTranscriptEnhanced(
         provider: provider.name,
       });
       
-      console.log(`[Transcript] Success with ${provider.name} for ${videoId} (${transcript.length} chars)`);
-      
       return {
         transcript,
         provider: provider.name,
@@ -253,7 +298,6 @@ export async function fetchAndParseTranscriptEnhanced(
       recordFailure(provider.name);
       
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      console.error(`[Transcript] ${provider.name} failed for ${videoId}: ${errorMessage}`);
       
       errors.push({
         provider: provider.name,
@@ -285,7 +329,6 @@ export function getTranscriptProviderStatus(): Record<string, CircuitState> {
  */
 export function resetProviderCircuit(providerName: string): void {
   circuitStates.delete(providerName);
-  console.log(`[TranscriptCircuit] ${providerName}: Reset`);
 }
 
 /**
@@ -294,7 +337,6 @@ export function resetProviderCircuit(providerName: string): void {
 export function clearTranscriptCache(): number {
   const count = transcriptCache.size;
   transcriptCache.clear();
-  console.log(`[Transcript] Cache cleared (${count} entries)`);
   return count;
 }
 

@@ -4,6 +4,7 @@ import { Id } from "./_generated/dataModel";
 import { summarizeProgressByContentItem } from "./utils/progressUtils";
 import { calculateStudentGrade } from "./utils/grading";
 import { generateSecureCertificateId, verifyCertificateSignature } from "./utils/certificateSignature";
+import { requireAuthenticatedUser } from "./utils/auth";
 
 /**
  * =============================================================================
@@ -32,6 +33,7 @@ export const checkEligibility = internalMutation({
 /**
  * Client-facing mutation to request certificate issuance on demand.
  * Validates eligibility and issues the certificate if requirements are met.
+ * SECURITY: Verifies the authenticated user matches the userId parameter
  */
 export const requestCertificate = mutation({
   args: {
@@ -39,6 +41,12 @@ export const requestCertificate = mutation({
     courseId: v.id("courses"),
   },
   handler: async (ctx, args) => {
+    // SECURITY: Verify the authenticated user matches the userId parameter
+    const { user } = await requireAuthenticatedUser(ctx);
+    if (user._id !== args.userId) {
+      throw new Error("Unauthorized: You can only request certificates for yourself");
+    }
+    
     return await processCertificateRequest(ctx, args);
   },
 });

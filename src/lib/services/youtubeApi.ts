@@ -92,24 +92,98 @@ export const fetchVideoBatch = async (videoIds: string[]): Promise<VideoInfo[]> 
 };
 
 /**
- * Fetch transcript via server-side proxy
- * (Already server-side, no changes needed)
+ * Sleep utility for delays
  */
-export const fetchTranscript = async (videoId: string): Promise<string> => {
-  try {
-    const response = await fetch(`/api/transcript?v=${encodeURIComponent(videoId)}`);
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-    if (!response.ok) {
-      console.warn(`Transcript API proxy returned an error for video ${videoId}.`);
-      return '';
+/**
+ * Fetch transcript via server-side proxy with exponential backoff retry
+ * Handles 429 rate limit errors gracefully
+ */
+export const fetchTranscript = async (
+  videoId: string,
+  options?: { maxRetries?: number; initialDelay?: number }
+): Promise<string> => {
+  const maxRetries = options?.maxRetries ?? 5;
+  const initialDelay = options?.initialDelay ?? 2000; // 2 seconds base delay
+  
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await fetch(`/api/transcript?v=${encodeURIComponent(videoId)}`);
+
+      // Handle rate limiting with retry
+      if (response.status === 429) {
+        if (attempt < maxRetries) {
+          // Exponential backoff: 1s, 2s, 4s, 8s, 16s
+          const delay = initialDelay * Math.pow(2, attempt);
+          // Add jitter (±25%) to prevent thundering herd
+          const jitter = delay * (0.75 + Math.random() * 0.5);
+          await sleep(jitter);
+          continue;
+        }
+        return '';
+      }
+
+      if (!response.ok) {
+        // For other errors, check if retryable (5xx errors)
+        if (response.status >= 500 && attempt < maxRetries) {
+          const delay = initialDelay * Math.pow(2, attempt);
+          await sleep(delay);
+          continue;
+        }
+        return '';
+      }
+      
+      const data = await response.json();
+      return data.transcript || '';
+
+    } catch {
+      // Network errors are retryable
+      if (attempt < maxRetries) {
+        const delay = initialDelay * Math.pow(2, attempt);
+        await sleep(delay);
+        continue;
+      }
+    }
+  }
+  
+  return ''; 
+};
+
+/**
+ * Fetch transcripts for multiple videos with rate limiting
+ * Uses sequential fetching with delays to avoid 429 errors
+ */
+export const fetchTranscriptsWithRateLimit = async (
+  videoIds: string[],
+  onProgress?: (completed: number, total: number, videoId: string) => void,
+  options?: { delayBetweenRequests?: number; concurrency?: number }
+): Promise<Map<string, string>> => {
+  const results = new Map<string, string>();
+  const delayBetweenRequests = options?.delayBetweenRequests ?? 1500; // 1.5s between requests
+  const concurrency = options?.concurrency ?? 1; // Process 1 at a time by default
+  
+  // Process in batches with concurrency limit
+  for (let i = 0; i < videoIds.length; i += concurrency) {
+    const batch = videoIds.slice(i, i + concurrency);
+    
+    const batchResults = await Promise.all(
+      batch.map(async (videoId) => {
+        const transcript = await fetchTranscript(videoId);
+        return { videoId, transcript };
+      })
+    );
+    
+    for (const { videoId, transcript } of batchResults) {
+      results.set(videoId, transcript);
+      onProgress?.(results.size, videoIds.length, videoId);
     }
     
-    const data = await response.json();
-
-    return data.transcript || '';
-
-  } catch (error) {
-    console.error(`Client-side error calling transcript proxy for ${videoId}:`, error);
-    return ''; 
+    // Delay before next batch (except for last batch)
+    if (i + concurrency < videoIds.length) {
+      await sleep(delayBetweenRequests);
+    }
   }
+  
+  return results;
 };

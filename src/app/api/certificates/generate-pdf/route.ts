@@ -191,15 +191,6 @@ function truncateText(text: string, maxLength: number): string {
   return text.substring(0, maxLength - 3) + "...";
 }
 
-/**
- * Convert SVG to base64 data URI
- * Useful for embedding in HTML or further processing
- */
-export function svgToDataUri(svg: string): string {
-  const base64 = Buffer.from(svg).toString("base64");
-  return `data:image/svg+xml;base64,${base64}`;
-}
-
 async function handler(req: NextRequest): Promise<NextResponse> {
   if (req.method !== "POST") {
     return NextResponse.json(

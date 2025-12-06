@@ -42,12 +42,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const currentUserId = session.user.id as Id<'users'>;
+
     // Create the course
     const courseId = await convex.mutation(api.courses.createCourse, {
       name: courseName,
       description: courseDescription || '',
       isCertification: isCertification || false,
       passingGrade: passingGrade || 70,
+      currentUserId,
     });
 
     // Create chapters from videos (each video = one chapter)
@@ -64,6 +67,7 @@ export async function POST(request: NextRequest) {
           order: index + 1,
           courseId: courseId,
           videoId: videoId, // Keep for backward compatibility
+          currentUserId,
         });
 
         // Create content item for the video
@@ -73,6 +77,7 @@ export async function POST(request: NextRequest) {
           title: video.title,
           order: 1, // First content item in the chapter
           videoId: videoId,
+          currentUserId,
         });
       }
     }
@@ -86,6 +91,7 @@ export async function POST(request: NextRequest) {
       await convex.mutation(api.courses.updateCourse, {
         id: courseId,
         thumbnailUrl: firstVideo.thumbnailUrl,
+        currentUserId,
       });
     }
 

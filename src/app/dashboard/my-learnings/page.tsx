@@ -8,7 +8,7 @@ import { Id } from '../../../../convex/_generated/dataModel';
 
 import { CourseGridSkeleton } from '@/components/dashboard/CourseGridSkeleton';
 import { useDashboard } from '@/context/DashboardContext';
-import { ArrowRight, Award, GraduationCap } from 'lucide-react';
+import { Award, GraduationCap } from 'lucide-react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { Button } from '@/components/ui/button';
@@ -24,7 +24,7 @@ interface ExtendedUser {
 }
 
 const MyLearningsPage = () => {
-  const { debouncedSearchTerm } = useDashboard();
+  const { debouncedSearchTerm, searchTerm } = useDashboard();
   const { data: session, status } = useSession();
   
   // Get userId from session

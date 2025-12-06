@@ -70,6 +70,7 @@ export async function POST(request: NextRequest) {
     let existing = 0;
     let skippedProcessing = 0;
     const createdVideoIds: Id<"videos">[] = [];
+    const currentUserId = session.user.id as Id<"users">;
 
     // First, create all videos with pending status (don't trigger processing yet)
     for (const video of videos) {
@@ -96,6 +97,7 @@ export async function POST(request: NextRequest) {
           notes: {},
           quiz: {},
           status: shouldSkipProcessing ? "completed" : "pending",
+          currentUserId,
         });
 
         created++;

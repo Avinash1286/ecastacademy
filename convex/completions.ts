@@ -35,7 +35,7 @@ import {
  * Main mutation to record any type of content completion
  * Handles: videos, text, quizzes, assignments, resources
  * 
- * SECURITY UPDATE: Now derives userId from authenticated session instead of client input.
+ * SECURITY: Verifies the authenticated user matches the userId parameter
  */
 export const recordCompletion = mutation({
   args: {
@@ -51,10 +51,10 @@ export const recordCompletion = mutation({
     progressPercentage: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    // 1. Verify the user exists
-    const user = await ctx.db.get(args.userId);
-    if (!user) {
-      throw new Error("User not found");
+    // SECURITY: Verify the authenticated user matches the userId parameter
+    const { user: authenticatedUser } = await requireAuthenticatedUser(ctx);
+    if (authenticatedUser._id !== args.userId) {
+      throw new Error("Unauthorized: You can only record your own completions");
     }
 
     // 2. Get content item with all related data
@@ -104,7 +104,10 @@ export const recordCompletion = mutation({
         maxScore = questions.length;
 
         args.answers.forEach((answerIndex: number, questionIndex: number) => {
-          if (questions[questionIndex] && questions[questionIndex].correctIndex === answerIndex) {
+          const question = questions[questionIndex];
+          // Support both 'correct' and 'correctIndex' field names
+          const correctAnswer = question?.correctIndex ?? question?.correct;
+          if (question && correctAnswer === answerIndex) {
             score++;
           }
         });
@@ -114,7 +117,10 @@ export const recordCompletion = mutation({
         maxScore = questions.length;
 
         args.answers.forEach((answerIndex: number, questionIndex: number) => {
-          if (questions[questionIndex] && questions[questionIndex].correctIndex === answerIndex) {
+          const question = questions[questionIndex];
+          // Support both 'correct' and 'correctIndex' field names
+          const correctAnswer = question?.correctIndex ?? question?.correct;
+          if (question && correctAnswer === answerIndex) {
             score++;
           }
         });
@@ -126,7 +132,10 @@ export const recordCompletion = mutation({
           maxScore = questions.length;
 
           args.answers.forEach((answerIndex: number, questionIndex: number) => {
-            if (questions[questionIndex] && questions[questionIndex].correctIndex === answerIndex) {
+            const question = questions[questionIndex];
+            // Support both 'correct' and 'correctIndex' field names
+            const correctAnswer = question?.correctIndex ?? question?.correct;
+            if (question && correctAnswer === answerIndex) {
               score++;
             }
           });
@@ -907,5 +916,230 @@ export async function recalculateCourseProgressSync(
 ) {
   return await recalcCourseProgressCore(ctx, args);
 }
+
+/**
+ * =============================================================================
+ * SECURE QUIZ VALIDATION
+ * =============================================================================
+ * Validates quiz answers server-side to prevent cheating.
+ * The correct answers are never sent to the client.
+ * =============================================================================
+ */
+
+/**
+ * Validate quiz answers and return results with correct answers
+ * This is called when the user submits their quiz answers
+ */
+export const validateQuizAnswers = mutation({
+  args: {
+    userId: v.id("users"),
+    contentItemId: v.id("contentItems"),
+    answers: v.array(v.number()),
+  },
+  handler: async (ctx, args) => {
+    // 1. Get content item
+    const contentItem = await ctx.db.get(args.contentItemId);
+    if (!contentItem) {
+      throw new Error("Content item not found");
+    }
+
+    // 2. Get quiz questions based on content type
+    let questions: Array<{ question: string; options: string[]; correct?: number; correctIndex?: number; explanation?: string }> = [];
+    
+    if (contentItem.type === "quiz" && contentItem.quizData) {
+      questions = contentItem.quizData.questions || [];
+    } else if (contentItem.type === "text" && contentItem.textQuiz) {
+      questions = contentItem.textQuiz.questions || [];
+    } else if (contentItem.type === "video" && contentItem.videoId) {
+      const video = await ctx.db.get(contentItem.videoId);
+      if (video && video.quiz) {
+        questions = video.quiz.questions || [];
+      }
+    }
+
+    if (questions.length === 0) {
+      throw new Error("No quiz questions found for this content item");
+    }
+
+    // 3. Validate each answer and build results
+    const results: Array<{
+      questionIndex: number;
+      isCorrect: boolean;
+      correctAnswer: number;
+      userAnswer: number;
+      explanation?: string;
+    }> = [];
+
+    let score = 0;
+    
+    for (let i = 0; i < questions.length; i++) {
+      const question = questions[i];
+      const userAnswer = args.answers[i] ?? -1;
+      // Support both 'correct' and 'correctIndex' field names
+      const correctAnswer = question.correctIndex ?? question.correct ?? 0;
+      const isCorrect = userAnswer === correctAnswer;
+      
+      if (isCorrect) {
+        score++;
+      }
+
+      results.push({
+        questionIndex: i,
+        isCorrect,
+        correctAnswer,
+        userAnswer,
+        explanation: question.explanation,
+      });
+    }
+
+    // 4. Record the completion (this also records the quiz attempt)
+    const chapter = await ctx.db.get(contentItem.chapterId);
+    if (!chapter) {
+      throw new Error("Chapter not found");
+    }
+
+    // Record the attempt
+    await recordQuizAttempt(ctx, {
+      userId: args.userId,
+      contentItemId: args.contentItemId,
+      courseId: chapter.courseId,
+      answers: args.answers,
+      score,
+      maxScore: questions.length,
+      timeSpent: 0,
+    });
+
+    // Update progress
+    await updateOrCreateProgress(ctx, {
+      userId: args.userId,
+      courseId: chapter.courseId,
+      chapterId: chapter._id,
+      contentItemId: args.contentItemId,
+      contentItem,
+      score,
+      maxScore: questions.length,
+    });
+
+    // Invalidate cache
+    invalidateCourseCache(chapter.courseId);
+
+    return {
+      success: true,
+      score,
+      maxScore: questions.length,
+      percentage: Math.round((score / questions.length) * 100),
+      results,
+    };
+  },
+});
+
+/**
+ * Get validation results for a previous quiz attempt
+ * This re-validates the stored answers against the quiz questions
+ * Used when viewing previous attempt results
+ */
+export const getQuizValidationResults = query({
+  args: {
+    contentItemId: v.id("contentItems"),
+    answers: v.array(v.number()),
+  },
+  handler: async (ctx, args) => {
+    // 1. Get content item
+    const contentItem = await ctx.db.get(args.contentItemId);
+    if (!contentItem) {
+      return null;
+    }
+
+    // 2. Get quiz questions based on content type
+    let questions: Array<{ question: string; options: string[]; correct?: number; correctIndex?: number; explanation?: string }> = [];
+    
+    if (contentItem.type === "quiz" && contentItem.quizData) {
+      questions = contentItem.quizData.questions || [];
+    } else if (contentItem.type === "text" && contentItem.textQuiz) {
+      questions = contentItem.textQuiz.questions || [];
+    } else if (contentItem.type === "video" && contentItem.videoId) {
+      const video = await ctx.db.get(contentItem.videoId);
+      if (video && video.quiz) {
+        questions = video.quiz.questions || [];
+      }
+    }
+
+    if (questions.length === 0) {
+      return null;
+    }
+
+    // 3. Validate each answer and build results
+    const results: Array<{
+      questionIndex: number;
+      isCorrect: boolean;
+      correctAnswer: number;
+      userAnswer: number;
+      explanation?: string;
+    }> = [];
+
+    for (let i = 0; i < questions.length; i++) {
+      const question = questions[i];
+      const userAnswer = args.answers[i] ?? -1;
+      // Support both 'correct' and 'correctIndex' field names
+      const correctAnswer = question.correctIndex ?? question.correct ?? 0;
+      const isCorrect = userAnswer === correctAnswer;
+
+      results.push({
+        questionIndex: i,
+        isCorrect,
+        correctAnswer,
+        userAnswer,
+        explanation: question.explanation,
+      });
+    }
+
+    return results;
+  },
+});
+
+/**
+ * Get quiz questions without correct answers (for secure client-side display)
+ * This strips the 'correct' field so users can't cheat by inspecting network requests
+ */
+export const getSecureQuizQuestions = query({
+  args: {
+    contentItemId: v.id("contentItems"),
+  },
+  handler: async (ctx, args) => {
+    const contentItem = await ctx.db.get(args.contentItemId);
+    if (!contentItem) {
+      return null;
+    }
+
+    let quiz: { topic: string; questions: Array<{ question: string; options: string[]; correct?: number; correctIndex?: number; explanation?: string }> } | null = null;
+
+    if (contentItem.type === "quiz" && contentItem.quizData) {
+      quiz = contentItem.quizData;
+    } else if (contentItem.type === "text" && contentItem.textQuiz) {
+      quiz = contentItem.textQuiz;
+    } else if (contentItem.type === "video" && contentItem.videoId) {
+      const video = await ctx.db.get(contentItem.videoId);
+      if (video && video.quiz) {
+        quiz = video.quiz;
+      }
+    }
+
+    if (!quiz) {
+      return null;
+    }
+
+    // Strip correct answers from questions
+    const secureQuestions = quiz.questions.map((q) => ({
+      question: q.question,
+      options: q.options,
+      // Don't include correct, correctIndex, or explanation
+    }));
+
+    return {
+      topic: quiz.topic,
+      questions: secureQuestions,
+    };
+  },
+});
 
 

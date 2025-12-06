@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { requireAuthenticatedUser, requireAdminUser } from "./utils/auth";
+import { requireAuthenticatedUser, requireAdminUser, requireAuthenticatedUserWithFallback, requireAdminUserWithFallback } from "./utils/auth";
 import { validateStringLength, validateUrl, MAX_TITLE_LENGTH, MAX_URL_LENGTH } from "./utils/validation";
 
 // Maximum number of videos to return in unbounded queries
@@ -25,10 +25,11 @@ export const createVideo = mutation({
       v.literal("completed"),
       v.literal("failed")
     )),
+    currentUserId: v.optional(v.id("users")), // Fallback for client-side auth
   },
   handler: async (ctx, args) => {
     // Auth check - must be authenticated
-    await requireAuthenticatedUser(ctx);
+    await requireAuthenticatedUserWithFallback(ctx, args.currentUserId);
     
     // Validate input
     validateStringLength(args.title, MAX_TITLE_LENGTH, "Title");
@@ -42,7 +43,7 @@ export const createVideo = mutation({
     }
     
     const now = Date.now();
-    const { status, ...videoData } = args;
+    const { status, currentUserId, ...videoData } = args;
     const videoId = await ctx.db.insert("videos", {
       ...videoData,
       status: status ?? "pending", // Start as pending unless overridden
@@ -92,10 +93,11 @@ export const updateVideo = mutation({
     transcript: v.optional(v.string()),
     notes: v.optional(v.any()),
     quiz: v.optional(v.any()),
+    currentUserId: v.optional(v.id("users")), // Fallback for client-side auth
   },
   handler: async (ctx, args) => {
     // Auth check - must be authenticated
-    await requireAuthenticatedUser(ctx);
+    await requireAuthenticatedUserWithFallback(ctx, args.currentUserId);
     
     // Validate input
     if (args.title) {
@@ -114,7 +116,7 @@ export const updateVideo = mutation({
       throw new Error("Video not found");
     }
     
-    const { id, ...updates } = args;
+    const { id, currentUserId, ...updates } = args;
     await ctx.db.patch(id, {
       ...updates,
       updatedAt: Date.now(),
@@ -127,10 +129,11 @@ export const updateVideo = mutation({
 export const deleteVideo = mutation({
   args: {
     id: v.id("videos"),
+    currentUserId: v.optional(v.id("users")), // Fallback for client-side auth
   },
   handler: async (ctx, args) => {
     // Auth check - must be admin
-    await requireAdminUser(ctx);
+    await requireAdminUserWithFallback(ctx, args.currentUserId);
     
     // Verify video exists
     const video = await ctx.db.get(args.id);

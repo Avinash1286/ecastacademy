@@ -1,11 +1,11 @@
 "use client";
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useMutation, useQuery } from 'convex/react';
 import { useSession } from 'next-auth/react';
 import { api } from '../../../convex/_generated/api';
 import { QuizInterface } from '../quiz/QuizInterface';
 import { QuizResults } from '../quiz/QuizResults';
-import { Quiz, ContentItem } from '@/lib/types';
+import { SecureQuiz, Quiz, ContentItem, QuizQuestionResult } from '@/lib/types';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Id } from '../../../convex/_generated/dataModel';
 
@@ -17,6 +17,19 @@ interface ExtendedUser {
   image?: string | null
 }
 
+// Helper function to strip correct answers from quiz for secure display
+function toSecureQuiz(quiz: Quiz | null | undefined): SecureQuiz | null {
+  if (!quiz || !quiz.topic || !quiz.questions) return null;
+  return {
+    topic: quiz.topic,
+    questions: quiz.questions.map(q => ({
+      question: q.question,
+      options: q.options,
+      // Explicitly exclude correct, correctIndex, and explanation
+    })),
+  };
+}
+
 export function QuizzesPanel({
   questions,
   contentItem
@@ -25,15 +38,17 @@ export function QuizzesPanel({
   contentItem?: ContentItem | null;
 }) {
   const [currentView, setCurrentView] = useState<'quiz' | 'results'>('quiz');
-  const [quiz, setQuiz] = useState<Quiz | null>(null);
   const [userAnswers, setUserAnswers] = useState<number[]>([]);
   const [score, setScore] = useState(0);
   const [showPreviousAttempt, setShowPreviousAttempt] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [validationResults, setValidationResults] = useState<QuizQuestionResult[] | undefined>(undefined);
 
   const { data: session } = useSession();
   const sessionUser = session?.user as unknown as ExtendedUser | undefined;
-  // Use the new unified recordCompletion mutation
-  const recordCompletion = useMutation(api.completions.recordCompletion);
+  
+  // Use the new secure validation mutation
+  const validateQuizAnswers = useMutation(api.completions.validateQuizAnswers);
 
   // Fetch attempt history for ALL quizzes (not just graded)
   const userId = sessionUser?.id;
@@ -47,13 +62,28 @@ export function QuizzesPanel({
       : "skip"
   );
 
+  // Get the latest attempt's answers for validation query
+  const latestAttemptAnswers = attemptHistory && attemptHistory.length > 0 && attemptHistory[0].answers
+    ? attemptHistory[0].answers as number[]
+    : null;
 
+  // Fetch validation results for previous attempts (re-validates stored answers)
+  const previousValidationResults = useQuery(
+    api.completions.getQuizValidationResults,
+    contentItem?.id && latestAttemptAnswers
+      ? {
+          contentItemId: contentItem.id as Id<"contentItems">,
+          answers: latestAttemptAnswers,
+        }
+      : "skip"
+  );
+
+  // Convert to secure quiz (strips correct answers)
+  const secureQuiz = useMemo(() => toSecureQuiz(questions), [questions]);
 
   useEffect(() => {
     // Check if questions has the required structure
-    if (questions && questions.topic && questions.questions && Array.isArray(questions.questions)) {
-      setQuiz(questions);
-
+    if (secureQuiz) {
       // Check if user has previous attempts - show results by default
       if (attemptHistory && attemptHistory.length > 0) {
         const latestAttempt = attemptHistory[0]; // Already sorted by _creationTime desc
@@ -64,12 +94,17 @@ export function QuizzesPanel({
           setScore(latestAttempt.score);
           setCurrentView('results');
           setShowPreviousAttempt(true);
+          // Use previous validation results if available
+          if (previousValidationResults) {
+            setValidationResults(previousValidationResults);
+          }
         } else {
           // Has attempts but no answers stored - show quiz (old data)
           setCurrentView('quiz');
           setUserAnswers([]);
           setScore(0);
           setShowPreviousAttempt(false);
+          setValidationResults(undefined);
         }
       } else {
         // No previous attempts - show quiz
@@ -77,45 +112,48 @@ export function QuizzesPanel({
         setUserAnswers([]);
         setScore(0);
         setShowPreviousAttempt(false);
+        setValidationResults(undefined);
       }
-    } else {
-      setQuiz(null);
     }
-  }, [questions, attemptHistory]);
+  }, [secureQuiz, attemptHistory, previousValidationResults]);
 
-  const handleQuizComplete = async (answers: number[], finalScore: number) => {
-    setUserAnswers(answers);
-    setScore(finalScore);
+  const handleQuizComplete = async (answers: number[]) => {
+    setIsSubmitting(true);
     setShowPreviousAttempt(false); // This is a new attempt
 
-    // Verify user is authenticated (session is checked on server via requireAuthenticatedUser)
+    // Verify user is authenticated
     const userId = sessionUser?.id;
 
     if (!userId) {
       console.error('User not authenticated');
-      setCurrentView('results');
+      setIsSubmitting(false);
       return;
     }
 
     if (!contentItem?.id) {
       console.error('Content item ID is missing');
-      setCurrentView('results');
+      setIsSubmitting(false);
       return;
     }
 
     try {
-      // Use the new unified recordCompletion mutation
-      // Pass userId directly to the mutation
-      await recordCompletion({
+      // Validate answers on the server - this is where scoring happens
+      const result = await validateQuizAnswers({
         userId: userId as Id<"users">,
         contentItemId: contentItem.id as Id<"contentItems">,
-        answers, // Include answers for quiz attempt record
+        answers,
       });
-    } catch (error) {
-      console.error('Error submitting quiz:', error instanceof Error ? error.message : 'Unknown error');
-      // Continue to show results even if submission fails
-    } finally {
+
+      // Update state with server-validated results
+      setUserAnswers(answers);
+      setScore(result.score);
+      setValidationResults(result.results);
       setCurrentView('results');
+    } catch (error) {
+      console.error('Error validating quiz:', error instanceof Error ? error.message : 'Unknown error');
+      // Show error state or fallback
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -124,31 +162,34 @@ export function QuizzesPanel({
     setUserAnswers([]);
     setScore(0);
     setShowPreviousAttempt(false);
+    setValidationResults(undefined);
   };
 
 
   return (
     <ScrollArea className="h-full w-full">
       <div className="p-2 sm:p-4 overflow-x-hidden">
-        {currentView === 'quiz' && quiz && (
+        {currentView === 'quiz' && secureQuiz && (
           <QuizInterface
-            quiz={quiz}
+            quiz={secureQuiz}
             onQuizComplete={handleQuizComplete}
             contentItem={contentItem}
+            isSubmitting={isSubmitting}
           />
         )}
-        {currentView === 'results' && quiz && (
+        {currentView === 'results' && secureQuiz && (
           <QuizResults
-            quiz={quiz}
+            quiz={secureQuiz}
             userAnswers={userAnswers}
             score={score}
+            validationResults={validationResults}
             onRestart={handleRestart}
             contentItem={contentItem}
             attemptHistory={attemptHistory || []}
             isPreviousAttempt={showPreviousAttempt}
           />
         )}
-        {!quiz && (
+        {!secureQuiz && (
           <div className="text-center text-muted-foreground p-8">
             No quiz available for this chapter yet.
           </div>

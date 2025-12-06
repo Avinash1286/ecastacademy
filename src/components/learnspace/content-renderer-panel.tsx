@@ -4,6 +4,8 @@ import { ContentItem, InteractiveNotesProps, Quiz } from '@/lib/types';
 import { VideoPlayer } from './video-player';
 import { Card } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Skeleton } from '@/components/ui/skeleton';
+import DOMPurify from 'isomorphic-dompurify';
 
 type ContentRendererProps = {
   contentItem: ContentItem | null;
@@ -34,7 +36,16 @@ export function ContentRenderer({ contentItem, isPlayerVisible, fallbackVideo }:
   }
 
   // Render video content
-  if (contentItem.type === 'video' && contentItem.videoDetails) {
+  if (contentItem.type === 'video') {
+    // If videoDetails not loaded yet, show loading skeleton
+    if (!contentItem.videoDetails) {
+      return (
+        <div className="aspect-video w-full rounded-lg bg-muted overflow-hidden">
+          <Skeleton className="w-full h-full" />
+        </div>
+      );
+    }
+    
     const videoData = {
       videoId: contentItem.videoDetails.youtubeVideoId,
       title: contentItem.title,
@@ -50,7 +61,21 @@ export function ContentRenderer({ contentItem, isPlayerVisible, fallbackVideo }:
   }
 
   // Render text content
-  if (contentItem.type === 'text' && contentItem.textContent) {
+  if (contentItem.type === 'text') {
+    // If textContent not loaded yet, show loading skeleton
+    if (!contentItem.textContent) {
+      return (
+        <Card className="w-full h-full overflow-hidden">
+          <div className="p-6 space-y-4">
+            <Skeleton className="h-8 w-3/4" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-2/3" />
+          </div>
+        </Card>
+      );
+    }
+    
     return (
       <Card className="w-full h-full overflow-hidden">
         <ScrollArea className="h-full">
@@ -58,7 +83,7 @@ export function ContentRenderer({ contentItem, isPlayerVisible, fallbackVideo }:
             <h2 className="text-2xl font-bold mb-4">{contentItem.title}</h2>
             <div
               className="prose prose-sm dark:prose-invert max-w-none leading-relaxed tiptap"
-              dangerouslySetInnerHTML={{ __html: contentItem.textContent }}
+              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(contentItem.textContent) }}
             />
           </div>
         </ScrollArea>
@@ -66,7 +91,8 @@ export function ContentRenderer({ contentItem, isPlayerVisible, fallbackVideo }:
     );
   }
 
-  // Fallback for unsupported content types
+  // Fallback for unsupported content types (quiz, assignment, resource)
+  // These should be handled elsewhere or show a better message
   return (
     <div className="flex aspect-video w-full items-center justify-center rounded-lg bg-muted text-center text-muted-foreground">
       <div>

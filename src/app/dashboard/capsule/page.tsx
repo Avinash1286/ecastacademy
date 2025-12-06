@@ -15,8 +15,21 @@ import { Paperclip, FileText, Loader2, CheckCircle2, AlertTriangle, Clock, Trash
 import { Progress } from '@/components/ui/progress';
 import { toast } from 'sonner';
 import { CapsuleBookmarkButton } from '@/components/capsule/CapsuleBookmarkButton';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 type CapsuleStatus = 'pending' | 'processing' | 'completed' | 'failed';
+
+// Stale job threshold - must match backend
+const STALE_THRESHOLD_MS = 15 * 60 * 1000; // 15 minutes
 
 export default function CapsulePage() {
   const router = useRouter();
@@ -29,6 +42,9 @@ export default function CapsulePage() {
   const [ideaText, setIdeaText] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const [dragActive, setDragActive] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [capsuleToDelete, setCapsuleToDelete] = useState<Id<'capsules'> | null>(null);
+  const staleJobsMarkedRef = useRef<Set<string>>(new Set()); // Track which stale jobs we've already tried to mark
 
   type CapsuleDoc = Doc<'capsules'>;
 
@@ -37,10 +53,10 @@ export default function CapsulePage() {
     userId ? { userId } : 'skip'
   );
 
-  // Community capsules - public capsules from other users
+  // Community capsules - public capsules (including user's own)
   const communityCapsules = useQuery(
     api.capsules.getCommunityCapsules,
-    { limit: 6, excludeUserId: userId }
+    { limit: 6 }
   );
 
   const deleteCapsule = useMutation(api.capsules.deleteCapsule);
@@ -139,6 +155,44 @@ export default function CapsulePage() {
 
     prevCapsulesRef.current = capsules;
   }, [capsules]);
+
+  // Stale job detection - mark jobs as failed if they haven't updated in 15+ minutes
+  const markStaleJobAsFailed = useMutation(api.generationJobs.markStaleJobAsFailed);
+
+  useEffect(() => {
+    if (!generationJobs || !capsules) return;
+
+    // Check each processing capsule for stale jobs
+    capsules.forEach(capsule => {
+      if (capsule.status !== 'processing') return;
+      
+      // Skip if we've already attempted to mark this capsule's job as stale
+      const capsuleIdStr = capsule._id.toString();
+      if (staleJobsMarkedRef.current.has(capsuleIdStr)) return;
+      
+      const job = generationJobs.find(j => j.capsuleId === capsule._id);
+      if (!job) return;
+      
+      // Check if job is stale (hasn't updated in threshold time)
+      const timeSinceUpdate = Date.now() - job.updatedAt;
+      if (timeSinceUpdate > STALE_THRESHOLD_MS) {
+        // Mark this capsule as attempted to prevent repeated calls
+        staleJobsMarkedRef.current.add(capsuleIdStr);
+        
+        markStaleJobAsFailed({ capsuleId: capsule._id })
+          .then(result => {
+            if (result?.success) {
+              toast.error('Generation timed out. Please try again.');
+            }
+          })
+          .catch(err => {
+            console.error('[StaleJob] Failed to mark stale job:', err);
+            // Remove from tracked set on error so it can be retried
+            staleJobsMarkedRef.current.delete(capsuleIdStr);
+          });
+      }
+    });
+  }, [generationJobs, capsules, markStaleJobAsFailed]);
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
@@ -260,14 +314,22 @@ export default function CapsulePage() {
     }
   };
 
-  const handleDelete = async (capsuleId: Id<'capsules'>) => {
-    if (!confirm('Are you sure you want to delete this capsule? This action cannot be undone.')) return;
+  const openDeleteDialog = (capsuleId: Id<'capsules'>) => {
+    setCapsuleToDelete(capsuleId);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDelete = async () => {
+    if (!capsuleToDelete || !userId) return;
     try {
-      await deleteCapsule({ capsuleId });
+      await deleteCapsule({ capsuleId: capsuleToDelete, userId });
       toast.success('Capsule deleted');
     } catch (error) {
       console.error('Error deleting capsule:', error);
       toast.error('Failed to delete capsule');
+    } finally {
+      setDeleteDialogOpen(false);
+      setCapsuleToDelete(null);
     }
   };
 
@@ -495,7 +557,7 @@ export default function CapsulePage() {
                           className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleDelete(capsule._id);
+                            openDeleteDialog(capsule._id);
                           }}
                           title="Delete Capsule"
                         >
@@ -596,10 +658,12 @@ export default function CapsulePage() {
             </Card>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {communityCapsules.capsules.slice(0, 3).map((capsule) => (
+              {communityCapsules.capsules.slice(0, 3).map((capsule) => {
+                const isOwn = userId && capsule.userId === userId;
+                return (
                 <Card
                   key={capsule._id}
-                  className="cursor-pointer transition-all hover:border-primary/50 hover:shadow-md group relative bg-card"
+                  className={`cursor-pointer transition-all hover:border-primary/50 hover:shadow-md group relative bg-card ${isOwn ? 'ring-1 ring-primary/30' : ''}`}
                   onClick={() => router.push(`/capsule/learn/${capsule._id}`)}
                 >
                   <CardContent className="p-5 min-h-[220px] flex flex-col">
@@ -609,13 +673,21 @@ export default function CapsulePage() {
                         <Globe className="h-5 w-5 text-blue-500" />
                       </div>
                       <div className="flex items-center gap-2">
-                        <CapsuleBookmarkButton
-                          capsuleId={capsule._id}
-                          userId={userId}
-                        />
-                        <Badge variant="secondary" className="text-xs bg-blue-500/10 text-blue-600 border-blue-500/20">
-                          Public
-                        </Badge>
+                        {!isOwn && (
+                          <CapsuleBookmarkButton
+                            capsuleId={capsule._id}
+                            userId={userId}
+                          />
+                        )}
+                        {isOwn ? (
+                          <Badge variant="secondary" className="text-xs bg-green-500/10 text-green-600 border-green-500/20">
+                            Yours
+                          </Badge>
+                        ) : (
+                          <Badge variant="secondary" className="text-xs bg-blue-500/10 text-blue-600 border-blue-500/20">
+                            Public
+                          </Badge>
+                        )}
                       </div>
                     </div>
 
@@ -639,11 +711,32 @@ export default function CapsulePage() {
                     </div>
                   </CardContent>
                 </Card>
-              ))}
+              )})}
             </div>
           )}
         </section>
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Capsule</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this capsule? This action cannot be undone and all associated content will be permanently removed.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setCapsuleToDelete(null)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </main>
   );
 }

@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import { requireAuthenticatedUser } from "./utils/auth";
 
 // =============================================================================
 // Bookmarks - CRUD operations for user bookmarks
@@ -7,7 +8,7 @@ import { mutation, query } from "./_generated/server";
 
 /**
  * Toggle a course bookmark (add if not exists, remove if exists)
- * Security: userId is passed from client (validated by NextAuth session)
+ * SECURITY: Verifies the authenticated user matches the userId parameter
  */
 export const toggleCourseBookmark = mutation({
   args: {
@@ -17,10 +18,10 @@ export const toggleCourseBookmark = mutation({
   handler: async (ctx, args) => {
     const { userId, courseId } = args;
 
-    // Verify user exists
-    const user = await ctx.db.get(userId);
-    if (!user) {
-      throw new Error("User not found");
+    // SECURITY: Verify the authenticated user matches the userId parameter
+    const { user } = await requireAuthenticatedUser(ctx);
+    if (user._id !== userId) {
+      throw new Error("Unauthorized: You can only manage your own bookmarks");
     }
 
     // Check if course exists
@@ -54,7 +55,7 @@ export const toggleCourseBookmark = mutation({
 
 /**
  * Toggle a capsule bookmark (add if not exists, remove if exists)
- * Security: userId is passed from client (validated by NextAuth session)
+ * SECURITY: Verifies the authenticated user matches the userId parameter
  */
 export const toggleCapsuleBookmark = mutation({
   args: {
@@ -64,10 +65,10 @@ export const toggleCapsuleBookmark = mutation({
   handler: async (ctx, args) => {
     const { userId, capsuleId } = args;
 
-    // Verify user exists
-    const user = await ctx.db.get(userId);
-    if (!user) {
-      throw new Error("User not found");
+    // SECURITY: Verify the authenticated user matches the userId parameter
+    const { user } = await requireAuthenticatedUser(ctx);
+    if (user._id !== userId) {
+      throw new Error("Unauthorized: You can only manage your own bookmarks");
     }
 
     // Check if capsule exists

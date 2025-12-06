@@ -91,6 +91,7 @@ export default function CapsuleLearnPage({ params }: PageProps) {
   const currentModuleId = currentModule?._id;
 
   // Handler for typed quiz answers (MCQ, FillBlanks, DragDrop) - must be before early returns
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleTypedQuizAnswer = useCallback(async (answer: QuizAnswer) => {
     if (!currentLessonId || !userId || !currentModuleId) return;
 
@@ -133,13 +134,16 @@ export default function CapsuleLearnPage({ params }: PageProps) {
         .filter(s => s.answered && s.answer)
         .pop();
 
+      // Only mark as completed if score is 100%
+      const isFullyComplete = data.allQuestionsAnswered && data.overallScore === 100;
+
       await updateTypedProgress({
         userId,
         capsuleId,
         moduleId: currentModuleId,
         lessonId: currentLessonId,
         typedAnswer: lastAnsweredState?.answer,
-        completed: data.allQuestionsAnswered,
+        completed: isFullyComplete,
         maxScore: currentLesson?.maxPoints,
         mixedLessonProgress: {
           currentQuestionIndex: data.currentQuestionIndex,
@@ -179,6 +183,7 @@ export default function CapsuleLearnPage({ params }: PageProps) {
 
   // Check if this is a public capsule that non-owner can view
   const isPublicCapsule = capsuleData?.isPublic === true;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const isOwner = capsuleData?.isOwner === true;
 
   // For private capsules, require authentication
@@ -245,13 +250,16 @@ export default function CapsuleLearnPage({ params }: PageProps) {
   }) => {
     if (!safeCurrentLesson || !userId) return;
 
+    // Only mark as completed if score is 100% (or no score/quiz involved)
+    const isFullyComplete = score === undefined || score === 100;
+
     try {
       await updateProgress({
         userId,
         capsuleId,
         moduleId: safeCurrentModule._id,
         lessonId: safeCurrentLesson._id,
-        completed: true,
+        completed: isFullyComplete,
         score,
         maxScore: safeCurrentLesson.maxPoints,
         quizAnswer,
@@ -262,6 +270,7 @@ export default function CapsuleLearnPage({ params }: PageProps) {
   };
 
   // Handler for tracking hints used
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleHintUsed = async () => {
     if (!safeCurrentLesson || !userId) return;
 
@@ -533,6 +542,8 @@ export default function CapsuleLearnPage({ params }: PageProps) {
                           key={`${currentModuleIndex}-${currentLessonIndex}`}
                           {...safeCurrentLesson.content}
                           lessonId={currentLessonId}
+                          isOwner={capsuleData?.isOwner}
+                          userId={userId}
                           onComplete={(score) => handleLessonComplete(score ?? 100)}
                           onQuizAnswer={(data) => handleLessonComplete(data.isCorrect ? 100 : 0, {
                             selectedAnswer: data.selectedAnswer,

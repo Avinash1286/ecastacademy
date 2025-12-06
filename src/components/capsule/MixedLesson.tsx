@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef, useMemo, useSyncExternalStore } from 'react';
-import { useAction } from 'convex/react';
+import { useAction, useQuery } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
 import { Id } from '../../../convex/_generated/dataModel';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -43,6 +43,13 @@ import { useSoundEffects } from '@/hooks/useSoundEffects';
 import { ConfettiCelebration } from '@/components/ui/ConfettiCelebration';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { oneDark } from 'react-syntax-highlighter/dist/cjs/styles/prism';
+import 'katex/dist/katex.min.css';
 import type {  
   MCQAnswer, 
   FillBlanksAnswer, 
@@ -224,6 +231,10 @@ interface MixedLessonProps {
   practiceQuestions?: PracticeQuestion[];
   lessonId?: string;
   
+  // Ownership - for showing regeneration controls
+  isOwner?: boolean;
+  userId?: string; // User ID for authenticated regeneration requests
+  
   // Callbacks
   onComplete?: (score?: number) => void;
   /** @deprecated Use onTypedAnswer for type-safe answer handling */
@@ -333,13 +344,17 @@ interface VisualizationFrameProps {
   lessonId?: string;
   visualizationIndex: number;
   onRegenerated?: () => void;
+  isOwner?: boolean;
+  userId?: string;
 }
 
 function VisualizationFrame({ 
   visualization, 
   lessonId, 
   visualizationIndex,
-  onRegenerated 
+  onRegenerated,
+  isOwner,
+  userId
 }: VisualizationFrameProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -365,6 +380,11 @@ function VisualizationFrame({
       toast.error('Please provide more detailed feedback (at least 10 characters)');
       return;
     }
+    
+    if (!userId) {
+      toast.error('Please sign in to regenerate visualizations');
+      return;
+    }
 
     // Set global regenerating state
     setRegenerating(lessonId, visualizationIndex, true);
@@ -373,6 +393,7 @@ function VisualizationFrame({
         lessonId: lessonId as Id<'capsuleLessons'>,
         visualizationIndex,
         userFeedback: feedback.trim(),
+        userId: userId as Id<'users'>,
       });
       
       toast.success('Visualization regenerated successfully!');
@@ -648,7 +669,7 @@ function VisualizationFrame({
               )}
             </div>
             <div className="flex items-center gap-2">
-              {lessonId && (
+              {lessonId && isOwner && (
                 <Button 
                   size="sm" 
                   variant="ghost" 
@@ -678,8 +699,8 @@ function VisualizationFrame({
             <p className="text-sm text-muted-foreground mt-2">{visualization.description}</p>
           )}
           
-          {/* Feedback Form */}
-          {showFeedbackForm && lessonId && (
+          {/* Feedback Form - Only visible to capsule owner */}
+          {showFeedbackForm && lessonId && isOwner && (
             <div className="mt-4 p-4 bg-muted/50 rounded-lg border space-y-3">
               <div className="flex items-start gap-2">
                 <MessageSquare className="h-5 w-5 text-primary mt-0.5" />
@@ -819,7 +840,9 @@ function FillBlanksQuiz({
   }, [initialAnswers, isAlreadyAnswered, question.blanks]);
 
   // Parse text with blanks (format: {{blankId}})
-  const parts = question.text.split(/(\{\{[^}]+\}\})/g);
+  // Support both 'text' and 'sentence' field names for compatibility
+  const textContent = question.text || (question as unknown as { sentence?: string }).sentence || '';
+  const parts = textContent.split(/(\{\{[^}]+\}\})/g);
 
   const handleCheck = () => {
     const newResults: Record<string, boolean> = {};
@@ -1127,6 +1150,8 @@ export function MixedLesson({
   interactiveVisualizations: propVisualizations,
   practiceQuestions: propQuestions,
   lessonId,
+  isOwner = false,
+  userId,
   onComplete,
   onQuizAnswer,
   onTypedAnswer,
@@ -1142,6 +1167,19 @@ export function MixedLesson({
   const interactiveVisualizations = useMemo(() => propVisualizations || content?.interactiveVisualizations || [], [propVisualizations, content?.interactiveVisualizations]);
   const practiceQuestions = useMemo(() => propQuestions || content?.practiceQuestions || [], [propQuestions, content?.practiceQuestions]);
 
+  // Detect if this is a failed lesson (content generation failed)
+  const isFailedLesson = useMemo(() => {
+    if (sections.length === 1) {
+      const section = sections[0];
+      const hasFailureMessage = typeof section.content === 'string' && 
+        section.content.includes('could not be generated');
+      const hasFailureKeyPoint = Array.isArray(section.keyPoints) && 
+        section.keyPoints.includes('Content generation failed');
+      return hasFailureMessage || hasFailureKeyPoint;
+    }
+    return false;
+  }, [sections]);
+
   // Generate stable lesson ID
   const effectiveLessonId = useMemo(() => {
     return lessonId || `mixed-${sections.length}-${practiceQuestions.length}`;
@@ -1156,6 +1194,35 @@ export function MixedLesson({
   const [showConfetti, setShowConfetti] = useState(false);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [questionResults, setQuestionResults] = useState<Record<number, boolean>>({});
+  
+  // Question regeneration state - combines local and database state for persistence
+  const [showQuestionFeedbackForm, setShowQuestionFeedbackForm] = useState(false);
+  const [questionFeedback, setQuestionFeedback] = useState('');
+  
+  // Query database for regeneration status (persists across navigation)
+  const questionRegenerationStatus = useQuery(
+    api.capsuleGeneration.getQuestionRegenerationStatus,
+    lessonId ? { lessonId: lessonId as Id<'capsuleLessons'> } : 'skip'
+  );
+  
+  // Check if current question is regenerating from database status
+  const isQuestionRegeneratingFromDb = useMemo(() => {
+    if (!questionRegenerationStatus) return false;
+    const status = questionRegenerationStatus[currentQuestionIndex];
+    return status?.status === 'pending' || status?.status === 'regenerating';
+  }, [questionRegenerationStatus, currentQuestionIndex]);
+  
+  // Get error for current question if regeneration failed
+  const questionRegenerationError = useMemo(() => {
+    if (!questionRegenerationStatus) return null;
+    const status = questionRegenerationStatus[currentQuestionIndex];
+    if (status?.status === 'failed') {
+      return status.error || 'Regeneration failed';
+    }
+    return null;
+  }, [questionRegenerationStatus, currentQuestionIndex]);
+  
+  const regenerateQuestion = useAction(api.capsuleGeneration.regenerateQuestion);
   
   // Store per-question typed answers for persistence
   const [questionStates, setQuestionStates] = useState<QuestionState[]>([]);
@@ -1630,6 +1697,82 @@ export function MixedLesson({
     }
   }, [currentQuestionIndex, questionAnswers, onNavigationChange]);
 
+  // Handle question regeneration - schedules background job and returns immediately
+  const handleRegenerateQuestion = useCallback(async () => {
+    if (!lessonId) {
+      toast.error('Cannot regenerate question - lesson ID not found');
+      return;
+    }
+    
+    if (!userId) {
+      toast.error('Please sign in to regenerate questions');
+      return;
+    }
+
+    try {
+      await regenerateQuestion({
+        lessonId: lessonId as Id<'capsuleLessons'>,
+        questionIndex: currentQuestionIndex,
+        userFeedback: questionFeedback.trim() || undefined,
+        userId: userId as Id<'users'>,
+      });
+      
+      toast.success('Question regeneration started in background...');
+      setShowQuestionFeedbackForm(false);
+      setQuestionFeedback('');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to start regeneration';
+      toast.error(message);
+    }
+  }, [lessonId, userId, currentQuestionIndex, questionFeedback, regenerateQuestion]);
+  
+  // Effect to handle regeneration completion from database status
+  const prevRegenerationStatus = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!questionRegenerationStatus) return;
+    
+    const currentStatus = questionRegenerationStatus[currentQuestionIndex];
+    const prevStatus = prevRegenerationStatus.current;
+    
+    // Detect transition to completed
+    if (prevStatus && (prevStatus === 'pending' || prevStatus === 'regenerating') && 
+        currentStatus?.status === 'completed') {
+      toast.success('Question regenerated successfully!');
+      
+      // Reset the current question state since it's been replaced
+      setSelectedAnswer(null);
+      setShowQuizFeedback(false);
+      
+      // Clear the results for this question
+      setQuestionResults(prev => {
+        const newResults = { ...prev };
+        delete newResults[currentQuestionIndex];
+        return newResults;
+      });
+      
+      // Clear the question state for this question
+      setQuestionStates(prev => {
+        const newStates = [...prev];
+        if (newStates[currentQuestionIndex]) {
+          newStates[currentQuestionIndex] = {
+            ...newStates[currentQuestionIndex],
+            answered: false,
+            answer: undefined,
+          };
+        }
+        return newStates;
+      });
+    }
+    
+    // Detect transition to failed
+    if (prevStatus && (prevStatus === 'pending' || prevStatus === 'regenerating') && 
+        currentStatus?.status === 'failed') {
+      toast.error(currentStatus.error || 'Failed to regenerate question');
+    }
+    
+    prevRegenerationStatus.current = currentStatus?.status;
+  }, [questionRegenerationStatus, currentQuestionIndex]);
+
   // Check if all quiz questions have been answered
   const allQuestionsAnswered = hasQuiz && Object.keys(questionResults).length >= practiceQuestions.length;
 
@@ -1639,9 +1782,7 @@ export function MixedLesson({
       // Small delay to show the last question's feedback before completion
       const timer = setTimeout(() => {
         setMarkedComplete(true);
-        playCorrectSound();
-        setShowConfetti(true);
-        setTimeout(() => setShowConfetti(false), 3000);
+        // Note: Sound and confetti disabled for lesson completion
         
         // Calculate final score and call onComplete + onQuizAnswer
         const correctCount = Object.values(questionResults).filter(Boolean).length;
@@ -1674,13 +1815,11 @@ export function MixedLesson({
       }, 500);
       return () => clearTimeout(timer);
     }
-  }, [allQuestionsAnswered, markedComplete, hasQuiz, questionResults, practiceQuestions.length, onQuizAnswer, onTypedAnswer, onComplete, playCorrectSound, effectiveLessonId, questionStates, currentQuestionIndex]);
+  }, [allQuestionsAnswered, markedComplete, hasQuiz, questionResults, practiceQuestions.length, onQuizAnswer, onTypedAnswer, onComplete, effectiveLessonId, questionStates, currentQuestionIndex]);
 
   const handleMarkComplete = useCallback(() => {
     setMarkedComplete(true);
-    playCorrectSound();
-    setShowConfetti(true);
-    setTimeout(() => setShowConfetti(false), 3000);
+    // Note: Sound and confetti disabled for lesson completion
     
     // Calculate score based on quiz results if there was a quiz
     if (hasQuiz) {
@@ -1749,9 +1888,73 @@ export function MixedLesson({
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="prose prose-sm dark:prose-invert max-w-none">
-              <p className="whitespace-pre-wrap leading-relaxed">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm, remarkMath]}
+                rehypePlugins={[rehypeKatex]}
+                components={{
+                  h1: (props) => (
+                    <h1 className="mb-3 mt-4 text-xl font-bold first:mt-0 text-foreground" {...props} />
+                  ),
+                  h2: (props) => (
+                    <h2 className="mb-2.5 mt-4 text-lg font-semibold first:mt-0 text-foreground" {...props} />
+                  ),
+                  h3: (props) => (
+                    <h3 className="mb-2 mt-3 text-base font-semibold first:mt-0 text-foreground" {...props} />
+                  ),
+                  p: (props) => (
+                    <p className="mb-3 leading-relaxed last:mb-0 text-foreground" {...props} />
+                  ),
+                  ul: (props) => (
+                    <ul className="mb-3 ml-4 list-disc space-y-1.5 text-foreground" {...props} />
+                  ),
+                  ol: (props) => (
+                    <ol className="mb-3 ml-4 list-decimal space-y-1.5 text-foreground" {...props} />
+                  ),
+                  li: (props) => (
+                    <li className="leading-relaxed" {...props} />
+                  ),
+                  blockquote: (props) => (
+                    <blockquote className="my-3 border-l-4 border-primary/30 bg-primary/5 py-2 pl-4 pr-3 italic text-muted-foreground" {...props} />
+                  ),
+                  strong: (props) => (
+                    <strong className="font-bold text-foreground" {...props} />
+                  ),
+                  a: (props) => (
+                    <a className="text-primary underline hover:no-underline" target="_blank" rel="noopener noreferrer" {...props} />
+                  ),
+                  code: (props: React.HTMLAttributes<HTMLElement> & { inline?: boolean; className?: string; children?: React.ReactNode }) => {
+                    const { inline, className, children, ...rest } = props;
+                    const match = /language-(\w+)/.exec(className || '');
+                    const language = match ? match[1] : '';
+
+                    if (!inline && language) {
+                      return (
+                        <div className="my-3 overflow-hidden rounded-lg">
+                          <SyntaxHighlighter
+                            style={oneDark}
+                            language={language}
+                            PreTag="div"
+                            className="!my-0 !bg-[#282c34] text-sm"
+                          >
+                            {String(children).replace(/\n$/, '')}
+                          </SyntaxHighlighter>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <code
+                        className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-sm font-semibold text-primary"
+                        {...rest}
+                      >
+                        {children}
+                      </code>
+                    );
+                  },
+                }}
+              >
                 {section.content || section.text || ''}
-              </p>
+              </ReactMarkdown>
             </div>
             
             {section.keyPoints && section.keyPoints.length > 0 && (
@@ -1781,6 +1984,8 @@ export function MixedLesson({
           visualization={viz}
           lessonId={lessonId}
           visualizationIndex={index}
+          isOwner={isOwner}
+          userId={userId}
         />
       ))}
 
@@ -1839,8 +2044,94 @@ export function MixedLesson({
                   {getQuestionType(currentQuestion) === 'mcq' ? 'Multiple Choice' : 
                    getQuestionType(currentQuestion) === 'fillBlanks' ? 'Fill Blanks' : 'Drag & Drop'}
                 </Badge>
+                {/* Regenerate Question Button - Only for owners */}
+                {lessonId && isOwner && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setShowQuestionFeedbackForm(!showQuestionFeedbackForm)}
+                    className="gap-1 text-muted-foreground hover:text-foreground"
+                    disabled={isQuestionRegeneratingFromDb}
+                  >
+                    {isQuestionRegeneratingFromDb ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-4 w-4" />
+                    )}
+                    <span className="hidden sm:inline">Fix</span>
+                  </Button>
+                )}
               </div>
             </div>
+            
+            {/* Question regeneration in progress overlay */}
+            {isQuestionRegeneratingFromDb && (
+              <div className="mt-4 p-4 bg-primary/5 rounded-lg border border-primary/20 animate-pulse">
+                <div className="flex items-center gap-3">
+                  <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                  <div>
+                    <p className="font-medium text-sm">Regenerating question...</p>
+                    <p className="text-xs text-muted-foreground">This will take a few seconds</p>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {/* Question regeneration error */}
+            {questionRegenerationError && !isQuestionRegeneratingFromDb && (
+              <div className="mt-4 p-4 bg-destructive/10 rounded-lg border border-destructive/20">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle className="h-5 w-5 text-destructive mt-0.5" />
+                  <div>
+                    <p className="font-medium text-sm text-destructive">Regeneration failed</p>
+                    <p className="text-xs text-muted-foreground mt-1">{questionRegenerationError}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {/* Question Regeneration Feedback Form */}
+            {showQuestionFeedbackForm && lessonId && isOwner && !isQuestionRegeneratingFromDb && (
+              <div className="mt-4 p-4 bg-muted/50 rounded-lg border space-y-3">
+                <div className="flex items-start gap-2">
+                  <RefreshCw className="h-5 w-5 text-primary mt-0.5" />
+                  <div className="flex-1">
+                    <h4 className="font-medium text-sm">Regenerate this question</h4>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      If this question has errors (wrong number of items, missing blanks, etc.), 
+                      you can regenerate it. Optionally describe what&apos;s wrong.
+                    </p>
+                  </div>
+                </div>
+                <Textarea
+                  value={questionFeedback}
+                  onChange={(e) => setQuestionFeedback(e.target.value)}
+                  placeholder="Optional: Describe what's wrong (e.g., 'Only 1 item but 2 targets', 'Missing blank placeholders')"
+                  className="resize-none text-sm"
+                  rows={2}
+                />
+                <div className="flex gap-2 justify-end">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setShowQuestionFeedbackForm(false);
+                      setQuestionFeedback('');
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={handleRegenerateQuestion}
+                    className="gap-1"
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                    Regenerate Question
+                  </Button>
+                </div>
+              </div>
+            )}
           </CardHeader>
           <CardContent className="space-y-4">
             {/* MCQ Question */}
@@ -1971,51 +2262,54 @@ export function MixedLesson({
       )}
 
       {/* Lesson Completion Section - Auto-completes when all questions answered */}
-      <Card className={cn(
-        "transition-all",
-        markedComplete ? "bg-green-500/5 border-green-500/20" : "border-2 border-dashed"
-      )}>
-        <CardContent className="py-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              {markedComplete ? (
-                <>
-                  <CheckCircle2 className="h-6 w-6 text-green-500" />
-                  <div>
-                    <span className="font-medium text-green-600">Lesson Complete!</span>
-                    {hasQuiz && (
-                      <p className="text-sm text-muted-foreground">
-                        Score: {Math.round((Object.values(questionResults).filter(Boolean).length / practiceQuestions.length) * 100)}%
-                      </p>
-                    )}
-                  </div>
-                </>
-              ) : (
-                <>
-                  <BookOpen className="h-6 w-6 text-muted-foreground" />
-                  <div>
-                    <span className="text-muted-foreground">
-                      {hasQuiz 
-                        ? `Answer all questions to complete (${Object.keys(questionResults).length}/${practiceQuestions.length})`
-                        : "Finished reading? Mark this lesson as complete"}
-                    </span>
-                  </div>
-                </>
+      {/* Hide for failed lessons that need regeneration */}
+      {!isFailedLesson && (
+        <Card className={cn(
+          "transition-all",
+          markedComplete ? "bg-green-500/5 border-green-500/20" : "border-2 border-dashed"
+        )}>
+          <CardContent className="py-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                {markedComplete ? (
+                  <>
+                    <CheckCircle2 className="h-6 w-6 text-green-500" />
+                    <div>
+                      <span className="font-medium text-green-600">Lesson Complete!</span>
+                      {hasQuiz && (
+                        <p className="text-sm text-muted-foreground">
+                          Score: {Math.round((Object.values(questionResults).filter(Boolean).length / practiceQuestions.length) * 100)}%
+                        </p>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <BookOpen className="h-6 w-6 text-muted-foreground" />
+                    <div>
+                      <span className="text-muted-foreground">
+                        {hasQuiz 
+                          ? `Answer all questions to complete (${Object.keys(questionResults).length}/${practiceQuestions.length})`
+                          : "Finished reading? Mark this lesson as complete"}
+                      </span>
+                    </div>
+                  </>
+                )}
+              </div>
+              {/* Only show Mark Complete button for lessons without quiz - quizzes auto-complete */}
+              {!markedComplete && !hasQuiz && (
+                <Button 
+                  onClick={handleMarkComplete}
+                  className="gap-2"
+                >
+                  <CheckCircle2 className="h-4 w-4" />
+                  Mark Complete
+                </Button>
               )}
             </div>
-            {/* Only show Mark Complete button for lessons without quiz - quizzes auto-complete */}
-            {!markedComplete && !hasQuiz && (
-              <Button 
-                onClick={handleMarkComplete}
-                className="gap-2"
-              >
-                <CheckCircle2 className="h-4 w-4" />
-                Mark Complete
-              </Button>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

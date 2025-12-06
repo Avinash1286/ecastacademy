@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { recalculateCourseProgressSync } from "./completions";
-import { requireAuthenticatedUser } from "./utils/auth";
+import { requireAuthenticatedUser, requireAuthenticatedUserWithFallback } from "./utils/auth";
 import { validateContentItemFields, validatePositiveNumber } from "./utils/validation";
 
 // Create a content item
@@ -30,10 +30,11 @@ export const createContentItem = mutation({
     assignmentData: v.optional(v.any()),
     resourceUrl: v.optional(v.string()),
     resourceTitle: v.optional(v.string()),
+    currentUserId: v.optional(v.id("users")), // Fallback for client-side auth
   },
   handler: async (ctx, args) => {
     // Auth check
-    const { user } = await requireAuthenticatedUser(ctx);
+    const { user } = await requireAuthenticatedUserWithFallback(ctx, args.currentUserId);
     
     // Validate input
     validateContentItemFields({

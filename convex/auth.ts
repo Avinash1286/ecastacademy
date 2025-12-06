@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { mutation, query, internalMutation } from "./_generated/server";
 
 /**
  * IMPORTANT: This file provides custom Convex database operations for NextAuth.js
@@ -10,7 +10,31 @@ import { mutation, query } from "./_generated/server";
  * 
  * Authentication is handled by NextAuth.js (next-auth package).
  * Convex serves as the database backend through these helper functions.
+ * 
+ * SECURITY: Sensitive mutations that manage user accounts, sessions, and tokens
+ * require a server secret key to prevent unauthorized access. This key should
+ * only be known by the server-side NextAuth.js integration.
  */
+
+// Server secret for protecting auth mutations - must match CONVEX_AUTH_SECRET env var
+const AUTH_SECRET = process.env.CONVEX_AUTH_SECRET;
+
+/**
+ * Validates the server secret for auth operations.
+ * This prevents malicious clients from calling these mutations directly.
+ */
+function validateAuthSecret(providedSecret: string | undefined): void {
+  // In development, allow if no secret is configured (for easier testing)
+  // In production, this should always be set
+  if (!AUTH_SECRET) {
+    console.warn("CONVEX_AUTH_SECRET is not set - auth mutations are unprotected!");
+    return;
+  }
+  
+  if (!providedSecret || providedSecret !== AUTH_SECRET) {
+    throw new Error("Unauthorized: Invalid auth secret");
+  }
+}
 
 // ============= USER OPERATIONS =============
 
@@ -35,6 +59,7 @@ export const getUserById = query({
 });
 
 // Create new user
+// SECURITY: Requires auth secret to prevent unauthorized user creation
 export const createUser = mutation({
   args: {
     name: v.optional(v.string()),
@@ -42,8 +67,11 @@ export const createUser = mutation({
     password: v.optional(v.string()),
     image: v.optional(v.string()),
     emailVerified: v.optional(v.number()),
+    _authSecret: v.optional(v.string()), // Server secret for validation
   },
   handler: async (ctx, args) => {
+    validateAuthSecret(args._authSecret);
+    
     const now = Date.now();
     const userId = await ctx.db.insert("users", {
       name: args.name,
@@ -60,6 +88,7 @@ export const createUser = mutation({
 });
 
 // Update user
+// SECURITY: Requires auth secret to prevent unauthorized user updates
 export const updateUser = mutation({
   args: {
     id: v.id("users"),
@@ -68,13 +97,23 @@ export const updateUser = mutation({
     password: v.optional(v.string()),
     image: v.optional(v.string()),
     emailVerified: v.optional(v.number()),
+    _authSecret: v.optional(v.string()), // Server secret for validation
   },
   handler: async (ctx, args) => {
-    const { id, ...updates } = args;
-    await ctx.db.patch(id, {
-      ...updates,
-      updatedAt: Date.now(),
-    });
+    validateAuthSecret(args._authSecret);
+    
+    const { id, _authSecret, ...providedUpdates } = args;
+    
+    // Only include fields that are actually provided (not undefined)
+    // This prevents overwriting existing values with undefined
+    const updates: Record<string, unknown> = { updatedAt: Date.now() };
+    if (providedUpdates.name !== undefined) updates.name = providedUpdates.name;
+    if (providedUpdates.email !== undefined) updates.email = providedUpdates.email;
+    if (providedUpdates.password !== undefined) updates.password = providedUpdates.password;
+    if (providedUpdates.image !== undefined) updates.image = providedUpdates.image;
+    if (providedUpdates.emailVerified !== undefined) updates.emailVerified = providedUpdates.emailVerified;
+    
+    await ctx.db.patch(id, updates);
     return await ctx.db.get(id);
   },
 });
@@ -87,6 +126,21 @@ export const updateUserProfile = mutation({
   },
   handler: async (ctx, args) => {
     const { userId, name } = args;
+    
+    // SECURITY: Verify the authenticated user matches the userId being modified
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity?.email) {
+      throw new Error("Not authenticated");
+    }
+    
+    const authenticatedUser = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", identity.email!))
+      .first();
+    
+    if (!authenticatedUser || authenticatedUser._id !== userId) {
+      throw new Error("Unauthorized: You can only update your own profile");
+    }
     
     // Validate name
     const trimmedName = name.trim();
@@ -102,12 +156,6 @@ export const updateUserProfile = mutation({
       throw new Error("Name can only contain letters, spaces, hyphens, apostrophes, and periods");
     }
     
-    // Verify user exists
-    const user = await ctx.db.get(userId);
-    if (!user) {
-      throw new Error("User not found");
-    }
-    
     // Update user name
     await ctx.db.patch(userId, {
       name: trimmedName,
@@ -118,9 +166,44 @@ export const updateUserProfile = mutation({
   },
 });
 
+// Update user profile image (for syncing OAuth profile picture)
+export const updateUserImage = mutation({
+  args: {
+    userId: v.id("users"),
+    image: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const { userId, image } = args;
+    
+    // SECURITY: Verify the authenticated user matches the userId being modified
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity?.email) {
+      throw new Error("Not authenticated");
+    }
+    
+    const authenticatedUser = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", identity.email!))
+      .first();
+    
+    if (!authenticatedUser || authenticatedUser._id !== userId) {
+      throw new Error("Unauthorized: You can only update your own profile");
+    }
+    
+    // Update user image
+    await ctx.db.patch(userId, {
+      image,
+      updatedAt: Date.now(),
+    });
+    
+    return { success: true, image };
+  },
+});
+
 // ============= ACCOUNT OPERATIONS =============
 
 // Link account (OAuth)
+// SECURITY: Requires auth secret to prevent unauthorized account linking
 export const linkAccount = mutation({
   args: {
     userId: v.id("users"),
@@ -134,9 +217,13 @@ export const linkAccount = mutation({
     scope: v.optional(v.string()),
     id_token: v.optional(v.string()),
     session_state: v.optional(v.string()),
+    _authSecret: v.optional(v.string()), // Server secret for validation
   },
   handler: async (ctx, args) => {
-    const accountId = await ctx.db.insert("accounts", args);
+    validateAuthSecret(args._authSecret);
+    
+    const { _authSecret, ...accountData } = args;
+    const accountId = await ctx.db.insert("accounts", accountData);
     return accountId;
   },
 });
@@ -171,12 +258,16 @@ export const getAccountsByUserId = query({
 });
 
 // Unlink account
+// SECURITY: Requires auth secret to prevent unauthorized account unlinking
 export const unlinkAccount = mutation({
   args: {
     provider: v.string(),
     providerAccountId: v.string(),
+    _authSecret: v.optional(v.string()), // Server secret for validation
   },
   handler: async (ctx, args) => {
+    validateAuthSecret(args._authSecret);
+    
     const account = await ctx.db
       .query("accounts")
       .withIndex("by_provider_providerAccountId", (q) =>
@@ -194,14 +285,19 @@ export const unlinkAccount = mutation({
 // ============= SESSION OPERATIONS =============
 
 // Create session
+// SECURITY: Requires auth secret to prevent session hijacking
 export const createSession = mutation({
   args: {
     sessionToken: v.string(),
     userId: v.id("users"),
     expires: v.number(),
+    _authSecret: v.optional(v.string()), // Server secret for validation
   },
   handler: async (ctx, args) => {
-    const sessionId = await ctx.db.insert("sessions", args);
+    validateAuthSecret(args._authSecret);
+    
+    const { _authSecret, ...sessionData } = args;
+    const sessionId = await ctx.db.insert("sessions", sessionData);
     return sessionId;
   },
 });
@@ -234,12 +330,16 @@ export const getSessionByToken = query({
 });
 
 // Update session
+// SECURITY: Requires auth secret to prevent session manipulation
 export const updateSession = mutation({
   args: {
     sessionToken: v.string(),
     expires: v.optional(v.number()),
+    _authSecret: v.optional(v.string()), // Server secret for validation
   },
   handler: async (ctx, args) => {
+    validateAuthSecret(args._authSecret);
+    
     const session = await ctx.db
       .query("sessions")
       .withIndex("by_sessionToken", (q) => q.eq("sessionToken", args.sessionToken))
@@ -256,9 +356,15 @@ export const updateSession = mutation({
 });
 
 // Delete session
+// SECURITY: Requires auth secret to prevent unauthorized session deletion
 export const deleteSession = mutation({
-  args: { sessionToken: v.string() },
+  args: { 
+    sessionToken: v.string(),
+    _authSecret: v.optional(v.string()), // Server secret for validation
+  },
   handler: async (ctx, args) => {
+    validateAuthSecret(args._authSecret);
+    
     const session = await ctx.db
       .query("sessions")
       .withIndex("by_sessionToken", (q) => q.eq("sessionToken", args.sessionToken))
@@ -273,7 +379,8 @@ export const deleteSession = mutation({
 });
 
 // Delete expired sessions (cleanup)
-export const deleteExpiredSessions = mutation({
+// SECURITY: Internal mutation - can only be called from server (cron jobs, other server functions)
+export const deleteExpiredSessions = internalMutation({
   args: {},
   handler: async (ctx) => {
     const now = Date.now();
@@ -293,15 +400,20 @@ export const deleteExpiredSessions = mutation({
 // ============= VERIFICATION TOKEN OPERATIONS =============
 
 // Create verification token
+// SECURITY: Requires auth secret to prevent token creation attacks
 export const createVerificationToken = mutation({
   args: {
     identifier: v.string(),
     token: v.string(),
     expires: v.number(),
     type: v.union(v.literal("passwordReset"), v.literal("emailVerification")),
+    _authSecret: v.optional(v.string()), // Server secret for validation
   },
   handler: async (ctx, args) => {
-    const tokenId = await ctx.db.insert("verificationTokens", args);
+    validateAuthSecret(args._authSecret);
+    
+    const { _authSecret, ...tokenData } = args;
+    const tokenId = await ctx.db.insert("verificationTokens", tokenData);
     return tokenId;
   },
 });
@@ -327,9 +439,15 @@ export const getVerificationToken = query({
 });
 
 // Delete verification token (after use)
+// SECURITY: Requires auth secret to prevent malicious token deletion
 export const deleteVerificationToken = mutation({
-  args: { token: v.string() },
+  args: { 
+    token: v.string(),
+    _authSecret: v.optional(v.string()), // Server secret for validation
+  },
   handler: async (ctx, args) => {
+    validateAuthSecret(args._authSecret);
+    
     const verificationToken = await ctx.db
       .query("verificationTokens")
       .withIndex("by_token", (q) => q.eq("token", args.token))
@@ -344,7 +462,8 @@ export const deleteVerificationToken = mutation({
 });
 
 // Delete expired verification tokens (cleanup)
-export const deleteExpiredVerificationTokens = mutation({
+// SECURITY: Internal mutation - can only be called from server (cron jobs, other server functions)
+export const deleteExpiredVerificationTokens = internalMutation({
   args: {},
   handler: async (ctx) => {
     const now = Date.now();

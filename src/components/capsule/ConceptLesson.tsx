@@ -6,6 +6,13 @@ import { Button } from '@/components/ui/button';
 import { CheckCircle2, BookOpen } from 'lucide-react';
 import { useSoundEffects } from '@/hooks/useSoundEffects';
 import { ConfettiCelebration } from '@/components/ui/ConfettiCelebration';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { oneDark } from 'react-syntax-highlighter/dist/cjs/styles/prism';
+import 'katex/dist/katex.min.css';
 
 const escapeScript = (value?: string) => value?.replace(/<\/script/gi, '<\\/script') ?? '';
 
@@ -101,6 +108,7 @@ export function ConceptLesson({
     const css = visualAid.code.css || '';
     const js = visualAid.code.javascript || '';
     return `${html.length}-${css.length}-${js.length}-${html.slice(0, 50)}-${js.slice(0, 50)}`;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visualAid?.code?.html, visualAid?.code?.css, visualAid?.code?.javascript]);
 
   // Reset refs when code actually changes
@@ -134,6 +142,7 @@ export function ConceptLesson({
     
     iframeRef.current = iframe;
     hasRenderedRef.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [codeKey]); // Only depend on codeKey, not visualAid
 
   const handleCheck = () => {
@@ -173,7 +182,73 @@ export function ConceptLesson({
         <Card>
           <CardContent className="p-8">
             <div className="prose dark:prose-invert max-w-none">
-              <p className="text-lg leading-relaxed whitespace-pre-wrap">{safeExplanation}</p>
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm, remarkMath]}
+                rehypePlugins={[rehypeKatex]}
+                components={{
+                  h1: (props) => (
+                    <h1 className="mb-3 mt-4 text-xl font-bold first:mt-0 text-foreground" {...props} />
+                  ),
+                  h2: (props) => (
+                    <h2 className="mb-2.5 mt-4 text-lg font-semibold first:mt-0 text-foreground" {...props} />
+                  ),
+                  h3: (props) => (
+                    <h3 className="mb-2 mt-3 text-base font-semibold first:mt-0 text-foreground" {...props} />
+                  ),
+                  p: (props) => (
+                    <p className="mb-3 text-lg leading-relaxed last:mb-0 text-foreground" {...props} />
+                  ),
+                  ul: (props) => (
+                    <ul className="mb-3 ml-4 list-disc space-y-1.5 text-foreground" {...props} />
+                  ),
+                  ol: (props) => (
+                    <ol className="mb-3 ml-4 list-decimal space-y-1.5 text-foreground" {...props} />
+                  ),
+                  li: (props) => (
+                    <li className="leading-relaxed" {...props} />
+                  ),
+                  blockquote: (props) => (
+                    <blockquote className="my-3 border-l-4 border-primary/30 bg-primary/5 py-2 pl-4 pr-3 italic text-muted-foreground" {...props} />
+                  ),
+                  strong: (props) => (
+                    <strong className="font-bold text-foreground" {...props} />
+                  ),
+                  a: (props) => (
+                    <a className="text-primary underline hover:no-underline" target="_blank" rel="noopener noreferrer" {...props} />
+                  ),
+                  code: (props: React.HTMLAttributes<HTMLElement> & { inline?: boolean; className?: string; children?: React.ReactNode }) => {
+                    const { inline, className, children, ...rest } = props;
+                    const match = /language-(\w+)/.exec(className || '');
+                    const language = match ? match[1] : '';
+
+                    if (!inline && language) {
+                      return (
+                        <div className="my-3 overflow-hidden rounded-lg">
+                          <SyntaxHighlighter
+                            style={oneDark}
+                            language={language}
+                            PreTag="div"
+                            className="!my-0 !bg-[#282c34] text-sm"
+                          >
+                            {String(children).replace(/\n$/, '')}
+                          </SyntaxHighlighter>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <code
+                        className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-sm font-semibold text-primary"
+                        {...rest}
+                      >
+                        {children}
+                      </code>
+                    );
+                  },
+                }}
+              >
+                {safeExplanation}
+              </ReactMarkdown>
             </div>
           </CardContent>
         </Card>
@@ -237,7 +312,25 @@ export function ConceptLesson({
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-foreground/90 leading-relaxed">{realWorldExample}</p>
+            <div className="prose dark:prose-invert max-w-none">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm, remarkMath]}
+                rehypePlugins={[rehypeKatex]}
+                components={{
+                  p: (props) => (
+                    <p className="text-foreground/90 leading-relaxed mb-3 last:mb-0" {...props} />
+                  ),
+                  strong: (props) => (
+                    <strong className="font-bold text-foreground" {...props} />
+                  ),
+                  code: (props) => (
+                    <code className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-sm font-semibold text-primary" {...props} />
+                  ),
+                }}
+              >
+                {realWorldExample}
+              </ReactMarkdown>
+            </div>
           </CardContent>
         </Card>
       )}

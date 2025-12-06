@@ -493,3 +493,73 @@
   animation: incorrect-shake 0.5s ease-out;
 }
 
+/* ========================================
+   Protected YouTube Player Styles
+   Prevents flickering from browser extensions
+   ======================================== */
+
+.protected-youtube-container {
+  /* Containment prevents extensions from affecting layout */
+  contain: layout style paint;
+  /* Create new stacking context */
+  isolation: isolate;
+  /* Force GPU rendering for smoother playback */
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  /* Prevent layout shifts */
+  overflow: hidden;
+}
+
+.protected-youtube-container iframe {
+  /* Ensure iframe takes full space */
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  border: none !important;
+  /* GPU acceleration */
+  transform: translateZ(0);
+  /* Prevent extensions from hiding it */
+  visibility: visible !important;
+  opacity: 1 !important;
+  display: block !important;
+}
+
+/* Block common extension injected elements */
+.protected-youtube-container [class*="enhancer"],
+.protected-youtube-container [class*="sponsor"],
+.protected-youtube-container [class*="blocker"],
+.protected-youtube-container [class*="download"],
+.protected-youtube-container [id*="enhancer"],
+.protected-youtube-container [data-extension] {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  position: absolute !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+/* Prevent flickering during player state changes */
+.protected-youtube-container .protected-yt-iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* Stabilize the react-youtube component */
+.react-youtube-container {
+  contain: layout style paint;
+  isolation: isolate;
+}
+
+.react-youtube-container iframe {
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+}

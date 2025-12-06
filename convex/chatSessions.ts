@@ -1,10 +1,11 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { Doc } from "./_generated/dataModel";
+import { requireAuthenticatedUser } from "./utils/auth";
 
 /**
  * Save or update chat history
- * Accepts userId directly from client (consistent with other mutations)
+ * SECURITY: Verifies the authenticated user matches the userId parameter
  */
 export const saveChatHistory = mutation({
   args: {
@@ -17,10 +18,10 @@ export const saveChatHistory = mutation({
     messages: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
-    // Verify the user exists
-    const user = await ctx.db.get(args.userId);
-    if (!user) {
-      throw new Error("User not found");
+    // SECURITY: Verify the authenticated user matches the userId parameter
+    const { user } = await requireAuthenticatedUser(ctx);
+    if (user._id !== args.userId) {
+      throw new Error("Unauthorized: You can only save your own chat history");
     }
     
     const now = Date.now();
@@ -54,7 +55,7 @@ export const saveChatHistory = mutation({
 
 /**
  * Get or create a chat session
- * Accepts userId directly from client (consistent with other mutations like messages.send)
+ * SECURITY: Verifies the authenticated user matches the userId parameter
  */
 export const getOrCreateSession = mutation({
   args: {
@@ -66,10 +67,10 @@ export const getOrCreateSession = mutation({
     title: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    // Verify the user exists
-    const user = await ctx.db.get(args.userId);
-    if (!user) {
-      throw new Error("User not found");
+    // SECURITY: Verify the authenticated user matches the userId parameter
+    const { user } = await requireAuthenticatedUser(ctx);
+    if (user._id !== args.userId) {
+      throw new Error("Unauthorized: You can only create sessions for yourself");
     }
 
     const existing = await ctx.db

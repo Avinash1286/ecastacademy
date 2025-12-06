@@ -31,6 +31,7 @@ export const GENERATION_STAGES = {
   MODULE_COMPLETE: "module_complete", // Generic stage - actual stage will be "module_1_complete", etc.
   COMPLETED: "completed",
   FAILED: "failed",
+  CANCELLED: "cancelled", // Job was cancelled (e.g., capsule deleted during generation)
 } as const;
 
 /**
@@ -88,6 +89,8 @@ export function getStageProgressPercentage(stage: string, currentModuleIndex?: n
     case GENERATION_STAGES.COMPLETED:
       return 100;
     case GENERATION_STAGES.FAILED:
+      return 0;
+    case GENERATION_STAGES.CANCELLED:
       return 0;
     default:
       // Handle dynamic module stages like "module_1_complete", "module_2_complete"

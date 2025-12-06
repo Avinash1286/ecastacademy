@@ -191,6 +191,7 @@ export default defineSchema({
       v.literal("failed")
     )),
     errorMessage: v.optional(v.string()),
+    processingStartedAt: v.optional(v.number()), // Track when processing started for timeout detection
     createdAt: v.number(),
     updatedAt: v.optional(v.number()),
   })
@@ -210,6 +211,7 @@ export default defineSchema({
     )),
     createdBy: v.optional(v.string()), // User ID who created the course
     isPublished: v.optional(v.boolean()),
+    publishedAt: v.optional(v.number()), // Timestamp when the course was published
 
     // Certification and grading fields
     isCertification: v.optional(v.boolean()), // Is this a certification course?
@@ -220,7 +222,8 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_status", ["status"])
-    .index("by_createdBy", ["createdBy"]),
+    .index("by_createdBy", ["createdBy"])
+    .index("by_publishedAt", ["isPublished", "publishedAt"]),
 
   // Chapters table
   chapters: defineTable({
@@ -484,6 +487,21 @@ export default defineSchema({
     // Grading
     isGraded: v.optional(v.boolean()),
     maxPoints: v.optional(v.number()),
+
+    // Regeneration tracking (for background regeneration)
+    regenerationStatus: v.optional(v.union(
+      v.literal("idle"),
+      v.literal("pending"),
+      v.literal("regenerating"),
+      v.literal("completed"),
+      v.literal("failed")
+    )),
+    regenerationError: v.optional(v.string()),
+    regenerationStartedAt: v.optional(v.number()),
+
+    // Question regeneration tracking (per-question, stored as JSON object)
+    // Format: { [questionIndex: number]: { status: string, error?: string, startedAt?: number } }
+    questionRegenerationStatus: v.optional(v.any()),
 
     createdAt: v.number(),
   })

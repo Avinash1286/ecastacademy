@@ -6,7 +6,7 @@ import {
 	repairStructuredJson as sharedRepairStructuredJson,
 	generateTutorResponse as sharedGenerateTutorResponse,
 } from "@shared/ai/generation";
-import type { StructuredRepairRequest, TutorChatMessage } from "@shared/ai/generation";
+import type { StructuredRepairRequest } from "@shared/ai/generation";
 
 export async function generateNotes(
 	rawTranscript: Parameters<typeof sharedGenerateNotes>[0],
@@ -34,5 +34,3 @@ export async function generateTutorResponse(
 ) {
 	return sharedGenerateTutorResponse(params);
 }
-
-export type { StructuredRepairRequest, TutorChatMessage };

@@ -1,6 +1,9 @@
 "use client";
 
 import { signOut, useSession } from "next-auth/react";
+import { useQuery } from "convex/react";
+import { api } from "../../../convex/_generated/api";
+import { Id } from "../../../convex/_generated/dataModel";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -17,19 +20,33 @@ import Link from "next/link";
 
 export function UserButton() {
   const { data: session } = useSession();
+  
+  // Get user ID from session
+  const userId = session?.user?.id as Id<"users"> | undefined;
+  
+  // Query fresh user data from database (includes profile picture)
+  const currentUser = useQuery(
+    api.auth.getUserById,
+    userId ? { id: userId } : "skip"
+  );
 
   if (!session?.user) {
     return null;
   }
 
-    const user = session.user;
-  const initials = user.name
-  ? user.name
-    .split(" ")
-    .map((n) => n[0])
-    .join("")
-    .toUpperCase()
-    .slice(0, 2)
+  const user = session.user;
+  
+  // Prefer database image over session image
+  const userImage = currentUser?.image || user.image;
+  const userName = currentUser?.name || user.name;
+  
+  const initials = userName
+    ? userName
+        .split(" ")
+        .map((n) => n[0])
+        .join("")
+        .toUpperCase()
+        .slice(0, 2)
     : user.email?.[0]?.toUpperCase() || "U";
 
   const handleSignOut = () => {
@@ -41,7 +58,7 @@ export function UserButton() {
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" className="relative h-10 w-10 rounded-full">
           <Avatar className="h-10 w-10">
-            <AvatarImage src={user.image || undefined} alt={user.name || "User"} />
+            <AvatarImage src={userImage || undefined} alt={userName || "User"} />
             <AvatarFallback>{initials}</AvatarFallback>
           </Avatar>
         </Button>
@@ -49,7 +66,7 @@ export function UserButton() {
       <DropdownMenuContent className="w-56" align="end" forceMount>
         <DropdownMenuLabel className="font-normal">
           <div className="flex flex-col space-y-1">
-            <p className="text-sm font-medium leading-none">{user.name}</p>
+            <p className="text-sm font-medium leading-none">{userName}</p>
             <p className="text-xs leading-none text-muted-foreground">
               {user.email}
             </p>

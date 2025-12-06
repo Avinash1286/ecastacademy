@@ -8,6 +8,10 @@ import { hashPassword, verifyPassword, validateEmail, validatePassword } from ".
 import { Id } from "../../../convex/_generated/dataModel";
 import { createConvexClient } from "@/lib/convexClient";
 
+// SECURITY: Auth secret for calling protected Convex mutations
+// This prevents unauthorized clients from calling auth mutations directly
+const AUTH_SECRET = process.env.CONVEX_AUTH_SECRET;
+
 // Extend the built-in session and user types
 declare module "next-auth" {
   interface User {
@@ -23,9 +27,6 @@ declare module "next-auth" {
     }
   }
 }
-
-const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL!;
-const deployKey = process.env.CONVEX_DEPLOY_KEY;
 
 // Create Convex client
 const convex = createConvexClient();
@@ -111,6 +112,7 @@ const authConfig: NextAuthConfig = {
             email,
             password: hashedPassword,
             name: name || undefined,
+            _authSecret: AUTH_SECRET,
           });
 
           return {
@@ -187,6 +189,7 @@ const authConfig: NextAuthConfig = {
             name: user.name || undefined,
             image: user.image || undefined,
             emailVerified: Date.now(),
+            _authSecret: AUTH_SECRET,
           });
           user.id = userId as string;
         } else {
@@ -197,6 +200,7 @@ const authConfig: NextAuthConfig = {
               id: existingUser._id,
               name: user.name || undefined,
               image: user.image || undefined,
+              _authSecret: AUTH_SECRET,
             });
           }
         }
@@ -223,6 +227,7 @@ const authConfig: NextAuthConfig = {
             scope: account.scope,
             id_token: account.id_token,
             session_state: account.session_state as string | undefined,
+            _authSecret: AUTH_SECRET,
           });
         }
       }
@@ -231,10 +236,11 @@ const authConfig: NextAuthConfig = {
     },
 
     async jwt({ token, user, trigger, session }) {
-      // Initial sign in
+      // Initial sign in - only store minimal data in JWT
+      // SECURITY: Role is NOT stored in JWT to prevent exposure
+      // Role is fetched server-side in the session callback
       if (user) {
         token.id = user.id;
-        token.role = user.role || "user";
         token.email = user.email;
         token.name = user.name;
         token.picture = user.image;
@@ -246,32 +252,27 @@ const authConfig: NextAuthConfig = {
         token.picture = session.image;
       }
 
-      // Fetch latest user data to get updated role
-      if (token.id) {
-        try {
-          const currentUser = await convex.query(api.auth.getUserById, {
-            id: token.id as Id<"users">,
-          });
-          if (currentUser) {
-            token.role = currentUser.role;
-            token.name = currentUser.name;
-            token.picture = currentUser.image;
-          }
-        } catch (error) {
-          console.error("Error fetching user in JWT callback:", error);
-        }
-      }
-
       return token;
     },
 
     async session({ session, token }) {
       if (session.user) {
         session.user.id = token.id as string;
-        session.user.role = token.role as string;
         session.user.name = token.name as string;
         session.user.email = token.email as string;
         session.user.image = token.picture as string;
+        
+        // SECURITY: Fetch role server-side instead of storing in JWT
+        // This prevents role from being exposed in client-readable JWT
+        try {
+          const currentUser = await convex.query(api.auth.getUserById, {
+            id: token.id as Id<"users">,
+          });
+          session.user.role = currentUser?.role || "user";
+        } catch (error) {
+          console.error("Error fetching user role in session callback:", error);
+          session.user.role = "user"; // Default to user role on error
+        }
       }
       return session;
     },

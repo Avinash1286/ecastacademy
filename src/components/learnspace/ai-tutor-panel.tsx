@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import DOMPurify from 'isomorphic-dompurify';
 import { TutorHeader } from '@/components/learnspace/tutor-header';
 import { ChatPanel } from '@/components/learnspace/chat-panel';
 import { NotesPanel } from '@/components/learnspace/notes-panel';
@@ -85,7 +86,7 @@ export function AiTutorPanel({ activeChapter, activeContentItem, isLeftPanelVisi
             <h2 className="mb-4 text-2xl font-bold">{activeContentItem.title}</h2>
             <div
               className="prose prose-sm dark:prose-invert tiptap max-w-none"
-              dangerouslySetInnerHTML={{ __html: activeContentItem.textContent }}
+              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(activeContentItem.textContent) }}
             />
           </div>
         </ScrollArea>

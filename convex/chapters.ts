@@ -1,8 +1,39 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { Id } from "./_generated/dataModel";
-import { requireAuthenticatedUser, requireAdminUser } from "./utils/auth";
+import { requireAuthenticatedUser, requireAdminUser, requireAuthenticatedUserWithFallback } from "./utils/auth";
 import { validateChapterFields, validatePositiveNumber } from "./utils/validation";
+
+// Helper type for quiz question
+type QuizQuestion = {
+  question: string;
+  options: string[];
+  correct?: number;
+  correctIndex?: number;
+  explanation?: string;
+};
+
+// Helper type for quiz structure
+type Quiz = {
+  questions?: QuizQuestion[];
+  [key: string]: unknown;
+};
+
+/**
+ * Strips the correct answer field from quiz questions to prevent cheating.
+ */
+function stripCorrectAnswers<T extends Quiz | null | undefined>(quiz: T): T {
+  if (!quiz || !quiz.questions) return quiz;
+  
+  return {
+    ...quiz,
+    questions: quiz.questions.map((q: QuizQuestion) => {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { correct, correctIndex, ...rest } = q;
+      return rest;
+    }),
+  } as T;
+}
 
 // Mutation to create a new chapter
 export const createChapter = mutation({
@@ -11,10 +42,11 @@ export const createChapter = mutation({
     order: v.number(),
     courseId: v.id("courses"),
     videoId: v.optional(v.id("videos")), // Optional for backward compatibility
+    currentUserId: v.optional(v.id("users")), // Fallback for client-side auth
   },
   handler: async (ctx, args) => {
     // Auth check - must be admin or course creator
-    const { user } = await requireAuthenticatedUser(ctx);
+    const { user } = await requireAuthenticatedUserWithFallback(ctx, args.currentUserId);
     
     // Validate input
     validateChapterFields({ name: args.name });
@@ -31,8 +63,11 @@ export const createChapter = mutation({
       throw new Error("Unauthorized: You can only add chapters to your own courses");
     }
     
+    // Exclude currentUserId from the data to insert
+    const { currentUserId, ...chapterData } = args;
+    
     const chapterId = await ctx.db.insert("chapters", {
-      ...args,
+      ...chapterData,
       createdAt: Date.now(),
     });
     return chapterId;
@@ -269,7 +304,7 @@ export const getChapterWithDetails = query({
         thumbnailUrl: video.thumbnailUrl,
         durationInSeconds: video.durationInSeconds,
         notes: video.notes,
-        quiz: video.quiz,
+        quiz: stripCorrectAnswers(video.quiz),
         transcript: video.transcript,
       } : null,
     };
@@ -449,5 +484,157 @@ export const reorderChapters = mutation({
       await ctx.db.patch(update.chapterId, { order: update.order });
     }
     return { success: true };
+  },
+});
+
+// On-demand content loading for lazy-loaded chapters
+// Loads notes and quiz but NOT transcript (transcript loaded only by AI tutor)
+export const getChapterContentOnDemand = query({
+  args: {
+    chapterId: v.id("chapters"),
+  },
+  handler: async (ctx, args) => {
+    const chapter = await ctx.db.get(args.chapterId);
+    if (!chapter) return null;
+    
+    const course = await ctx.db.get(chapter.courseId);
+    if (!course) return null;
+    
+    // Get content items for this chapter
+    const contentItems = await ctx.db
+      .query("contentItems")
+      .withIndex("by_chapterId", (q) => q.eq("chapterId", args.chapterId))
+      .collect();
+    
+    contentItems.sort((a, b) => a.order - b.order);
+    
+    // Collect video IDs from content items
+    const videoIds = new Set<string>();
+    if (chapter.videoId) {
+      videoIds.add(chapter.videoId.toString());
+    }
+    for (const item of contentItems) {
+      if (item.type === "video" && item.videoId) {
+        videoIds.add(item.videoId.toString());
+      }
+    }
+    
+    // Batch fetch all videos
+    const videoPromises = Array.from(videoIds).map(id => 
+      ctx.db.get(id as Id<"videos">)
+    );
+    const videos = await Promise.all(videoPromises);
+    
+    // Create video lookup map
+    type VideoDoc = NonNullable<typeof videos[number]>;
+    const videoMap = new Map<string, VideoDoc>();
+    const videoIdArray = Array.from(videoIds);
+    for (let i = 0; i < videoIdArray.length; i++) {
+      if (videos[i]) {
+        videoMap.set(videoIdArray[i], videos[i]!);
+      }
+    }
+    
+    // Enrich content items with video details (no transcript)
+    const enrichedContentItems = contentItems.map((item) => {
+      if (item.type === "video" && item.videoId) {
+        const videoData = videoMap.get(item.videoId.toString());
+        if (videoData) {
+          return {
+            id: item._id,
+            type: item.type,
+            title: item.title,
+            order: item.order,
+            isGraded: item.isGraded ?? false,
+            maxPoints: item.maxPoints ?? undefined,
+            passingScore: item.passingScore ?? undefined,
+            allowRetakes: item.allowRetakes ?? true,
+            videoId: item.videoId,
+            textContent: item.textContent,
+            videoDetails: {
+              youtubeVideoId: videoData.youtubeVideoId,
+              url: videoData.url,
+              thumbnailUrl: videoData.thumbnailUrl,
+              durationInSeconds: videoData.durationInSeconds,
+              notes: videoData.notes,
+              quiz: stripCorrectAnswers(videoData.quiz),
+              transcript: null, // Never include transcript - loaded by AI tutor only
+              hasTranscript: !!videoData.transcript,
+            },
+          };
+        }
+      }
+      
+      return {
+        id: item._id,
+        type: item.type,
+        title: item.title,
+        order: item.order,
+        isGraded: item.isGraded ?? false,
+        maxPoints: item.maxPoints ?? undefined,
+        passingScore: item.passingScore ?? undefined,
+        allowRetakes: item.allowRetakes ?? true,
+        textContent: item.textContent,
+        textQuiz: stripCorrectAnswers(item.textQuiz),
+        textQuizStatus: item.textQuizStatus,
+        textQuizError: item.textQuizError,
+        videoId: item.videoId,
+        resourceUrl: item.resourceUrl,
+        resourceTitle: item.resourceTitle,
+      };
+    });
+    
+    // Build video for chapter (old system compatibility)
+    let video = null;
+    
+    if (chapter.videoId) {
+      const videoData = videoMap.get(chapter.videoId.toString());
+      if (videoData) {
+        video = {
+          videoId: videoData.youtubeVideoId,
+          title: videoData.title,
+          url: videoData.url,
+          thumbnailUrl: videoData.thumbnailUrl,
+          durationInSeconds: videoData.durationInSeconds,
+          notes: videoData.notes,
+          quiz: stripCorrectAnswers(videoData.quiz),
+          transcript: null,
+          hasTranscript: !!videoData.transcript,
+        };
+      }
+    } else if (enrichedContentItems.length > 0) {
+      const firstVideoContent = enrichedContentItems.find(
+        item => item.type === "video" && item.videoDetails
+      );
+      if (firstVideoContent && 'videoDetails' in firstVideoContent && firstVideoContent.videoDetails) {
+        video = {
+          videoId: firstVideoContent.videoDetails.youtubeVideoId,
+          title: firstVideoContent.videoDetails.url.split('v=')[1] || firstVideoContent.title,
+          url: firstVideoContent.videoDetails.url,
+          thumbnailUrl: firstVideoContent.videoDetails.thumbnailUrl,
+          durationInSeconds: firstVideoContent.videoDetails.durationInSeconds,
+          notes: firstVideoContent.videoDetails.notes,
+          quiz: firstVideoContent.videoDetails.quiz,
+          transcript: null,
+          hasTranscript: firstVideoContent.videoDetails.hasTranscript,
+        };
+      }
+    }
+    
+    return {
+      id: chapter._id,
+      name: chapter.name,
+      order: chapter.order,
+      course: {
+        id: course._id,
+        name: course.name,
+        description: course.description,
+        isCertification: course.isCertification,
+        passingGrade: course.passingGrade,
+      },
+      contentItems: enrichedContentItems,
+      video,
+      isContentLoaded: true,
+    };
   },
 });

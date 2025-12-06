@@ -9,7 +9,7 @@ import {
 } from '@/components/ui/resizable';
 import { VideoPlayerPanel } from '@/components/learnspace/video-player-panel';
 import { AiTutorPanel } from '@/components/learnspace/ai-tutor-panel';
-import { ChapterWithVideo, ContentItem, InteractiveNotesProps, Quiz } from '@/lib/types';
+import { ChapterWithVideo, ContentItem } from '@/lib/types';
 import { LearnspaceNavbar } from '@/components/learnspace/learnspace-navbar';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Id } from '../../../convex/_generated/dataModel';
@@ -32,17 +32,22 @@ export default function Learnspace({ initialChapters, courseId, isCertification 
   const searchParams = useSearchParams();
   const chapterIdFromUrl = searchParams.get('chapter');
   
-  const chapters = initialChapters;
+  // Store chapters with their loaded content - allows updating individual chapters
+  const [chapters, setChapters] = useState<ChapterWithVideo[]>(initialChapters);
   const [activeChapter, setActiveChapter] = useState<ChapterWithVideo>(
     () => getInitialChapter(initialChapters, chapterIdFromUrl)
   );
   const [activeContentItem, setActiveContentItem] = useState<ContentItem | null>(null);
   const skipAutoSelectRef = useRef(false);
+  // Track which chapters have been loaded to avoid duplicate fetches
+  const loadedChaptersRef = useRef<Set<string>>(new Set(
+    initialChapters.filter(ch => ch.isContentLoaded).map(ch => ch.id)
+  ));
   
   const isMobile = useIsMobile();
   const [isLeftPanelVisible, setIsLeftPanelVisible] = useState(true);
   const [isRightPanelVisible, setIsRightPanelVisible] = useState(!isMobile);
-  const [isContentLoading, setIsContentLoading] = useState(true);
+  const [isContentLoading, setIsContentLoading] = useState(false);
 
   useEffect(() => {
     setIsRightPanelVisible(!isMobile); 
@@ -52,12 +57,18 @@ export default function Learnspace({ initialChapters, courseId, isCertification 
   }, [isMobile]); 
 
 
-  const fetchChapterDetails = useCallback(async (chapterId: string) => {
+  // Fetch chapter content on demand (notes, quiz - but NOT transcript)
+  const fetchChapterContent = useCallback(async (chapterId: string) => {
+    // Skip if already loaded
+    if (loadedChaptersRef.current.has(chapterId)) {
+      return;
+    }
+    
     setIsContentLoading(true);
     try {
       // Guard against null course
       if (!activeChapter.course?.id) {
-        console.error("Cannot fetch chapter details: course ID is missing");
+        console.error("Cannot fetch chapter content: course ID is missing");
         setIsContentLoading(false);
         return;
       }
@@ -66,31 +77,40 @@ export default function Learnspace({ initialChapters, courseId, isCertification 
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 15000);
       
+      // Use the on-demand content endpoint
       const response = await fetch(
-        `/api/courses/${activeChapter.course.id}/chapters/${chapterId}`,
+        `/api/courses/${activeChapter.course.id}/chapters/${chapterId}/content`,
         { signal: controller.signal }
       );
       clearTimeout(timeoutId);
       
       if (!response.ok) {
         const errorText = await response.text();
-        console.error("Failed to fetch chapter details:", response.status, errorText);
-        throw new Error(`Failed to fetch chapter details: ${response.status}`);
+        console.error("Failed to fetch chapter content:", response.status, errorText);
+        throw new Error(`Failed to fetch chapter content: ${response.status}`);
       }
-      const details: { notes: InteractiveNotesProps; quiz: Quiz; transcript: string | null } = await response.json();
       
-      setActiveChapter(prev => ({
-        ...prev,
-        video: prev.video ? {
-          ...prev.video,
-          notes: details.notes,
-          quiz: details.quiz,
-          transcript: details.transcript,
-        } : null
-      }));
+      const chapterData: ChapterWithVideo = await response.json();
+      
+      // Mark as loaded
+      loadedChaptersRef.current.add(chapterId);
+      
+      // Update chapters array with loaded content
+      setChapters(prev => prev.map(ch => 
+        ch.id === chapterId 
+          ? { ...chapterData, isContentLoaded: true }
+          : ch
+      ));
+      
+      // Update active chapter if it's the one we just loaded
+      setActiveChapter(prev => 
+        prev.id === chapterId 
+          ? { ...chapterData, isContentLoaded: true }
+          : prev
+      );
+      
     } catch (error) {
-      console.error("Error fetching chapter details:", error);
-      // Show user-friendly error for timeout
+      console.error("Error fetching chapter content:", error);
       if (error instanceof Error && error.name === 'AbortError') {
         console.warn("Request timed out - data may load on retry");
       }
@@ -99,9 +119,13 @@ export default function Learnspace({ initialChapters, courseId, isCertification 
     }
   }, [activeChapter.course]);
 
+  // Load content for initial chapter if coming from URL and it's not the first chapter
   useEffect(() => {
-    fetchChapterDetails(activeChapter.id);
-  }, [activeChapter.id, fetchChapterDetails]); 
+    // If the active chapter doesn't have content loaded, fetch it
+    if (!activeChapter.isContentLoaded && !loadedChaptersRef.current.has(activeChapter.id)) {
+      fetchChapterContent(activeChapter.id);
+    }
+  }, [activeChapter.id, activeChapter.isContentLoaded, fetchChapterContent]); 
 
   // Initialize activeContentItem when activeChapter changes
   useEffect(() => {
@@ -128,8 +152,15 @@ export default function Learnspace({ initialChapters, courseId, isCertification 
   };
 
   const handleChapterSelect = (chapter: ChapterWithVideo) => {
-    setActiveChapter(chapter);
-    fetchChapterDetails(chapter.id);
+    // Get the latest chapter data from our state (may have loaded content)
+    const chapterFromState = chapters.find(ch => ch.id === chapter.id) || chapter;
+    setActiveChapter(chapterFromState);
+    
+    // Load content on demand if not already loaded
+    if (!chapterFromState.isContentLoaded && !loadedChaptersRef.current.has(chapter.id)) {
+      fetchChapterContent(chapter.id);
+    }
+    
     window.history.pushState(null, '', `?chapter=${chapter.id}`);
   };
 
@@ -145,12 +176,14 @@ export default function Learnspace({ initialChapters, courseId, isCertification 
       skipAutoSelectRef.current = true;
     }
     
-    setActiveChapter(chapter);
+    // Get the latest chapter data from our state (may have loaded content)
+    const chapterFromState = chapters.find(ch => ch.id === chapter.id) || chapter;
+    setActiveChapter(chapterFromState);
     setActiveContentItem(contentItem);
     
-    // Fetch chapter details if it's a video content item
-    if (contentItem.type === 'video') {
-      fetchChapterDetails(chapter.id);
+    // Load content on demand if not already loaded
+    if (!chapterFromState.isContentLoaded && !loadedChaptersRef.current.has(chapter.id)) {
+      fetchChapterContent(chapter.id);
     }
     
     // Update URL with both chapter and content item
@@ -169,7 +202,7 @@ export default function Learnspace({ initialChapters, courseId, isCertification 
       <div className="flex-1 overflow-hidden">
         <ResizablePanelGroup direction="horizontal">
             <ResizablePanel 
-              defaultSize={isRightPanelVisible ? 58 : 100} 
+              defaultSize={isRightPanelVisible ? 32 : 100} 
               minSize={30} 
               className={!isLeftPanelVisible ? "hidden" : ""}
             >

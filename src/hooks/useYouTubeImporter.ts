@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { extractPlaylistId, extractVideoId } from '@/lib/youtube';
-import { fetchPlaylistVideos, fetchVideoInfo, fetchTranscript } from '@/lib/services/youtubeApi';
+import { fetchPlaylistVideos, fetchVideoInfo, fetchTranscript, fetchTranscriptsWithRateLimit } from '@/lib/services/youtubeApi';
 import type { VideoInfo } from '@/lib/types';
 
 export const useYouTubeImporter = () => {
@@ -62,12 +62,28 @@ export const useYouTubeImporter = () => {
           skipTranscript: true,
         }));
       } else {
-        const videoPromises = fetchedVideos.map(async (video) => {
-          const transcript = await fetchTranscript(video.id);
-          return { ...video, transcript, skipTranscript: false };
-        });
-
-        videosWithTranscripts = await Promise.all(videoPromises);
+        // Use rate-limited fetching to avoid 429 errors
+        // For single video, fetch directly; for multiple, use sequential with delays
+        if (fetchedVideos.length === 1) {
+          const transcript = await fetchTranscript(fetchedVideos[0].id);
+          videosWithTranscripts = [{ ...fetchedVideos[0], transcript, skipTranscript: false }];
+        } else {
+          const videoIds = fetchedVideos.map(v => v.id);
+          const transcriptMap = await fetchTranscriptsWithRateLimit(
+            videoIds,
+            (completed, total, videoId) => {
+              const progressPercent = 85 + Math.round((completed / total) * 10);
+              handleProgress(progressPercent, `Fetching transcript ${completed}/${total} (${videoId})...`);
+            },
+            { delayBetweenRequests: 1500, concurrency: 1 } // Sequential with 1.5s delay to avoid rate limits
+          );
+          
+          videosWithTranscripts = fetchedVideos.map((video) => ({
+            ...video,
+            transcript: transcriptMap.get(video.id) || '',
+            skipTranscript: false,
+          }));
+        }
       }
       
       handleProgress(95, skipTranscript ? "Finalizing import without transcripts..." : "Finalizing import...");

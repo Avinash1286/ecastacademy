@@ -85,7 +85,9 @@ export type ChapterWithVideo = {
     durationInSeconds: number | null;
     notes: InteractiveNotesProps;
     quiz: Quiz;
+    hasTranscript?: boolean; // Flag indicating transcript is available (loaded on demand by AI tutor)
   } | null;
+  isContentLoaded?: boolean; // Flag to indicate if full content (notes/quiz) is loaded
 };
 
 export interface CalloutSection {
@@ -160,7 +162,7 @@ export interface DefinitionCardProps {
   example?: string;
 }
 
-
+// Full question with correct answer (used server-side only)
 export interface Question {
   question: string;
   options: string[];
@@ -168,22 +170,55 @@ export interface Question {
   explanation?: string;
 }
 
+// Secure question without correct answer (used client-side during quiz)
+export interface SecureQuestion {
+  question: string;
+  options: string[];
+}
+
+// Quiz with full questions (server-side)
 export interface Quiz {
   topic: string;
   questions: Question[];
 }
 
+// Quiz with secure questions (client-side during quiz taking)
+export interface SecureQuiz {
+  topic: string;
+  questions: SecureQuestion[];
+}
+
+// Result of validating a single question
+export interface QuizQuestionResult {
+  questionIndex: number;
+  isCorrect: boolean;
+  correctAnswer: number;
+  userAnswer: number;
+  explanation?: string;
+}
+
+// Full quiz validation result from server
+export interface QuizValidationResult {
+  success: boolean;
+  score: number;
+  maxScore: number;
+  percentage: number;
+  results: QuizQuestionResult[];
+}
+
 export interface QuizInterfaceProps {
-  quiz: Quiz;
-  onQuizComplete: (answers: number[], score: number) => void;
+  quiz: SecureQuiz;
+  onQuizComplete: (answers: number[]) => void;
   contentItem?: ContentItem | null;
+  isSubmitting?: boolean;
 }
 
 
 export interface QuizResultsProps {
-  quiz: Quiz;
+  quiz: SecureQuiz;
   userAnswers: number[];
   score: number;
+  validationResults?: QuizQuestionResult[];
   onRestart: () => void;
   contentItem?: ContentItem | null;
   attemptHistory?: Array<{

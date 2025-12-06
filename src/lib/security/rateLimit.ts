@@ -191,8 +191,8 @@ function rateLimitInMemory(
 export const RATE_LIMIT_PRESETS = {
   /** AI generation endpoints - expensive operations */
   AI_GENERATION: { interval: 60000, maxRequests: 10 },
-  /** Transcript fetching */
-  TRANSCRIPT: { interval: 60000, maxRequests: 20 },
+  /** Transcript fetching - higher limit for bulk imports */
+  TRANSCRIPT: { interval: 60000, maxRequests: 60 },
   /** YouTube API proxy */
   YOUTUBE: { interval: 60000, maxRequests: 30 },
   /** Certificate operations */

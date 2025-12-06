@@ -56,6 +56,12 @@ export default function ProfilePage() {
     userId && status === "authenticated" ? { id: userId } : "skip"
   )
   
+  // Query enrolled courses count
+  const enrolledCourses = useQuery(
+    api.courses.getEnrolledCourses,
+    userId && status === "authenticated" ? { userId } : "skip"
+  )
+  
   // Get the display name (prefer database name over session name)
   const displayName = currentUser?.name || sessionUser?.name || "User"
 
@@ -186,18 +192,14 @@ export default function ProfilePage() {
             </div>
 
             {/* Stats */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 w-full max-w-md mt-6">
+            <div className="grid grid-cols-2 gap-4 w-full max-w-xs mt-6">
               <div className="p-4 rounded-lg bg-muted/50 border">
                 <p className="text-2xl font-bold text-amber-600">{certificates?.length || 0}</p>
                 <p className="text-xs text-muted-foreground">Certificates</p>
               </div>
               <div className="p-4 rounded-lg bg-muted/50 border">
-                <p className="text-2xl font-bold text-blue-600">0</p>
-                <p className="text-xs text-muted-foreground">Courses</p>
-              </div>
-              <div className="p-4 rounded-lg bg-muted/50 border col-span-2 sm:col-span-1">
-                <p className="text-2xl font-bold text-green-600">0%</p>
-                <p className="text-xs text-muted-foreground">Avg Score</p>
+                <p className="text-2xl font-bold text-blue-600">{enrolledCourses?.length || 0}</p>
+                <p className="text-xs text-muted-foreground">Enrolled Courses</p>
               </div>
             </div>
           </div>

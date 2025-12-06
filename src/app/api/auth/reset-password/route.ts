@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { api } from "../../../../../convex/_generated/api";
-import { hashPassword, validatePassword } from "@/lib/auth/utils";
+import { hashPassword, hashToken, validatePassword } from "@/lib/auth/utils";
 import { Id } from "../../../../../convex/_generated/dataModel";
 import { createConvexClient } from "@/lib/convexClient";
 import { withRateLimit, RATE_LIMIT_PRESETS } from "@/lib/security/rateLimit";
 
 const convex = createConvexClient();
+
+// SECURITY: Auth secret for calling protected Convex mutations
+const AUTH_SECRET = process.env.CONVEX_AUTH_SECRET;
 
 export async function POST(request: NextRequest) {
   // Apply strict rate limiting to prevent brute-force attacks on reset tokens
@@ -41,10 +44,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Verify token
+    // Hash the incoming token to compare with stored hash
+    const hashedToken = hashToken(token);
+
+    // Verify token (lookup by hashed value)
     const verificationToken = await convex.query(
       api.auth.getVerificationToken,
-      { token }
+      { token: hashedToken }
     );
 
     if (!verificationToken) {
@@ -80,10 +86,14 @@ export async function POST(request: NextRequest) {
     await convex.mutation(api.auth.updateUser, {
       id: user._id as Id<"users">,
       password: hashedPassword,
+      _authSecret: AUTH_SECRET,
     });
 
-    // Delete the used token
-    await convex.mutation(api.auth.deleteVerificationToken, { token });
+    // Delete the used token (using hashed value)
+    await convex.mutation(api.auth.deleteVerificationToken, { 
+      token: hashedToken,
+      _authSecret: AUTH_SECRET,
+    });
 
     return NextResponse.json({
       success: true,

@@ -3,11 +3,11 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
-import { Award, TrendingUp } from 'lucide-react';
+import { Award, TrendingUp, Loader2 } from 'lucide-react';
 import { cn } from "@/lib/utils";
 import { QuizInterfaceProps } from '@/lib/types';
 
-export const QuizInterface = ({ quiz, onQuizComplete, contentItem }: QuizInterfaceProps) => {
+export const QuizInterface = ({ quiz, onQuizComplete, contentItem, isSubmitting = false }: QuizInterfaceProps) => {
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
   const [answers, setAnswers] = useState<(number | null)[]>(new Array(quiz.questions.length).fill(null));
@@ -21,6 +21,7 @@ export const QuizInterface = ({ quiz, onQuizComplete, contentItem }: QuizInterfa
   const maxPoints = contentItem?.maxPoints ?? 100;
 
   const handleAnswerSelect = (answerIndex: number) => {
+    if (isSubmitting) return; // Prevent changes while submitting
     const newAnswers = [...answers];
     newAnswers[currentQuestion] = answerIndex;
     setAnswers(newAnswers);
@@ -28,6 +29,8 @@ export const QuizInterface = ({ quiz, onQuizComplete, contentItem }: QuizInterfa
   };
 
   const handleNext = () => {
+    if (isSubmitting) return;
+    
     if (currentQuestion < quiz.questions.length - 1) {
       setCurrentQuestion(currentQuestion + 1);
       setSelectedAnswer(answers[currentQuestion + 1]);
@@ -35,10 +38,8 @@ export const QuizInterface = ({ quiz, onQuizComplete, contentItem }: QuizInterfa
       const finalAnswers = answers.filter(a => a !== null) as number[];
       if (finalAnswers.length !== quiz.questions.length) return; 
       
-      const finalScore = finalAnswers.reduce((score, answer, index) => {
-        return score + (answer === quiz.questions[index].correct ? 1 : 0);
-      }, 0);
-      onQuizComplete(finalAnswers, finalScore);
+      // Send answers to server for validation - no client-side scoring
+      onQuizComplete(finalAnswers);
     }
   };
 
@@ -118,9 +119,16 @@ export const QuizInterface = ({ quiz, onQuizComplete, contentItem }: QuizInterfa
         <div className="flex justify-end pt-4">
           <Button
             onClick={handleNext}
-            disabled={selectedAnswer === null}
+            disabled={selectedAnswer === null || isSubmitting}
           >
-            {currentQuestion === quiz.questions.length - 1 ? 'Finish Quiz' : 'Next Question'}
+            {isSubmitting ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Validating...
+              </>
+            ) : (
+              currentQuestion === quiz.questions.length - 1 ? 'Finish Quiz' : 'Next Question'
+            )}
           </Button>
         </div>
       </div>

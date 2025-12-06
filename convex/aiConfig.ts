@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { Id } from "./_generated/dataModel";
-import { requireAdminUser } from "./utils/auth";
+import { requireAdminUser, requireAdminUserWithFallback } from "./utils/auth";
 
 // Default models to seed
 const DEFAULT_MODELS = [
@@ -154,12 +154,13 @@ export const upsertModel = mutation({
         provider: v.union(v.literal("google"), v.literal("openai")),
         modelId: v.string(),
         isEnabled: v.boolean(),
+        currentUserId: v.optional(v.id("users")), // Fallback for client-side auth
     },
     handler: async (ctx, args) => {
         // Require admin access to modify AI models
-        await requireAdminUser(ctx);
+        await requireAdminUserWithFallback(ctx, args.currentUserId);
 
-        const { id, ...data } = args;
+        const { id, currentUserId, ...data } = args;
         if (id) {
             await ctx.db.patch(id, data);
         } else {
@@ -172,10 +173,11 @@ export const updateFeatureMapping = mutation({
     args: {
         featureId: v.id("aiFeatures"),
         modelId: v.id("aiModels"),
+        currentUserId: v.optional(v.id("users")), // Fallback for client-side auth
     },
     handler: async (ctx, args) => {
         // Require admin access to update feature mappings
-        await requireAdminUser(ctx);
+        await requireAdminUserWithFallback(ctx, args.currentUserId);
 
         await ctx.db.patch(args.featureId, {
             currentModelId: args.modelId,
@@ -186,10 +188,11 @@ export const updateFeatureMapping = mutation({
 export const deleteModel = mutation({
     args: {
         id: v.id("aiModels"),
+        currentUserId: v.optional(v.id("users")), // Fallback for client-side auth
     },
     handler: async (ctx, args) => {
         // Require admin access to delete AI models
-        await requireAdminUser(ctx);
+        await requireAdminUserWithFallback(ctx, args.currentUserId);
 
         // Optional: Check if model is in use before deleting
         // For now, we allow deletion but features might break if they use this model

@@ -375,6 +375,63 @@ export const markJobFailed = internalMutation({
 });
 
 /**
+ * Mark a stale/timed-out job as failed
+ * This can be called from the frontend when it detects a job hasn't updated in too long
+ */
+export const markStaleJobAsFailed = mutation({
+  args: {
+    capsuleId: v.id("capsules"),
+  },
+  handler: async (ctx, args) => {
+    // Get the latest job for this capsule
+    const job = await ctx.db
+      .query("generationJobs")
+      .withIndex("by_capsuleId", (q) => q.eq("capsuleId", args.capsuleId))
+      .order("desc")
+      .first();
+    
+    if (!job) {
+      console.warn(`[StaleJob] No job found for capsule: ${args.capsuleId}`);
+      return { success: false, reason: "no_job" };
+    }
+    
+    // Check if job is already completed or failed
+    if (job.state === GENERATION_STAGES.COMPLETED || job.state === GENERATION_STAGES.FAILED) {
+      return { success: false, reason: "already_terminal" };
+    }
+    
+    // Check if job is actually stale
+    const isStale = Date.now() - job.updatedAt > STALE_JOB_THRESHOLD_MS;
+    if (!isStale) {
+      return { success: false, reason: "not_stale" };
+    }
+    
+    const errorMessage = "Generation timed out. The AI service took too long to respond. Please try again.";
+    
+    // Mark job as failed
+    await ctx.db.patch(job._id, {
+      state: GENERATION_STAGES.FAILED as GenerationStage,
+      lastError: errorMessage,
+      lastErrorCode: "TIMEOUT",
+      updatedAt: Date.now(),
+      completedAt: Date.now(),
+      version: (job.version || 0) + 1,
+    });
+    
+    // Mark capsule as failed
+    await ctx.db.patch(args.capsuleId, {
+      status: "failed",
+      errorMessage: errorMessage,
+      updatedAt: Date.now(),
+    });
+    
+    console.log(`[StaleJob] Marked job ${job.generationId} as failed due to timeout`);
+    
+    return { success: true };
+  },
+});
+
+/**
  * Get recent failed jobs for monitoring
  */
 export const getRecentFailedJobs = query({
@@ -446,5 +503,87 @@ export const getJobStatistics = query({
     );
     
     return stats;
+  },
+});
+
+// =============================================================================
+// Cancellation Support
+// =============================================================================
+
+/**
+ * Cancel all active generation jobs for a capsule
+ * Called when a capsule is deleted during generation
+ */
+export const cancelGenerationJobsForCapsule = internalMutation({
+  args: {
+    capsuleId: v.id("capsules"),
+  },
+  handler: async (ctx, args) => {
+    // Find all jobs for this capsule that are not already completed/failed/cancelled
+    const jobs = await ctx.db
+      .query("generationJobs")
+      .withIndex("by_capsuleId", (q) => q.eq("capsuleId", args.capsuleId))
+      .collect();
+    
+    let cancelledCount = 0;
+    
+    for (const job of jobs) {
+      // Only cancel jobs that are still active (not completed, failed, or already cancelled)
+      if (
+        job.state !== GENERATION_STAGES.COMPLETED &&
+        job.state !== GENERATION_STAGES.FAILED &&
+        job.state !== GENERATION_STAGES.CANCELLED
+      ) {
+        await ctx.db.patch(job._id, {
+          state: GENERATION_STAGES.CANCELLED as GenerationStage,
+          lastError: "Generation cancelled: capsule was deleted",
+          updatedAt: Date.now(),
+          completedAt: Date.now(),
+          version: (job.version || 0) + 1,
+        });
+        cancelledCount++;
+        console.log(`[CancelJob] Cancelled job ${job.generationId} for deleted capsule ${args.capsuleId}`);
+      }
+    }
+    
+    return { cancelledCount };
+  },
+});
+
+/**
+ * Check if a generation job is still valid (not cancelled, capsule still exists)
+ * Used by generation stages to abort early if the capsule was deleted
+ */
+export const isGenerationJobValid = internalQuery({
+  args: {
+    generationId: v.string(),
+    capsuleId: v.id("capsules"),
+  },
+  handler: async (ctx, args) => {
+    // Check if capsule still exists
+    const capsule = await ctx.db.get(args.capsuleId);
+    if (!capsule) {
+      return { valid: false, reason: "capsule_deleted" };
+    }
+    
+    // Check if job exists and is not cancelled
+    const job = await ctx.db
+      .query("generationJobs")
+      .withIndex("by_generationId", (q) => q.eq("generationId", args.generationId))
+      .unique();
+    
+    if (!job) {
+      return { valid: false, reason: "job_not_found" };
+    }
+    
+    if (job.state === GENERATION_STAGES.CANCELLED) {
+      return { valid: false, reason: "job_cancelled" };
+    }
+    
+    if (job.state === GENERATION_STAGES.FAILED) {
+      return { valid: false, reason: "job_failed" };
+    }
+    
+    return { valid: true, reason: null };
   },
 });

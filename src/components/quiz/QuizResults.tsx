@@ -12,6 +12,7 @@ export const QuizResults = ({
   quiz, 
   userAnswers, 
   score, 
+  validationResults,
   onRestart, 
   contentItem, 
   attemptHistory,
@@ -147,7 +148,13 @@ export const QuizResults = ({
         <div className="space-y-4 sm:space-y-6">
           {quiz.questions.map((question, index) => {
             const userAnswer = userAnswers[index];
-            const isCorrect = userAnswer === question.correct;
+            // Use server validation results if available, otherwise assume incorrect for old attempts
+            const result = validationResults?.[index];
+            const isCorrect = result?.isCorrect ?? false;
+            // correctAnswer is available in result but not displayed to encourage learning
+            const _correctAnswer = result?.correctAnswer;
+            void _correctAnswer; // Suppress unused variable warning
+            const explanation = result?.explanation;
             
             return (
               <div key={index} className="border-b border-border pb-4 sm:pb-6 last:border-b-0">
@@ -171,24 +178,22 @@ export const QuizResults = ({
                     )}>
                       <span className="font-medium">Your answer: </span>
                       <span className="break-words">
-                        {question.options[userAnswer]}
+                        {question.options[userAnswer] ?? 'No answer'}
                       </span>
                     </div>
                     
-                    
-                    {!isCorrect && (
-                      <div className="rounded-lg border border-chart-4/30 bg-chart-4/10 p-2 sm:p-3 text-sm sm:text-base text-chart-4 dark:border-chart-2/30 dark:bg-chart-2/10 dark:text-chart-2 break-words">
-                        <span className="font-medium">Correct answer: </span>
-                        <span className="break-words">
-                          {question.options[question.correct]}
-                        </span>
-                      </div>
-                    )}
-                    
-                  
-                    {question.explanation && (
-                      <div className="rounded-lg border border-secondary/30 bg-secondary/10 p-2 sm:p-3">
-                        <p className="text-xs sm:text-sm text-muted-foreground break-words">{question.explanation}</p>
+                    {/* Show explanation as a hint for incorrect answers, or as additional info for correct ones */}
+                    {explanation && (
+                      <div className={cn(
+                        "rounded-lg border p-2 sm:p-3",
+                        isCorrect 
+                          ? "border-secondary/30 bg-secondary/10"
+                          : "border-amber-500/30 bg-amber-500/10"
+                      )}>
+                        <p className="text-xs sm:text-sm text-muted-foreground break-words">
+                          {!isCorrect && <span className="font-medium text-amber-600 dark:text-amber-400">Hint: </span>}
+                          {explanation}
+                        </p>
                       </div>
                     )}
                   </div>
@@ -280,7 +285,7 @@ export const QuizResults = ({
               <div className="flex items-center justify-between">
                 <span className="text-sm font-semibold text-foreground">Best Score:</span>
                 <span className="text-lg font-bold text-primary">
-                  {Math.max(...attemptHistory.map(a => a.percentage))}%
+                  {Math.round(Math.max(...attemptHistory.map(a => a.percentage)))}%
                 </span>
               </div>
             </div>

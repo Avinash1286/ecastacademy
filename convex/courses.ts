@@ -8,6 +8,38 @@ import { createTransaction, validatePreconditions } from "./utils/transactions";
 import { requireAuthenticatedUser, requireAuthenticatedUserWithFallback } from "./utils/auth";
 import { validateCourseFields, validatePositiveNumber } from "./utils/validation";
 
+// Helper type for quiz question (input can have correct or correctIndex)
+type QuizQuestion = {
+  question: string;
+  options: string[];
+  correct?: number;
+  correctIndex?: number;
+  explanation?: string;
+};
+
+// Helper type for quiz structure
+type Quiz = {
+  questions?: QuizQuestion[];
+  [key: string]: unknown;
+};
+
+/**
+ * Strips the correct answer field from quiz questions to prevent cheating.
+ * This ensures the client cannot see the correct answers in the network response.
+ */
+function stripCorrectAnswers<T extends Quiz | null | undefined>(quiz: T): T {
+  if (!quiz || !quiz.questions) return quiz;
+  
+  return {
+    ...quiz,
+    questions: quiz.questions.map((q: QuizQuestion) => {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { correct, correctIndex, ...rest } = q;
+      return rest;
+    }),
+  } as T;
+}
+
 // Mutation to create a new course
 export const createCourse = mutation({
   args: {
@@ -327,47 +359,35 @@ export const getAllCourses = query({
   handler: async (ctx, args) => {
     const limit = Math.min(args.limit, 100); // Cap at 100 for performance
     
-    let paginatedCourses: Doc<"courses">[] = [];
-    let hasMore = false;
-    let nextCursor: string | null = null;
+    // First, get all published courses
+    const allPublishedCourses = await ctx.db
+      .query("courses")
+      .filter((q) => q.eq(q.field("isPublished"), true))
+      .collect();
     
+    // Sort by publishedAt descending (most recently published first)
+    // Fall back to createdAt for legacy courses without publishedAt
+    allPublishedCourses.sort((a, b) => {
+      const aTime = a.publishedAt ?? a.createdAt;
+      const bTime = b.publishedAt ?? b.createdAt;
+      return bTime - aTime; // Descending order
+    });
+    
+    // Apply cursor-based pagination
+    let startIndex = 0;
     if (args.cursor) {
-      // Cursor-based: Fetch courses after the cursor
-      const cursorCourse = await ctx.db.get(args.cursor as Id<"courses">);
-      
-      if (cursorCourse) {
-        // Get courses created before the cursor (since we order desc)
-        const courses = await ctx.db
-          .query("courses")
-          .order("desc")
-          .filter((q) => 
-            q.and(
-              q.eq(q.field("isPublished"), true),
-              q.lt(q.field("_creationTime"), cursorCourse._creationTime)
-            )
-          )
-          .take(limit + 1);
-        
-        hasMore = courses.length > limit;
-        paginatedCourses = hasMore ? courses.slice(0, limit) : courses;
-        nextCursor = hasMore && paginatedCourses.length > 0 
-          ? paginatedCourses[paginatedCourses.length - 1]._id 
-          : null;
+      const cursorIndex = allPublishedCourses.findIndex(c => c._id === args.cursor);
+      if (cursorIndex !== -1) {
+        startIndex = cursorIndex + 1;
       }
-    } else {
-      // First page - no cursor
-      const courses = await ctx.db
-        .query("courses")
-        .order("desc")
-        .filter((q) => q.eq(q.field("isPublished"), true))
-        .take(limit + 1);
-      
-      hasMore = courses.length > limit;
-      paginatedCourses = hasMore ? courses.slice(0, limit) : courses;
-      nextCursor = hasMore && paginatedCourses.length > 0 
-        ? paginatedCourses[paginatedCourses.length - 1]._id 
-        : null;
     }
+    
+    // Get the slice for this page
+    const paginatedCourses = allPublishedCourses.slice(startIndex, startIndex + limit);
+    const hasMore = startIndex + limit < allPublishedCourses.length;
+    const nextCursor = hasMore && paginatedCourses.length > 0 
+      ? paginatedCourses[paginatedCourses.length - 1]._id 
+      : null;
     
     if (paginatedCourses.length === 0) {
       return { courses: [], nextCursor: null, hasMore: false };
@@ -580,7 +600,7 @@ export const getFullCourseChapters = query({
           thumbnailUrl: video.thumbnailUrl,
           durationInSeconds: video.durationInSeconds,
           notes: video.notes,
-          quiz: video.quiz,
+          quiz: stripCorrectAnswers(video.quiz),
           transcript: video.transcript,
         } : null,
       };
@@ -687,7 +707,7 @@ export const getChaptersWithVideosByCourseId = query({
               thumbnailUrl: videoData.thumbnailUrl,
               durationInSeconds: videoData.durationInSeconds,
               notes: videoData.notes,
-              quiz: videoData.quiz,
+              quiz: stripCorrectAnswers(videoData.quiz),
               transcript: videoData.transcript,
             } : null,
           };
@@ -702,7 +722,7 @@ export const getChaptersWithVideosByCourseId = query({
           passingScore: item.passingScore ?? undefined,
           allowRetakes: item.allowRetakes ?? true,
           textContent: item.textContent,
-          textQuiz: item.textQuiz,
+          textQuiz: stripCorrectAnswers(item.textQuiz),
           textQuizStatus: item.textQuizStatus,
           textQuizError: item.textQuizError,
           videoId: item.videoId,
@@ -731,7 +751,7 @@ export const getChaptersWithVideosByCourseId = query({
             thumbnailUrl: firstVideoContent.videoDetails.thumbnailUrl,
             durationInSeconds: firstVideoContent.videoDetails.durationInSeconds,
             notes: firstVideoContent.videoDetails.notes,
-            quiz: firstVideoContent.videoDetails.quiz,
+            quiz: firstVideoContent.videoDetails.quiz, // Already stripped above
             transcript: firstVideoContent.videoDetails.transcript,
           };
         }
@@ -756,7 +776,7 @@ export const getChaptersWithVideosByCourseId = query({
           thumbnailUrl: video.thumbnailUrl,
           durationInSeconds: video.durationInSeconds,
           notes: video.notes,
-          quiz: video.quiz,
+          quiz: stripCorrectAnswers(video.quiz),
           transcript: video.transcript,
         } : null,
       };
@@ -828,6 +848,8 @@ export const togglePublishCourse = mutation({
       status: args.isPublished ? "ready" : "draft",
       thumbnailUrl: thumbnailUrl,
       updatedAt: Date.now(),
+      // Set publishedAt only when publishing, clear it when unpublishing
+      publishedAt: args.isPublished ? Date.now() : undefined,
     });
     return await ctx.db.get(args.id);
   },
@@ -1252,6 +1274,212 @@ export const updateLastAccessed = mutation({
         lastAccessedAt: Date.now(),
       });
     }
+  },
+});
+
+// Lazy loading query - only loads full content for the first chapter
+// Other chapters get minimal info; content loaded on demand
+// NEVER includes transcript - that's loaded only by AI tutor chat
+export const getChaptersWithVideosLazy = query({
+  args: {
+    courseId: v.id("courses"),
+  },
+  handler: async (ctx, args) => {
+    const course = await ctx.db.get(args.courseId);
+    if (!course) return [];
+    
+    // 1. Get all chapters in one query
+    const chapters = await ctx.db
+      .query("chapters")
+      .withIndex("by_courseId", (q) => q.eq("courseId", args.courseId))
+      .collect();
+    
+    if (chapters.length === 0) return [];
+    
+    // Sort by order
+    chapters.sort((a, b) => a.order - b.order);
+    
+    // 2. Batch fetch ALL content items for ALL chapters in one query
+    const chapterIds = chapters.map(ch => ch._id);
+    const allContentItems = await ctx.db
+      .query("contentItems")
+      .filter((q) => 
+        q.or(...chapterIds.map(id => q.eq(q.field("chapterId"), id)))
+      )
+      .collect();
+    
+    // 3. For first chapter, collect video IDs to load full content
+    const firstChapter = chapters[0];
+    const firstChapterContentItems = allContentItems.filter(
+      item => item.chapterId.toString() === firstChapter._id.toString()
+    );
+    
+    // Collect video IDs for first chapter only (for notes/quiz)
+    const firstChapterVideoIds = new Set<string>();
+    if (firstChapter.videoId) {
+      firstChapterVideoIds.add(firstChapter.videoId.toString());
+    }
+    for (const item of firstChapterContentItems) {
+      if (item.type === "video" && item.videoId) {
+        firstChapterVideoIds.add(item.videoId.toString());
+      }
+    }
+    
+    // 4. Batch fetch videos for first chapter only
+    const videoPromises = Array.from(firstChapterVideoIds).map(id => 
+      ctx.db.get(id as Id<"videos">)
+    );
+    const videos = await Promise.all(videoPromises);
+    
+    // Create video lookup map for first chapter
+    const videoMap = new Map<string, Doc<"videos">>();
+    const videoIdArray = Array.from(firstChapterVideoIds);
+    for (let i = 0; i < videoIdArray.length; i++) {
+      if (videos[i]) {
+        videoMap.set(videoIdArray[i], videos[i]!);
+      }
+    }
+    
+    // 5. Group content items by chapter
+    const contentByChapter = new Map<string, typeof allContentItems>();
+    for (const item of allContentItems) {
+      const chapterId = item.chapterId.toString();
+      if (!contentByChapter.has(chapterId)) {
+        contentByChapter.set(chapterId, []);
+      }
+      contentByChapter.get(chapterId)!.push(item);
+    }
+    
+    // 6. Build response
+    const chaptersWithVideos = chapters.map((chapter, index) => {
+      const isFirstChapter = index === 0;
+      const contentItems = contentByChapter.get(chapter._id.toString()) || [];
+      contentItems.sort((a, b) => a.order - b.order);
+      
+      // Enrich content items
+      const enrichedContentItems = contentItems.map((item) => {
+        if (item.type === "video" && item.videoId) {
+          const videoData = isFirstChapter ? videoMap.get(item.videoId.toString()) : null;
+          
+          if (isFirstChapter && videoData) {
+            // First chapter: include notes/quiz but NOT transcript
+            return {
+              id: item._id,
+              type: item.type,
+              title: item.title,
+              order: item.order,
+              isGraded: item.isGraded ?? false,
+              maxPoints: item.maxPoints ?? undefined,
+              passingScore: item.passingScore ?? undefined,
+              allowRetakes: item.allowRetakes ?? true,
+              videoId: item.videoId,
+              textContent: item.textContent,
+              videoDetails: {
+                youtubeVideoId: videoData.youtubeVideoId,
+                url: videoData.url,
+                thumbnailUrl: videoData.thumbnailUrl,
+                durationInSeconds: videoData.durationInSeconds,
+                notes: videoData.notes,
+                quiz: stripCorrectAnswers(videoData.quiz),
+                transcript: null, // Never include transcript
+                hasTranscript: !!videoData.transcript, // Just flag if available
+              },
+            };
+          } else {
+            // Other chapters: minimal video info (no notes/quiz/transcript)
+            return {
+              id: item._id,
+              type: item.type,
+              title: item.title,
+              order: item.order,
+              isGraded: item.isGraded ?? false,
+              maxPoints: item.maxPoints ?? undefined,
+              passingScore: item.passingScore ?? undefined,
+              allowRetakes: item.allowRetakes ?? true,
+              videoId: item.videoId,
+              textContent: item.textContent,
+              videoDetails: null, // Will be loaded on demand
+            };
+          }
+        }
+        
+        // Non-video content items
+        return {
+          id: item._id,
+          type: item.type,
+          title: item.title,
+          order: item.order,
+          isGraded: item.isGraded ?? false,
+          maxPoints: item.maxPoints ?? undefined,
+          passingScore: item.passingScore ?? undefined,
+          allowRetakes: item.allowRetakes ?? true,
+          textContent: item.textContent,
+          textQuiz: isFirstChapter ? stripCorrectAnswers(item.textQuiz) : null,
+          textQuizStatus: item.textQuizStatus,
+          textQuizError: item.textQuizError,
+          videoId: item.videoId,
+          resourceUrl: item.resourceUrl,
+          resourceTitle: item.resourceTitle,
+        };
+      });
+      
+      // Get video for chapter (old system compatibility)
+      let video = null;
+      
+      if (isFirstChapter && chapter.videoId) {
+        const videoData = videoMap.get(chapter.videoId.toString());
+        if (videoData) {
+          video = {
+            videoId: videoData.youtubeVideoId,
+            title: videoData.title,
+            url: videoData.url,
+            thumbnailUrl: videoData.thumbnailUrl,
+            durationInSeconds: videoData.durationInSeconds,
+            notes: videoData.notes,
+            quiz: stripCorrectAnswers(videoData.quiz),
+            transcript: null, // Never include transcript
+            hasTranscript: !!videoData.transcript,
+          };
+        }
+      } else if (isFirstChapter && enrichedContentItems.length > 0) {
+        // Use first video from content items
+        const firstVideoContent = enrichedContentItems.find(
+          item => item.type === "video" && item.videoDetails
+        );
+        if (firstVideoContent && firstVideoContent.videoDetails) {
+          video = {
+            videoId: firstVideoContent.videoDetails.youtubeVideoId,
+            title: firstVideoContent.videoDetails.url.split('v=')[1] || firstVideoContent.title,
+            url: firstVideoContent.videoDetails.url,
+            thumbnailUrl: firstVideoContent.videoDetails.thumbnailUrl,
+            durationInSeconds: firstVideoContent.videoDetails.durationInSeconds,
+            notes: firstVideoContent.videoDetails.notes,
+            quiz: firstVideoContent.videoDetails.quiz,
+            transcript: null,
+            hasTranscript: firstVideoContent.videoDetails.hasTranscript,
+          };
+        }
+      }
+      
+      return {
+        id: chapter._id,
+        name: chapter.name,
+        order: chapter.order,
+        course: {
+          id: course._id,
+          name: course.name,
+          description: course.description,
+          isCertification: course.isCertification,
+          passingGrade: course.passingGrade,
+        },
+        contentItems: enrichedContentItems,
+        video,
+        // Flag to indicate if full content is loaded
+        isContentLoaded: isFirstChapter,
+      };
+    });
+    
+    return chaptersWithVideos;
   },
 });
 

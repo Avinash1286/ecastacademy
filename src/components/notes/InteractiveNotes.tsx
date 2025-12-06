@@ -7,6 +7,13 @@ import { HighlightBox } from '@/components/notes/HighlightBox';
 import { DefinitionCard } from '@/components/notes/DefinitionCard';
 import { toast } from 'sonner';
 import { InteractiveNotesProps } from '@/lib/types';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { oneDark } from 'react-syntax-highlighter/dist/cjs/styles/prism';
+import 'katex/dist/katex.min.css';
 
 
 
@@ -82,9 +89,99 @@ export function InteractiveNotes({ topic, sections, learningObjectives, summary 
                 )}
 
                 <div className="prose prose-gray dark:prose-invert max-w-none mb-6">
-                  <p className="text-foreground leading-relaxed whitespace-pre-line">
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm, remarkMath]}
+                    rehypePlugins={[rehypeKatex]}
+                    components={{
+                      h1: (props) => (
+                        <h1 className="mb-3 mt-4 text-xl font-bold first:mt-0 text-foreground" {...props} />
+                      ),
+                      h2: (props) => (
+                        <h2 className="mb-2.5 mt-4 text-lg font-semibold first:mt-0 text-foreground" {...props} />
+                      ),
+                      h3: (props) => (
+                        <h3 className="mb-2 mt-3 text-base font-semibold first:mt-0 text-foreground" {...props} />
+                      ),
+                      h4: (props) => (
+                        <h4 className="mb-2 mt-3 text-sm font-semibold first:mt-0 text-foreground" {...props} />
+                      ),
+                      p: (props) => (
+                        <p className="mb-3 leading-relaxed last:mb-0 text-foreground" {...props} />
+                      ),
+                      ul: (props) => (
+                        <ul className="mb-3 ml-4 list-disc space-y-1.5 text-foreground" {...props} />
+                      ),
+                      ol: (props) => (
+                        <ol className="mb-3 ml-4 list-decimal space-y-1.5 text-foreground" {...props} />
+                      ),
+                      li: (props) => (
+                        <li className="leading-relaxed" {...props} />
+                      ),
+                      blockquote: (props) => (
+                        <blockquote className="my-3 border-l-4 border-primary/30 bg-primary/5 py-2 pl-4 pr-3 italic text-muted-foreground" {...props} />
+                      ),
+                      strong: (props) => (
+                        <strong className="font-bold text-foreground" {...props} />
+                      ),
+                      em: (props) => (
+                        <em className="italic" {...props} />
+                      ),
+                      a: (props) => (
+                        <a className="text-primary underline hover:no-underline" target="_blank" rel="noopener noreferrer" {...props} />
+                      ),
+                      code: (props: React.HTMLAttributes<HTMLElement> & { inline?: boolean; className?: string; children?: React.ReactNode }) => {
+                        const { inline, className, children, ...rest } = props;
+                        const match = /language-(\w+)/.exec(className || '');
+                        const language = match ? match[1] : '';
+
+                        if (!inline && language) {
+                          return (
+                            <div className="my-3 overflow-hidden rounded-lg">
+                              <SyntaxHighlighter
+                                style={oneDark}
+                                language={language}
+                                PreTag="div"
+                                className="!my-0 !bg-[#282c34] text-sm"
+                              >
+                                {String(children).replace(/\n$/, '')}
+                              </SyntaxHighlighter>
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <code
+                            className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-sm font-semibold text-primary"
+                            {...rest}
+                          >
+                            {children}
+                          </code>
+                        );
+                      },
+                      pre: (props) => (
+                        <pre className="my-3 overflow-x-auto rounded-lg bg-[#282c34] p-4" {...props} />
+                      ),
+                      table: (props) => (
+                        <div className="my-4 overflow-x-auto">
+                          <table className="min-w-full divide-y divide-border border border-border rounded-lg" {...props} />
+                        </div>
+                      ),
+                      thead: (props) => (
+                        <thead className="bg-muted/50" {...props} />
+                      ),
+                      th: (props) => (
+                        <th className="px-4 py-2 text-left text-sm font-semibold text-foreground" {...props} />
+                      ),
+                      td: (props) => (
+                        <td className="px-4 py-2 text-sm text-foreground border-t border-border" {...props} />
+                      ),
+                      hr: (props) => (
+                        <hr className="my-6 border-border" {...props} />
+                      ),
+                    }}
+                  >
                     {section.content}
-                  </p>
+                  </ReactMarkdown>
                 </div>
 
                 {section.microSummary && (

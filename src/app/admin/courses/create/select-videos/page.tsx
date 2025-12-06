@@ -1,17 +1,31 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery } from 'convex/react';
 import { api } from '../../../../../../convex/_generated/api';
+import { Id } from '../../../../../../convex/_generated/dataModel';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Loader2, Video, ArrowLeft, Check, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import Image from 'next/image';
+
+type VideoData = {
+  _id: Id<"videos">;
+  title: string;
+  url: string;
+  thumbnailUrl?: string;
+  channelTitle?: string;
+  durationInSeconds?: number;
+  status?: string;
+};
+
+const VIDEOS_PER_PAGE = 12;
 
 export default function SelectVideosPage() {
   const router = useRouter();
@@ -19,10 +33,67 @@ export default function SelectVideosPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [courseData, setCourseData] = useState<{ name: string; description: string; type: string } | null>(null);
+  
+  // Pagination state
+  const [cursor, setCursor] = useState<string | undefined>(undefined);
+  const [allLoadedVideos, setAllLoadedVideos] = useState<VideoData[]>([]);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
 
-  // Fetch all completed videos
-  const allVideos = useQuery(api.videos.getAllVideos, {}) || [];
-  const completedVideos = allVideos.filter(v => v.status === 'completed');
+  // Fetch videos with cursor-based pagination (only completed videos)
+  const queryArgs = { 
+    limit: VIDEOS_PER_PAGE,
+    status: 'completed' as const,
+    ...(cursor ? { cursor } : {})
+  };
+  
+  const videosResult = useQuery(api.videoProcessing.getVideosPaginated, queryArgs);
+
+  // Track if this is initial load
+  const isInitialLoading = videosResult === undefined && allLoadedVideos.length === 0;
+
+  // Combine loaded videos with new results
+  const displayVideos = useMemo(() => {
+    if (!videosResult?.videos) return allLoadedVideos;
+    
+    const newVideos = videosResult.videos as VideoData[];
+
+    // If no cursor was set, this is fresh data (first load or reset)
+    if (!cursor) {
+      return newVideos;
+    }
+    
+    // Otherwise append to existing videos (avoiding duplicates)
+    const existingIds = new Set(allLoadedVideos.map(v => v._id));
+    const uniqueNewVideos = newVideos.filter(v => !existingIds.has(v._id));
+    return [...allLoadedVideos, ...uniqueNewVideos];
+  }, [videosResult?.videos, cursor, allLoadedVideos]);
+
+  // Filter videos based on search
+  const filteredVideos = useMemo(() => {
+    if (!searchQuery) return displayVideos;
+    return displayVideos.filter(video =>
+      video.title.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+  }, [displayVideos, searchQuery]);
+
+  // Handle load more
+  const handleLoadMore = useCallback(() => {
+    if (videosResult?.nextCursor) {
+      setIsLoadingMore(true);
+      setAllLoadedVideos(displayVideos);
+      setCursor(videosResult.nextCursor);
+    }
+  }, [videosResult?.nextCursor, displayVideos]);
+
+  // Reset loading state when new data arrives
+  useEffect(() => {
+    if (videosResult !== undefined) {
+      setIsLoadingMore(false);
+    }
+  }, [videosResult]);
+
+  // Check if there are more videos to load
+  const hasMore = videosResult?.hasMore ?? false;
 
   useEffect(() => {
     // Retrieve course data from sessionStorage
@@ -34,10 +105,6 @@ export default function SelectVideosPage() {
       router.push('/admin/courses/create');
     }
   }, [router]);
-
-  const filteredVideos = completedVideos.filter(video =>
-    video.title.toLowerCase().includes(searchQuery.toLowerCase())
-  );
 
   const toggleVideo = (videoId: string) => {
     const newSelected = new Set(selectedVideos);
@@ -148,7 +215,21 @@ export default function SelectVideosPage() {
           </div>
 
           {/* Video List */}
-          {filteredVideos.length === 0 ? (
+          {isInitialLoading ? (
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {[...Array(6)].map((_, idx) => (
+                <Card key={idx}>
+                  <CardContent className="p-0">
+                    <Skeleton className="aspect-video w-full" />
+                    <div className="p-4 space-y-2">
+                      <Skeleton className="h-4 w-3/4" />
+                      <Skeleton className="h-4 w-1/2" />
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          ) : filteredVideos.length === 0 ? (
             <div className="text-center py-12 border-2 border-dashed rounded-lg">
               <Video className="mx-auto h-12 w-12 text-muted-foreground" />
               <h3 className="mt-4 text-lg font-medium">No Videos Available</h3>
@@ -157,64 +238,88 @@ export default function SelectVideosPage() {
               </p>
             </div>
           ) : (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {filteredVideos.map((video) => {
-                const isSelected = selectedVideos.has(video._id);
-                return (
-                  <Card
-                    key={video._id}
-                    className={`cursor-pointer transition-all ${
-                      isSelected ? 'border-primary shadow-md' : 'hover:border-primary/50'
-                    }`}
-                    onClick={() => toggleVideo(video._id)}
-                  >
-                    <CardContent className="p-0">
-                      <div className="relative aspect-video bg-muted">
-                        {video.thumbnailUrl && (
-                          <Image
-                            src={video.thumbnailUrl}
-                            alt={video.title}
-                            fill
-                            className="object-cover"
-                          />
-                        )}
-                        {isSelected && (
-                          <div className="absolute inset-0 bg-primary/20 flex items-center justify-center">
-                            <div className="bg-primary rounded-full p-2">
-                              <Check className="h-6 w-6 text-primary-foreground" />
+            <>
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {filteredVideos.map((video) => {
+                  const isSelected = selectedVideos.has(video._id);
+                  return (
+                    <Card
+                      key={video._id}
+                      className={`cursor-pointer transition-all ${
+                        isSelected ? 'border-primary shadow-md' : 'hover:border-primary/50'
+                      }`}
+                      onClick={() => toggleVideo(video._id)}
+                    >
+                      <CardContent className="p-0">
+                        <div className="relative aspect-video bg-muted">
+                          {video.thumbnailUrl && (
+                            <Image
+                              src={video.thumbnailUrl}
+                              alt={video.title}
+                              fill
+                              className="object-cover"
+                            />
+                          )}
+                          {isSelected && (
+                            <div className="absolute inset-0 bg-primary/20 flex items-center justify-center">
+                              <div className="bg-primary rounded-full p-2">
+                                <Check className="h-6 w-6 text-primary-foreground" />
+                              </div>
                             </div>
-                          </div>
-                        )}
-                      </div>
-                      <div className="p-4 space-y-2">
-                        <div className="flex items-start gap-2">
-                          <Checkbox
-                            checked={isSelected}
-                            onCheckedChange={() => toggleVideo(video._id)}
-                            onClick={(e) => e.stopPropagation()}
-                          />
-                          <h3 className="font-medium text-sm line-clamp-2 flex-1">
-                            {video.title}
-                          </h3>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Badge variant="secondary" className="text-xs">
-                            {video.durationInSeconds
-                              ? `${Math.floor(video.durationInSeconds / 60)}:${String(video.durationInSeconds % 60).padStart(2, '0')}`
-                              : 'N/A'}
-                          </Badge>
-                          {video.notes && video.quiz && (
-                            <Badge variant="outline" className="text-xs">
-                              AI Generated
-                            </Badge>
                           )}
                         </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                );
-              })}
-            </div>
+                        <div className="p-4 space-y-2">
+                          <div className="flex items-start gap-2">
+                            <Checkbox
+                              checked={isSelected}
+                              onCheckedChange={() => toggleVideo(video._id)}
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                            <h3 className="font-medium text-sm line-clamp-2 flex-1">
+                              {video.title}
+                            </h3>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Badge variant="secondary" className="text-xs">
+                              {video.durationInSeconds
+                                ? `${Math.floor(video.durationInSeconds / 60)}:${String(video.durationInSeconds % 60).padStart(2, '0')}`
+                                : 'N/A'}
+                            </Badge>
+                            {video.status === 'completed' && (
+                              <Badge variant="outline" className="text-xs">
+                                AI Generated
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+
+              {/* Load More Button */}
+              {hasMore && !searchQuery && (
+                <div className="flex justify-center pt-8">
+                  <Button
+                    onClick={handleLoadMore}
+                    disabled={isLoadingMore}
+                    variant="outline"
+                    size="lg"
+                    className="min-w-[200px]"
+                  >
+                    {isLoadingMore ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Loading...
+                      </>
+                    ) : (
+                      'Load More Videos'
+                    )}
+                  </Button>
+                </div>
+              )}
+            </>
           )}
 
           {/* Action Buttons */}

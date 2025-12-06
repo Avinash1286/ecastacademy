@@ -51,7 +51,10 @@ export const submitQuizAttempt = mutation({
       // Calculate score
       if (Array.isArray(args.answers)) {
         args.answers.forEach((answerIndex: number, questionIndex: number) => {
-          if (questions[questionIndex] && questions[questionIndex].correctIndex === answerIndex) {
+          const question = questions[questionIndex];
+          // Support both 'correct' and 'correctIndex' field names
+          const correctAnswer = question?.correctIndex ?? question?.correct;
+          if (question && correctAnswer === answerIndex) {
             score++;
           }
         });
@@ -63,7 +66,10 @@ export const submitQuizAttempt = mutation({
 
       if (Array.isArray(args.answers)) {
         args.answers.forEach((answerIndex: number, questionIndex: number) => {
-          if (questions[questionIndex] && questions[questionIndex].correctIndex === answerIndex) {
+          const question = questions[questionIndex];
+          // Support both 'correct' and 'correctIndex' field names
+          const correctAnswer = question?.correctIndex ?? question?.correct;
+          if (question && correctAnswer === answerIndex) {
             score++;
           }
         });
@@ -77,7 +83,10 @@ export const submitQuizAttempt = mutation({
 
         if (Array.isArray(args.answers)) {
           args.answers.forEach((answerIndex: number, questionIndex: number) => {
-            if (questions[questionIndex] && questions[questionIndex].correctIndex === answerIndex) {
+            const question = questions[questionIndex];
+            // Support both 'correct' and 'correctIndex' field names
+            const correctAnswer = question?.correctIndex ?? question?.correct;
+            if (question && correctAnswer === answerIndex) {
               score++;
             }
           });

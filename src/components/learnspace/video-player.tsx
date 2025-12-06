@@ -17,7 +17,10 @@ export function VideoPlayer({ video, isPlayerVisible }: VideoPlayerProps) {
       rel: 0,
       showinfo: 0,
       modestbranding: 1,
+      iv_load_policy: 3, // Hide annotations
+      playsinline: 1,
     },
+    host: 'https://www.youtube-nocookie.com', // Privacy-enhanced mode - fewer extension triggers
   };
 
   // Handle null video or missing videoId
@@ -30,11 +33,17 @@ export function VideoPlayer({ video, isPlayerVisible }: VideoPlayerProps) {
   }
 
   return (
-    <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-muted">
+    <div 
+      className="protected-youtube-container relative aspect-video w-full overflow-hidden rounded-lg bg-black"
+      style={{
+        contain: 'layout style paint',
+        isolation: 'isolate',
+      }}
+    >
       <YouTube
         videoId={video.videoId}
         opts={opts}
-        className="absolute inset-0 h-full w-full"
+        className="react-youtube-container absolute inset-0 h-full w-full"
         iframeClassName="h-full w-full"
       />
     </div>

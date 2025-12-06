@@ -22,6 +22,7 @@ import type * as chatSessions from "../chatSessions.js";
 import type * as completions from "../completions.js";
 import type * as contentItems from "../contentItems.js";
 import type * as courses from "../courses.js";
+import type * as crons from "../crons.js";
 import type * as generationJobs from "../generationJobs.js";
 import type * as messages from "../messages.js";
 import type * as progress from "../progress.js";
@@ -59,6 +60,7 @@ declare const fullApi: ApiFromModules<{
   completions: typeof completions;
   contentItems: typeof contentItems;
   courses: typeof courses;
+  crons: typeof crons;
   generationJobs: typeof generationJobs;
   messages: typeof messages;
   progress: typeof progress;

@@ -47,11 +47,11 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
               </Link>
 
               <nav className="hidden md:flex gap-6">
-                <AdminNavLink href="/admin/videos" icon={Video}>
-                  Video Library
-                </AdminNavLink>
                 <AdminNavLink href="/admin/courses" icon={BookOpen}>
                   Courses
+                </AdminNavLink>
+                <AdminNavLink href="/admin/videos" icon={Video}>
+                  Video Library
                 </AdminNavLink>
                 <AdminNavLink href="/admin/users" icon={Users}>
                   Users
@@ -72,11 +72,11 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
           {/* Mobile Navigation */}
           <nav className="md:hidden flex gap-4 pb-3 overflow-x-auto">
-            <AdminNavLink href="/admin/videos" icon={Video} mobile>
-              Video Library
-            </AdminNavLink>
             <AdminNavLink href="/admin/courses" icon={BookOpen} mobile>
               Courses
+            </AdminNavLink>
+            <AdminNavLink href="/admin/videos" icon={Video} mobile>
+              Video Library
             </AdminNavLink>
             <AdminNavLink href="/admin/users" icon={Users} mobile>
               Users

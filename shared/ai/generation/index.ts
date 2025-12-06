@@ -52,6 +52,10 @@ export const generateNotes = async (
     prompt,
   });
 
+  // Log raw AI response for debugging
+  console.log("[AI Response - Notes Generation] Raw response:", text.slice(0, 500) + (text.length > 500 ? "..." : ""));
+  console.log("[AI Response - Notes Generation] Full length:", text.length);
+
   return text;
 };
 
@@ -67,6 +71,10 @@ export const generateQuiz = async (
     system: QUIZ_PROMPT,
     prompt: input,
   });
+
+  // Log raw AI response for debugging
+  console.log("[AI Response - Quiz Generation] Raw response:", text.slice(0, 500) + (text.length > 500 ? "..." : ""));
+  console.log("[AI Response - Quiz Generation] Full length:", text.length);
 
   return text;
 };
@@ -162,7 +170,7 @@ export const repairStructuredJson = async (
 
 export type CapsuleGenerationInput = {
   sourceType: "pdf" | "topic";
-  pdfBuffer?: ArrayBuffer;
+  pdfBase64?: string;
   topic?: string;
   guidance?: string;
   documentTitle?: string;
@@ -170,7 +178,7 @@ export type CapsuleGenerationInput = {
 
 export type ModuleGenerationInput = {
   sourceType: "pdf" | "topic";
-  pdfBuffer?: ArrayBuffer;
+  pdfBase64?: string;
   topic?: string;
   capsuleTitle: string;
   capsuleDescription: string;
@@ -185,7 +193,7 @@ export type ModuleGenerationInput = {
 
 export type LessonGenerationInput = {
   sourceType: "pdf" | "topic";
-  pdfBuffer?: ArrayBuffer;
+  pdfBase64?: string;
   topic?: string;
   capsuleTitle: string;
   moduleTitle: string;
@@ -196,13 +204,12 @@ export type LessonGenerationInput = {
 };
 
 /**
- * Create a FilePart from a PDF buffer for use with Vercel AI SDK
+ * Create a FilePart from a base64-encoded PDF for use with Vercel AI SDK
  */
-function createPdfFilePart(pdfBuffer: ArrayBuffer): FilePart {
-  const base64Data = Buffer.from(pdfBuffer).toString("base64");
+function createPdfFilePart(pdfBase64: string): FilePart {
   return {
     type: "file",
-    data: base64Data,
+    data: pdfBase64,
     mediaType: "application/pdf",
   };
 }
@@ -221,8 +228,8 @@ export const generateCapsuleOutline = async (
   let contextPrompt: string;
   
   if (input.sourceType === "pdf") {
-    if (!input.pdfBuffer) {
-      throw new Error("PDF buffer is required for PDF-based generation");
+    if (!input.pdfBase64) {
+      throw new Error("PDF base64 data is required for PDF-based generation");
     }
     contextPrompt = input.documentTitle 
       ? `Document: ${input.documentTitle}\n\nAnalyze the attached PDF and create a comprehensive course outline.`
@@ -232,7 +239,7 @@ export const generateCapsuleOutline = async (
       contextPrompt += `\n\nAdditional guidance: ${input.guidance}`;
     }
     
-    const pdfPart = createPdfFilePart(input.pdfBuffer);
+    const pdfPart = createPdfFilePart(input.pdfBase64);
     
     const { text } = await generateText({
       model,
@@ -297,8 +304,8 @@ IMPORTANT: Analyze the course topic "${input.capsuleTitle}" to determine content
 
 Generate engaging content for EACH lesson listed above.`;
 
-  if (input.sourceType === "pdf" && input.pdfBuffer) {
-    const pdfPart = createPdfFilePart(input.pdfBuffer);
+  if (input.sourceType === "pdf" && input.pdfBase64) {
+    const pdfPart = createPdfFilePart(input.pdfBase64);
     
     const { text } = await generateText({
       model,
@@ -349,8 +356,8 @@ IMPORTANT: Analyze the course topic "${input.capsuleTitle}" to determine content
 
 Create focused, engaging content for this lesson.`;
 
-  if (input.sourceType === "pdf" && input.pdfBuffer) {
-    const pdfPart = createPdfFilePart(input.pdfBuffer);
+  if (input.sourceType === "pdf" && input.pdfBase64) {
+    const pdfPart = createPdfFilePart(input.pdfBase64);
     
     const { text } = await generateText({
       model,
@@ -458,6 +465,79 @@ Output ONLY the JSON object with title, description, type, html, css, and javasc
   const { text } = await generateText({
     model,
     system: VISUALIZATION_REGENERATION_PROMPT,
+    prompt: contextPrompt,
+  });
+
+  return text;
+};
+
+// =============================================================================
+// Question Regeneration
+// =============================================================================
+
+interface QuestionRegenerationInput {
+  currentQuestion: {
+    type: string;
+    question?: string;
+    instruction?: string;
+    text?: string;
+    options?: string[];
+    correctIndex?: number;
+    explanation?: string;
+    blanks?: Array<{ id: string; correctAnswer: string; alternatives?: string[]; hint?: string }>;
+    items?: Array<{ id: string; content: string }>;
+    targets?: Array<{ id: string; label: string; acceptsItems: string[] }>;
+    feedback?: { correct?: string; incorrect?: string };
+  };
+  questionIndex: number;
+  userFeedback?: string;
+  lessonContext: {
+    lessonTitle: string;
+    moduleTitle: string;
+    capsuleTitle: string;
+    lessonDescription?: string;
+  };
+}
+
+/**
+ * Regenerate a single practice question based on user feedback or to fix errors
+ * Uses the current question and lesson context to generate a corrected version
+ */
+export const regenerateQuestion = async (
+  input: QuestionRegenerationInput,
+  options: { modelConfig: AIModelConfig }
+): Promise<string> => {
+  const { QUESTION_REGENERATION_PROMPT } = await import("@shared/ai/prompts");
+  const validatedConfig = requireModelConfig(options.modelConfig, "question regeneration");
+  const model = getAIClient(validatedConfig);
+
+  const contextPrompt = `
+LESSON CONTEXT:
+- Course: ${input.lessonContext.capsuleTitle}
+- Module: ${input.lessonContext.moduleTitle}
+- Lesson: ${input.lessonContext.lessonTitle}
+- Description: ${input.lessonContext.lessonDescription || "No description available"}
+
+CURRENT QUESTION (Question #${input.questionIndex + 1}):
+Type: ${input.currentQuestion.type}
+
+${JSON.stringify(input.currentQuestion, null, 2)}
+
+${input.userFeedback ? `USER FEEDBACK:\n"${input.userFeedback}"` : "ISSUE: The question has structural problems that need fixing."}
+
+TASK:
+1. Analyze the current question for any schema violations or issues
+2. ${input.userFeedback ? "Apply the user's feedback if relevant to fixing the question" : "Fix the structural issues"}
+3. Generate a corrected question that:
+   - Follows the exact schema for the question type
+   - Is relevant to the lesson topic "${input.lessonContext.lessonTitle}"
+   - Has proper validation (items=targets for dragDrop, blanks match placeholders for fillBlanks, etc.)
+
+Output ONLY the corrected question JSON object.`;
+
+  const { text } = await generateText({
+    model,
+    system: QUESTION_REGENERATION_PROMPT,
     prompt: contextPrompt,
   });
 

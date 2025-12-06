@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { paginationOptsValidator } from "convex/server";
+import { requireAuthenticatedUser } from "./utils/auth";
 
 export const send = mutation({
     args: {
@@ -10,6 +11,18 @@ export const send = mutation({
         content: v.string(),
     },
     handler: async (ctx, args) => {
+        // SECURITY: Verify the authenticated user matches the userId parameter
+        const { user } = await requireAuthenticatedUser(ctx);
+        if (user._id !== args.userId) {
+            throw new Error("Unauthorized: You can only send messages as yourself");
+        }
+
+        // SECURITY: Verify the session belongs to this user
+        const session = await ctx.db.get(args.sessionId);
+        if (!session || session.userId !== args.userId) {
+            throw new Error("Unauthorized: Session does not belong to you");
+        }
+
         const messageId = await ctx.db.insert("messages", {
             sessionId: args.sessionId,
             userId: args.userId,
@@ -52,10 +65,10 @@ export const saveAIResponse = mutation({
         content: v.string(),
     },
     handler: async (ctx, args) => {
-        // Verify user exists
-        const user = await ctx.db.get(args.userId);
-        if (!user) {
-            throw new Error("User not found");
+        // SECURITY: Verify the authenticated user matches the userId parameter
+        const { user } = await requireAuthenticatedUser(ctx);
+        if (user._id !== args.userId) {
+            throw new Error("Unauthorized: You can only save AI responses for your own chats");
         }
 
         // Find the session

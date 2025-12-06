@@ -113,7 +113,9 @@ export async function createCourseWithProgress(
 }
 
 export async function getCourseChapters(courseId: Id<"courses">) {
-  const chapters = await convex.query(api.courses.getChaptersWithVideosByCourseId, {
+  // Use lazy loading: first chapter gets full content, others get minimal info
+  // Transcript is NEVER loaded here - only loaded by AI tutor chat on demand
+  const chapters = await convex.query(api.courses.getChaptersWithVideosLazy, {
     courseId: courseId,
   });
   return chapters;

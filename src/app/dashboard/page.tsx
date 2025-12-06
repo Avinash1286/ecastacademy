@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, useCallback } from 'react';
+import { useMemo, useState, useCallback, useEffect } from 'react';
 import { useQuery } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
 import type { Course } from '@/lib/types';
@@ -19,6 +19,7 @@ const CoursesPage = () => {
   const [cursor, setCursor] = useState<string | undefined>(undefined);
   const [allLoadedCourses, setAllLoadedCourses] = useState<Course[]>([]);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [lastKnownHasMore, setLastKnownHasMore] = useState(false);
   
   // Fetch courses with cursor-based pagination
   const queryArgs = { 
@@ -76,15 +77,16 @@ const CoursesPage = () => {
     }
   }, [coursesResult?.nextCursor, displayCourses]);
 
-  // Reset loading state when new data arrives
-  useMemo(() => {
+  // Update hasMore and reset loading state when new data arrives
+  useEffect(() => {
     if (coursesResult !== undefined) {
+      setLastKnownHasMore(coursesResult.hasMore);
       setIsLoadingMore(false);
     }
   }, [coursesResult]);
 
-  // Check if there are more courses to load
-  const hasMore = coursesResult?.hasMore ?? false;
+  // Use lastKnownHasMore while loading to prevent button from hiding
+  const hasMore = isLoadingMore ? lastKnownHasMore : (coursesResult?.hasMore ?? lastKnownHasMore);
 
   return (
     <main className="bg-background min-h-screen">

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import YouTube from "react-youtube";
+import DOMPurify from "isomorphic-dompurify";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -119,20 +120,30 @@ export function ContentRenderer({
             )}
           </div>
 
-          <div className="aspect-video w-full rounded-lg overflow-hidden bg-black">
+          <div 
+            className="protected-youtube-container aspect-video w-full rounded-lg overflow-hidden bg-black"
+            style={{
+              contain: 'layout style paint',
+              isolation: 'isolate',
+            }}
+          >
             <YouTube
               videoId={contentItem.video.youtubeVideoId}
               opts={{
                 width: "100%",
                 height: "100%",
+                host: 'https://www.youtube-nocookie.com',
                 playerVars: {
                   autoplay: 0,
                   controls: 1,
                   rel: 0,
                   showinfo: 0,
                   modestbranding: 1,
+                  iv_load_policy: 3,
+                  playsinline: 1,
                 },
               }}
+              className="react-youtube-container"
             />
           </div>
 
@@ -205,7 +216,7 @@ export function ContentRenderer({
             <CardContent className="pt-6">
               <div
                 className="prose prose-lg dark:prose-invert max-w-none tiptap"
-                dangerouslySetInnerHTML={{ __html: contentItem.textContent || "" }}
+                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(contentItem.textContent || "") }}
               />
             </CardContent>
           </Card>

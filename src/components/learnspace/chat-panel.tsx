@@ -4,6 +4,7 @@ import { memo, useEffect, useMemo, useRef, useState } from 'react';
 // import { useChat } from '@ai-sdk/react'; // Removed
 import { useSession } from 'next-auth/react';
 import { useMutation, usePaginatedQuery, useAction } from 'convex/react';
+import { toast } from 'sonner';
 import { api } from '../../../convex/_generated/api';
 import type { Id } from '../../../convex/_generated/dataModel';
 import { type UIMessage } from 'ai'; // Removed DefaultChatTransport
@@ -43,16 +44,17 @@ type ExtendedUser = {
 };
 
 export function ChatPanel({ activeChapter, activeContentItem }: ChatPanelProps) {
-  const [manualError, setManualError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [isThinking, setIsThinking] = useState(false);
 
+  // Check if transcript is available (using hasTranscript flag since transcript is loaded on demand)
   const hasTranscript = useMemo(() => {
     if (activeContentItem?.type === 'video') {
       return activeContentItem.videoDetails?.hasTranscript || !!activeContentItem.videoDetails?.transcript;
     }
-    const fallbackTranscript = (activeChapter.video as VideoWithTranscript)?.transcript;
-    return !!fallbackTranscript;
+    // Check the chapter video for hasTranscript flag or actual transcript
+    const video = activeChapter.video as VideoWithTranscript & { hasTranscript?: boolean };
+    return video?.hasTranscript || !!video?.transcript;
   }, [activeChapter.video, activeContentItem]);
 
   const videoTitle = useMemo(() => {
@@ -204,13 +206,15 @@ export function ChatPanel({ activeChapter, activeContentItem }: ChatPanelProps) 
     }
 
     if (!sessionId || !userId) {
-      setManualError('Tutor session is still starting up. Please try again in a moment.');
+      toast.error('Session starting', {
+        description: 'Tutor session is still starting up. Please try again in a moment.',
+        duration: 3000,
+      });
       return;
     }
 
     const question = input.trim();
     setInput('');
-    setManualError(null);
     setIsThinking(true);
     setIsAutoScrolling(true);
 
@@ -230,28 +234,58 @@ export function ChatPanel({ activeChapter, activeContentItem }: ChatPanelProps) 
         content: messageToPlainText(m)
       }));
 
-      // Add the new user message to the context if it's not already there (it might be if optimistic update happened, but here we just grab from state)
-      // Actually, `messages` comes from DB. The DB update for user message might not have propagated yet.
-      // So we should append the current question manually to the context.
+      // Add the new user message to the context if it's not already there
       recentMessages.push({ role: "user", content: question });
+
+      // Get content item ID if applicable
+      const contentItemId = activeContentItem?.type === 'video' ? activeContentItem.id : undefined;
 
       await generateResponse({
         userId: userId as Id<"users">,
-        chatId: chatId, // The action uses chatId to find the session again, or we could pass sessionId if we updated the action. 
-        // The action `generateTutorResponse` takes `chatId`.
+        chatId: chatId,
         messages: recentMessages,
-        context: `Course: ${courseTitle}\nChapter: ${activeChapter.name}\nVideo: ${videoTitle}\nTranscript: ${(activeChapter.video as VideoWithTranscript)?.transcript || "Not available"}`,
+        // Pass chapter/content IDs for server-side transcript loading (transcript loaded on demand)
+        chapterId: activeChapter.id,
+        contentItemId: contentItemId,
+        courseTitle: courseTitle,
+        chapterTitle: activeChapter.name,
+        videoTitle: videoTitle,
       });
 
       // The action saves the response, so the UI will update automatically via subscription
 
     } catch (error) {
       console.error('[TUTOR_CHAT_SEND_ERROR]', error);
-      const friendlyMessage =
-        error instanceof Error
-          ? error.message
-          : 'Something went wrong while contacting the AI tutor.';
-      setManualError(friendlyMessage);
+      const errorMessage = error instanceof Error ? error.message : '';
+      
+      // Parse error and show user-friendly toast
+      if (errorMessage.includes('overloaded') || errorMessage.includes('overload')) {
+        toast.error('AI Tutor is busy', {
+          description: 'The AI model is currently overloaded. Please try again in a few moments.',
+          duration: 5000,
+        });
+      } else if (errorMessage.includes('rate limit') || errorMessage.includes('too many')) {
+        toast.error('Too many requests', {
+          description: 'Please wait a moment before sending another message.',
+          duration: 5000,
+        });
+      } else if (errorMessage.includes('timeout') || errorMessage.includes('timed out')) {
+        toast.error('Request timed out', {
+          description: 'The response took too long. Please try again.',
+          duration: 5000,
+        });
+      } else if (errorMessage.includes('network') || errorMessage.includes('fetch')) {
+        toast.error('Connection error', {
+          description: 'Please check your internet connection and try again.',
+          duration: 5000,
+        });
+      } else {
+        toast.error('Unable to get response', {
+          description: 'Something went wrong. Please try again.',
+          duration: 5000,
+        });
+      }
+      
       setInput(question); // Restore input
     } finally {
       setIsThinking(false);
@@ -296,13 +330,6 @@ export function ChatPanel({ activeChapter, activeContentItem }: ChatPanelProps) 
       {isThinking && (
         <div className="px-6 pb-4">
           <ThinkingIndicator />
-        </div>
-      )}
-
-      {/* Error Message */}
-      {manualError && (
-        <div className="mx-6 mb-4 rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3">
-          <p className="text-sm text-red-400">{manualError}</p>
         </div>
       )}
 

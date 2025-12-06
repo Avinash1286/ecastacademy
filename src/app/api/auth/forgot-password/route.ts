@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { api } from "../../../../../convex/_generated/api";
-import { generateToken } from "@/lib/auth/utils";
+import { generateToken, hashToken } from "@/lib/auth/utils";
 import { sendEmail } from "@/lib/email/send";
 import { getPasswordResetEmailHTML } from "@/lib/email/templates";
 import { createConvexClient } from "@/lib/convexClient";
 import { withRateLimit, RATE_LIMIT_PRESETS } from "@/lib/security/rateLimit";
 
 const convex = createConvexClient();
+
+// SECURITY: Auth secret for calling protected Convex mutations
+const AUTH_SECRET = process.env.CONVEX_AUTH_SECRET;
 
 export async function POST(request: NextRequest) {
   // Apply strict rate limiting to prevent brute-force and email bombing
@@ -54,14 +57,16 @@ export async function POST(request: NextRequest) {
 
     // Generate reset token
     const token = generateToken();
+    const hashedToken = hashToken(token); // Hash token before storing
     const expires = Date.now() + 24 * 60 * 60 * 1000; // 24 hours
 
-    // Store token in database
+    // Store HASHED token in database (security: prevents token theft if DB compromised)
     await convex.mutation(api.auth.createVerificationToken, {
       identifier: email,
-      token,
+      token: hashedToken, // Store hashed version
       expires,
       type: "passwordReset",
+      _authSecret: AUTH_SECRET,
     });
 
     // Send password reset email

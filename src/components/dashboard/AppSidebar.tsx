@@ -55,7 +55,7 @@ const navItems: NavItem[] = [
     variant: "link",
   },
   {
-    href: "/admin/videos",
+    href: "/admin/courses",
     icon: Settings,
     label: "Admin Panel",
     variant: "link",

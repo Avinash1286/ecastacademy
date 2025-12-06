@@ -139,12 +139,15 @@ export default function CapsuleLearningPage({ params }: PageProps) {
         return;
       }
 
+      // Only mark as completed if score is 100% (or no score/quiz involved)
+      const isFullyComplete = score === undefined || score === 100;
+
       await updateProgress({
         userId,
         capsuleId,
         moduleId: currentModule._id,
         lessonId: currentLesson._id,
-        completed: true,
+        completed: isFullyComplete,
         score,
         maxScore: currentLesson.maxPoints,
         quizAnswer,
@@ -155,6 +158,7 @@ export default function CapsuleLearningPage({ params }: PageProps) {
   };
 
   // Handler for tracking hints used
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleHintUsed = async () => {
     if (!currentLesson || !userId) return;
 
@@ -406,6 +410,8 @@ export default function CapsuleLearningPage({ params }: PageProps) {
                       content={currentLesson.content} 
                       onComplete={() => handleLessonComplete()} 
                       isCompleted={isLessonCompleted}
+                      isOwner={capsuleData?.isOwner}
+                      userId={userId}
                     />
                   )}
                 </div>
