@@ -47,3 +47,12 @@ public/sw.js
 public/sw.js.map
 public/workbox-*.js
 public/workbox-*.js.map
+
+# Environment files
+.env
+.env.local
+.env.production
+convex_keys.env
+
+# Convex
+.convex/

@@ -250,7 +250,8 @@ async function handler(req: NextRequest): Promise<NextResponse> {
       let isOwnerByEmail = false;
       if (!isOwnerById && session.user.email) {
         const owner = await convex.query(api.clerkAuth.getUserById, { id: certificate.userId });
-        if (owner?.email && owner.email.toLowerCase() === session.user.email.toLowerCase()) {
+        // Check if owner has email property (full user data returned for owner/admin)
+        if (owner && 'email' in owner && owner.email && owner.email.toLowerCase() === session.user.email.toLowerCase()) {
           isOwnerByEmail = true;
         }
       }

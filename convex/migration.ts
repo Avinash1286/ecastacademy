@@ -52,10 +52,10 @@ export const clearAllUsers = internalMutation({
         deletedRelatedRecords++;
       }
 
-      // Delete capsule progress
+      // Delete capsule progress (filter by userId since no by_userId index exists)
       const capsuleProgress = await ctx.db
         .query("capsuleProgress")
-        .withIndex("by_userId", (q) => q.eq("userId", user._id))
+        .filter((q) => q.eq(q.field("userId"), user._id))
         .collect();
       for (const record of capsuleProgress) {
         await ctx.db.delete(record._id);
