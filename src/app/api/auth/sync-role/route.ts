@@ -96,7 +96,7 @@ export async function POST() {
 }
 
 /**
- * GET /api/admin/sync-role
+ * GET /api/auth/sync-role
  * 
  * Check current role status without syncing.
  */

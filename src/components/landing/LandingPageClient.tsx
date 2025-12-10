@@ -192,8 +192,7 @@ export function LandingPageClient() {
             {/* Subheadline */}
             <FadeUp delay={0.3}>
               <p className="text-lg sm:text-xl text-muted-foreground max-w-3xl mx-auto leading-relaxed">
-                AI-powered learning with interactive notes, smart quizzes, and provides 
-                a 24/7 tutor for youtube courses. Fill knowledge gaps with AI Capsules. Earn certificates 
+                AI-powered learning with interactive notes, smart quizzes, and a 24/7 tutor for YouTube courses. Fill knowledge gaps with AI Capsules. Earn certificates 
                 that matter.
               </p>
             </FadeUp>
@@ -223,7 +222,7 @@ export function LandingPageClient() {
               <div className="flex flex-wrap items-center justify-center gap-6 pt-8 text-sm text-muted-foreground">
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="h-4 w-4 text-green-500" />
-                  <span>Youtube Courses</span>
+                  <span>YouTube Courses</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="h-4 w-4 text-green-500" />
@@ -325,7 +324,7 @@ export function LandingPageClient() {
               "Section-by-section breakdown",
               "Key terms and definitions highlighted",
               "Code blocks with syntax highlighting",
-              "Interactive quizes",
+              "Interactive quizzes",
               "Interactive prompts and reflection questions"
             ]}
             mediaType="image"

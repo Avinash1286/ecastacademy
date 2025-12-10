@@ -195,11 +195,11 @@ export const getOwnUserByEmail = query({
 });
 
 /**
- * Query to get user by Clerk ID
- * This is a public query that returns basic user info.
+ * Internal query to get user by Clerk ID
+ * Not exposed to clients - use only from Convex actions, internal mutations, or scheduled functions.
  * Used for server-side operations like certificate verification.
  */
-export const getUserByClerkId = query({
+export const getUserByClerkId = internalQuery({
   args: { clerkId: v.string() },
   handler: async (ctx, args) => {
     const user = await ctx.db
@@ -211,11 +211,7 @@ export const getUserByClerkId = query({
       return null;
     }
     
-    // Return limited info for public access
-    return {
-      _id: user._id,
-      email: user.email,
-      name: user.name,
-    };
+    // Return full user info for internal server-side use
+    return user;
   },
 });
