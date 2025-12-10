@@ -4,7 +4,7 @@ import { useState, use, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useQuery, useMutation, useAction } from 'convex/react';
 import { api } from '../../../../../convex/_generated/api';
 import { useRouter } from 'next/navigation';
-import { useSession } from 'next-auth/react';
+import { useAuth } from '@/hooks/useAuth';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -35,7 +35,7 @@ export default function CapsuleLearnPage({ params }: PageProps) {
   const resolvedParams = use(params);
   const capsuleId = resolvedParams.id as Id<'capsules'>;
   const router = useRouter();
-  const { data: session, status } = useSession();
+  const { data: session, status } = useAuth();
   const userId = session?.user?.id as Id<'users'> | undefined;
   const isAuthenticated = status === 'authenticated' && !!userId;
 
@@ -44,6 +44,7 @@ export default function CapsuleLearnPage({ params }: PageProps) {
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [showCourseCompleteConfetti, setShowCourseCompleteConfetti] = useState(false);
   const hasShownCelebration = useRef(false);
+  const [optimisticProgress, setOptimisticProgress] = useState<Map<Id<'capsuleLessons'>, { completed?: boolean; score?: number; maxScore?: number }>>(new Map());
   const { playCorrectSound, isMuted, toggleMute } = useSoundEffects();
 
   // Fetch capsule with access control - pass userId for ownership check
@@ -75,6 +76,24 @@ export default function CapsuleLearnPage({ params }: PageProps) {
     [userProgress]
   );
 
+  const mergedProgressByLesson = useMemo(() => {
+    // Create a new map that can hold both full progress records and optimistic partial updates
+    const merged = new Map<Id<'capsuleLessons'>, { completed?: boolean; score?: number; maxScore?: number }>();
+    
+    // Copy existing progress records
+    progressByLesson.forEach((record, key) => {
+      merged.set(key, record);
+    });
+    
+    // Merge optimistic updates on top
+    optimisticProgress.forEach((value, key) => {
+      const existing = merged.get(key) || {};
+      merged.set(key, { ...existing, ...value });
+    });
+    
+    return merged;
+  }, [progressByLesson, optimisticProgress]);
+
   const updateProgress = useMutation(api.capsules.updateLessonProgress);
   const updateTypedProgress = useMutation(api.capsules.updateTypedLessonProgress);
   const updateMixedNavigation = useMutation(api.capsules.updateMixedLessonNavigation);
@@ -82,7 +101,7 @@ export default function CapsuleLearnPage({ params }: PageProps) {
 
   // Calculate progress (safe for early returns)
   const totalLessonsCount = capsuleData?.modules?.reduce((acc, m) => acc + m.lessons.length, 0) || 0;
-  const completedLessonsCount = countCompletedLessons(progressByLesson);
+  const completedLessonsCount = countCompletedLessons(mergedProgressByLesson);
   const progressPercentageValue = totalLessonsCount > 0 ? (completedLessonsCount / totalLessonsCount) * 100 : 0;
 
   // Compute current module/lesson safely (needed for callbacks)
@@ -94,6 +113,14 @@ export default function CapsuleLearnPage({ params }: PageProps) {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleTypedQuizAnswer = useCallback(async (answer: QuizAnswer) => {
     if (!currentLessonId || !userId || !currentModuleId) return;
+
+    // Update optimistic progress IMMEDIATELY for UI feedback
+    // Do this before any async operations
+    setOptimisticProgress((prev) => {
+      const next = new Map(prev);
+      next.set(currentLessonId, { completed: true, maxScore: currentLesson?.maxPoints });
+      return next;
+    });
 
     try {
       await updateTypedProgress({
@@ -107,8 +134,14 @@ export default function CapsuleLearnPage({ params }: PageProps) {
       });
     } catch (error) {
       console.error('Error updating typed progress:', error);
+      // Revert optimistic update on error
+      setOptimisticProgress((prev) => {
+        const next = new Map(prev);
+        next.delete(currentLessonId);
+        return next;
+      });
     }
-  }, [currentLessonId, userId, capsuleId, currentModuleId, currentLesson?.maxPoints, updateTypedProgress]);
+  }, [currentLessonId, userId, capsuleId, currentModuleId, currentLesson?.maxPoints, updateTypedProgress, setOptimisticProgress]);
 
   // Handler for mixed lesson typed answers - must be before early returns
   const handleMixedTypedAnswer = useCallback(async (data: {
@@ -128,14 +161,26 @@ export default function CapsuleLearnPage({ params }: PageProps) {
   }) => {
     if (!currentLessonId || !userId || !currentModuleId) return;
 
+    // Only mark as completed if score is 100%
+    const isFullyComplete = data.allQuestionsAnswered && data.overallScore === 100;
+
+    // Update optimistic progress IMMEDIATELY for UI feedback
+    // Do this before any async operations
+    setOptimisticProgress((prev) => {
+      const next = new Map(prev);
+      next.set(currentLessonId, { 
+        completed: isFullyComplete, 
+        score: data.overallScore, 
+        maxScore: currentLesson?.maxPoints 
+      });
+      return next;
+    });
+
     try {
       // Extract the last answered question's answer for typedLastAnswer
       const lastAnsweredState = data.questionStates
         .filter(s => s.answered && s.answer)
         .pop();
-
-      // Only mark as completed if score is 100%
-      const isFullyComplete = data.allQuestionsAnswered && data.overallScore === 100;
 
       await updateTypedProgress({
         userId,
@@ -153,8 +198,14 @@ export default function CapsuleLearnPage({ params }: PageProps) {
       });
     } catch (error) {
       console.error('Error updating mixed lesson progress:', error);
+      // Revert optimistic update on error
+      setOptimisticProgress((prev) => {
+        const next = new Map(prev);
+        next.delete(currentLessonId);
+        return next;
+      });
     }
-  }, [currentLessonId, userId, capsuleId, currentModuleId, currentLesson?.maxPoints, updateTypedProgress]);
+  }, [currentLessonId, userId, capsuleId, currentModuleId, currentLesson?.maxPoints, updateTypedProgress, setOptimisticProgress]);
 
   // Handler for mixed lesson navigation (lightweight update) - must be before early returns
   const handleMixedNavigation = useCallback(async (questionIndex: number) => {
@@ -237,7 +288,7 @@ export default function CapsuleLearnPage({ params }: PageProps) {
   const progressPercentage = progressPercentageValue;
 
   // Get current lesson progress
-  const currentLessonProgress = getLessonProgress(progressByLesson, safeCurrentLesson?._id);
+  const currentLessonProgress = getLessonProgress(mergedProgressByLesson, safeCurrentLesson?._id);
   const isLessonCompleted = currentLessonProgress?.completed || false;
 
   const handleLessonComplete = async (score?: number, quizAnswer?: {
@@ -253,6 +304,14 @@ export default function CapsuleLearnPage({ params }: PageProps) {
     // Only mark as completed if score is 100% (or no score/quiz involved)
     const isFullyComplete = score === undefined || score === 100;
 
+    // Update optimistic progress IMMEDIATELY for UI feedback
+    // Do this before any async operations
+    setOptimisticProgress((prev) => {
+      const next = new Map(prev);
+      next.set(safeCurrentLesson._id, { completed: isFullyComplete, score, maxScore: safeCurrentLesson.maxPoints });
+      return next;
+    });
+
     try {
       await updateProgress({
         userId,
@@ -266,6 +325,12 @@ export default function CapsuleLearnPage({ params }: PageProps) {
       });
     } catch (error) {
       console.error('Error updating progress:', error);
+      // Revert optimistic update on error
+      setOptimisticProgress((prev) => {
+        const next = new Map(prev);
+        next.delete(safeCurrentLesson._id);
+        return next;
+      });
     }
   };
 
@@ -275,6 +340,11 @@ export default function CapsuleLearnPage({ params }: PageProps) {
     if (!safeCurrentLesson || !userId) return;
 
     try {
+      setOptimisticProgress((prev) => {
+        const next = new Map(prev);
+        next.set(safeCurrentLesson._id, { completed: false });
+        return next;
+      });
       await updateProgress({
         userId,
         capsuleId,
@@ -333,7 +403,31 @@ export default function CapsuleLearnPage({ params }: PageProps) {
       <div className="min-h-screen bg-background">
         <div className="border-b bg-card sticky top-0 z-10">
           <div className="container mx-auto max-w-5xl py-4 px-4">
-            <div className="flex items-center justify-between mb-3">
+            {/* Mobile layout: vertical stack */}
+            <div className="flex flex-col gap-3 md:hidden mb-3">
+              <div className="flex items-center justify-end gap-2">
+                <Button 
+                  variant="ghost" 
+                  size="icon"
+                  onClick={toggleMute}
+                  title={isMuted ? "Unmute sounds" : "Mute sounds"}
+                >
+                  {isMuted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => router.push('/dashboard/capsule')}>
+                  Exit
+                </Button>
+              </div>
+              <div>
+                <h1 className="text-xl font-bold">{capsuleData.title}</h1>
+                <p className="text-sm text-muted-foreground">
+                  Module {currentModuleIndex + 1}: {safeCurrentModule.title}
+                </p>
+              </div>
+            </div>
+            
+            {/* Desktop layout: horizontal */}
+            <div className="hidden md:flex items-center justify-between mb-3">
               <div>
                 <h1 className="text-2xl font-bold">{capsuleData.title}</h1>
                 <p className="text-sm text-muted-foreground">
@@ -406,7 +500,7 @@ export default function CapsuleLearnPage({ params }: PageProps) {
                       {mIndex === currentModuleIndex && (
                         <div className="ml-4 mt-1 space-y-1">
                           {module.lessons.map((lesson, lIndex) => {
-                            const lessonProgress = progressByLesson.get(lesson._id);
+                            const lessonProgress = mergedProgressByLesson.get(lesson._id);
                             const isLessonCompleted = lessonProgress?.completed ?? false;
                             return (
                               <button

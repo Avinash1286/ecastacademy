@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useQuery } from 'convex/react';
 import { api } from '../../../../../convex/_generated/api';
 import { Id } from '../../../../../convex/_generated/dataModel';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { useSession } from 'next-auth/react';
+import { useAuth } from '@/hooks/useAuth';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -18,11 +18,21 @@ const CAPSULES_PER_PAGE = 12;
 
 export default function CommunityCapsulePage() {
   const router = useRouter();
-  const { data: session } = useSession();
+  const { data: session } = useAuth();
   const userId = session?.user?.id as Id<"users"> | undefined;
 
   const [cursor, setCursor] = useState<string | undefined>(undefined);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [capsuleItems, setCapsuleItems] = useState<Array<{
+    _id: Id<"capsules">;
+    userId: Id<"users">;
+    title: string;
+    description?: string | null;
+    moduleCount?: number | null;
+    estimatedDuration?: number | null;
+  }>>([]);
+  const [hasMore, setHasMore] = useState(false);
+  const [nextCursor, setNextCursor] = useState<string | undefined>(undefined);
 
   // Fetch community capsules with pagination (includes user's own public capsules)
   const communityCapsules = useQuery(
@@ -33,16 +43,35 @@ export default function CommunityCapsulePage() {
     }
   );
 
-  const loading = communityCapsules === undefined;
+  const loading = communityCapsules === undefined && capsuleItems.length === 0;
+
+  // Accumulate pages instead of replacing
+  useEffect(() => {
+    if (!communityCapsules) return;
+
+    setHasMore(communityCapsules.hasMore);
+    setNextCursor(communityCapsules.nextCursor ?? undefined);
+
+    setCapsuleItems((prev) => {
+      // If cursor is undefined, this is the first page – replace
+      if (!cursor) {
+        return communityCapsules.capsules;
+      }
+      // Append new page, avoiding duplicates
+      const existingIds = new Set(prev.map((c) => c._id));
+      const newOnes = communityCapsules.capsules.filter((c) => !existingIds.has(c._id));
+      return [...prev, ...newOnes];
+    });
+
+    setIsLoadingMore(false);
+  }, [communityCapsules, cursor]);
 
   const handleLoadMore = useCallback(() => {
-    if (communityCapsules?.nextCursor) {
+    if (nextCursor) {
       setIsLoadingMore(true);
-      setCursor(communityCapsules.nextCursor);
-      // Loading state will be reset when new data arrives
-      setTimeout(() => setIsLoadingMore(false), 500);
+      setCursor(nextCursor);
     }
-  }, [communityCapsules?.nextCursor]);
+  }, [nextCursor]);
 
 
 
@@ -93,10 +122,10 @@ export default function CommunityCapsulePage() {
               </Card>
             ))}
           </div>
-        ) : communityCapsules.capsules.length > 0 ? (
+        ) : capsuleItems.length > 0 ? (
           <>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {communityCapsules.capsules.map((capsule) => {
+              {capsuleItems.map((capsule) => {
                 const isOwn = userId && capsule.userId === userId;
                 return (
                 <Card 
@@ -164,7 +193,7 @@ export default function CommunityCapsulePage() {
             </div>
 
             {/* Load More Button */}
-            {communityCapsules.hasMore && (
+            {hasMore && (
               <div className="flex justify-center mt-8">
                 <Button
                   variant="outline"

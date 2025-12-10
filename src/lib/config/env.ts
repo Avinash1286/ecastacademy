@@ -19,36 +19,23 @@ interface EnvVarConfig {
 
 const ENV_VARS: EnvVarConfig[] = [
   // Core - Always Required
-  { name: 'NEXTAUTH_SECRET', required: true, description: 'Secret for NextAuth.js session encryption' },
+  { name: 'NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY', required: true, description: 'Clerk publishable key' },
+  { name: 'CLERK_SECRET_KEY', required: true, description: 'Clerk secret key' },
   { name: 'NEXT_PUBLIC_CONVEX_URL', required: true, description: 'Convex deployment URL' },
   
-  // Auth URLs
-  { name: 'NEXTAUTH_URL', required: false, requiredInProduction: true, description: 'Base URL for NextAuth.js' },
+  // App URLs
   { name: 'NEXT_PUBLIC_APP_URL', required: false, requiredInProduction: true, description: 'Public app URL for CORS and redirects' },
   
   // Convex
-  { name: 'CONVEX_DEPLOY_KEY', required: false, requiredInProduction: true, description: 'Convex deploy key for server-side operations' },
+  { name: 'CONVEX_DEPLOY_KEY', required: false, requiredInProduction: false, description: 'Convex deploy key for server-side operations' },
   
   // AI Services (at least one should be configured)
   { name: 'GEMINI_API_KEY', required: false, description: 'Google Gemini API key' },
   { name: 'OPENAI_API_KEY', required: false, description: 'OpenAI API key' },
   
-  // OAuth - Optional but recommended
-  { name: 'GOOGLE_CLIENT_ID', required: false, description: 'Google OAuth client ID' },
-  { name: 'GOOGLE_CLIENT_SECRET', required: false, description: 'Google OAuth client secret' },
-  { name: 'GITHUB_CLIENT_ID', required: false, description: 'GitHub OAuth client ID' },
-  { name: 'GITHUB_CLIENT_SECRET', required: false, description: 'GitHub OAuth client secret' },
-  
   // Rate Limiting (required in production for multi-instance)
   { name: 'UPSTASH_REDIS_REST_URL', required: false, requiredInProduction: true, description: 'Upstash Redis URL for rate limiting' },
   { name: 'UPSTASH_REDIS_REST_TOKEN', required: false, requiredInProduction: true, description: 'Upstash Redis token' },
-  
-  // Email (required for password reset)
-  { name: 'EMAIL_SERVER_HOST', required: false, requiredInProduction: true, description: 'SMTP server host' },
-  { name: 'EMAIL_SERVER_PORT', required: false, description: 'SMTP server port' },
-  { name: 'EMAIL_SERVER_USER', required: false, requiredInProduction: true, description: 'SMTP username' },
-  { name: 'EMAIL_SERVER_PASSWORD', required: false, requiredInProduction: true, description: 'SMTP password' },
-  { name: 'EMAIL_FROM', required: false, description: 'Default from email address' },
   
   // YouTube
   { name: 'YOUTUBE_API_KEY', required: false, description: 'YouTube Data API key' },

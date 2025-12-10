@@ -1,21 +1,18 @@
 "use client"
 
-import { useState } from "react"
-import { useSession } from "next-auth/react"
-import { useQuery, useMutation } from "convex/react"
+import { useAuth } from "@/hooks/useAuth"
+import { useQuery } from "convex/react"
 import { api } from "../../../../convex/_generated/api"
 import { Id } from "../../../../convex/_generated/dataModel"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Award, Calendar, TrendingUp, Eye, Mail, User as UserIcon, GraduationCap, Shield, Pencil, X, Check, Loader2, Sun, Moon, Monitor } from "lucide-react"
+import { Award, Calendar, TrendingUp, Eye, Mail, User as UserIcon, GraduationCap, Shield, Sun, Moon, Monitor } from "lucide-react"
 import { useTheme } from "next-themes"
-import { toast } from "sonner"
 import Link from "next/link"
 
 // Extend session user type to include id
@@ -28,21 +25,12 @@ interface ExtendedUser {
 }
 
 export default function ProfilePage() {
-  const { data: session, status, update: updateSession } = useSession()
+  const { data: session, status } = useAuth()
   const { theme, setTheme } = useTheme()
-  
-  // Edit name state
-  const [isEditingName, setIsEditingName] = useState(false)
-  const [editedName, setEditedName] = useState("")
-  const [nameError, setNameError] = useState("")
-  
+
   // Get userId from session
   const sessionUser = session?.user as unknown as ExtendedUser | undefined
   const userId = sessionUser?.id
-  
-  // Mutations
-  const updateUserProfile = useMutation(api.auth.updateUserProfile)
-  const [isUpdating, setIsUpdating] = useState(false)
   
   // Query certificates with userId
   const certificates = useQuery(
@@ -52,7 +40,7 @@ export default function ProfilePage() {
   
   // Query current user data to get the latest name
   const currentUser = useQuery(
-    api.auth.getUserById,
+    api.clerkAuth.getUserById,
     userId && status === "authenticated" ? { id: userId } : "skip"
   )
   
@@ -64,71 +52,6 @@ export default function ProfilePage() {
   
   // Get the display name (prefer database name over session name)
   const displayName = currentUser?.name || sessionUser?.name || "User"
-
-  // Handle name edit
-  const handleStartEdit = () => {
-    setEditedName(displayName)
-    setNameError("")
-    setIsEditingName(true)
-  }
-  
-  const handleCancelEdit = () => {
-    setIsEditingName(false)
-    setEditedName("")
-    setNameError("")
-  }
-  
-  const validateName = (name: string): string | null => {
-    const trimmed = name.trim()
-    if (trimmed.length < 2) {
-      return "Name must be at least 2 characters long"
-    }
-    if (trimmed.length > 100) {
-      return "Name must be less than 100 characters"
-    }
-    const nameRegex = /^[a-zA-Z\s\-'.]+$/
-    if (!nameRegex.test(trimmed)) {
-      return "Name can only contain letters, spaces, hyphens, apostrophes, and periods"
-    }
-    return null
-  }
-  
-  const handleSaveName = async () => {
-    if (!userId) {
-      toast.error("You must be signed in to update your profile")
-      return
-    }
-    
-    const validationError = validateName(editedName)
-    if (validationError) {
-      setNameError(validationError)
-      return
-    }
-    
-    setIsUpdating(true)
-    try {
-      const result = await updateUserProfile({ userId, name: editedName.trim() })
-      
-      // Update the session with the new name
-      await updateSession({
-        ...session,
-        user: {
-          ...session?.user,
-          name: result.name,
-        },
-      })
-      
-      toast.success("Name updated successfully")
-      setIsEditingName(false)
-      setEditedName("")
-      setNameError("")
-    } catch (error) {
-      console.error("Error updating name:", error)
-      toast.error(error instanceof Error ? error.message : "Failed to update name")
-    } finally {
-      setIsUpdating(false)
-    }
-  }
 
   // Show loading state
   if (status === "loading" || (status === "authenticated" && userId && (certificates === undefined || currentUser === undefined))) {
@@ -267,65 +190,10 @@ export default function ProfilePage() {
               <CardDescription>Manage your account settings and preferences</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              {/* Name Field */}
+              {/* Name Field (read-only) */}
               <div className="space-y-2">
-                <Label htmlFor="name" className="text-sm font-medium">Name</Label>
-                {isEditingName ? (
-                  <div className="space-y-2">
-                    <div className="flex gap-2">
-                      <Input
-                        id="name"
-                        value={editedName}
-                        onChange={(e) => {
-                          setEditedName(e.target.value)
-                          setNameError("")
-                        }}
-                        placeholder="Enter your name"
-                        className={nameError ? "border-red-500" : ""}
-                        disabled={isUpdating}
-                        autoFocus
-                      />
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        onClick={handleSaveName}
-                        disabled={isUpdating || !editedName.trim()}
-                        title="Save"
-                      >
-                        {isUpdating ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Check className="h-4 w-4 text-green-600" />
-                        )}
-                      </Button>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        onClick={handleCancelEdit}
-                        disabled={isUpdating}
-                        title="Cancel"
-                      >
-                        <X className="h-4 w-4 text-red-600" />
-                      </Button>
-                    </div>
-                    {nameError && (
-                      <p className="text-sm text-red-500">{nameError}</p>
-                    )}
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    <p className="text-muted-foreground">{displayName}</p>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="h-8 w-8"
-                      onClick={handleStartEdit}
-                      title="Edit name"
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                  </div>
-                )}
+                <Label className="text-sm font-medium">Name</Label>
+                <p className="text-muted-foreground">{displayName}</p>
               </div>
 
               {/* Email Field (Read-only) */}

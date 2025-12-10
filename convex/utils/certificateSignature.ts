@@ -83,28 +83,24 @@ export interface CertificateData {
  * In production, this should be set via Convex environment variables:
  * `npx convex env set CERTIFICATE_SIGNING_SECRET "your-secure-secret-here"`
  * 
- * @returns The signing secret (generates a deployment-specific one if not configured)
+ * @returns The signing secret
+ * @throws Error if the secret is not configured
  */
 function getSigningSecret(): string {
   // Try to get from Convex environment variable
   // This is set via: npx convex env set CERTIFICATE_SIGNING_SECRET "..."
-  const envSecret = (globalThis as Record<string, unknown>).CERTIFICATE_SIGNING_SECRET as string | undefined;
+  const envSecret = process.env.CERTIFICATE_SIGNING_SECRET;
   
   if (envSecret && typeof envSecret === 'string' && envSecret.length >= 32) {
     return envSecret;
   }
   
-  // Fallback: Generate a deterministic secret based on deployment
-  // This is NOT recommended for production - always set the env variable
-  console.warn(
-    '[CERTIFICATE_SIGNATURE] WARNING: Using fallback signing secret. ' +
-    'For production, set CERTIFICATE_SIGNING_SECRET via: ' +
-    'npx convex env set CERTIFICATE_SIGNING_SECRET "your-64-char-secret"'
+  // SECURITY: Never fall back to a generated secret - always require explicit configuration
+  throw new Error(
+    '[CERTIFICATE_SIGNATURE] CERTIFICATE_SIGNING_SECRET environment variable is required. ' +
+    'Set it via: npx convex env set CERTIFICATE_SIGNING_SECRET "your-64-char-secret" ' +
+    'Generate a secure secret using: openssl rand -base64 48'
   );
-  
-  // Generate a fallback that's at least consistent per deployment
-  const fallback = secureHash('ecast-academy-fallback-v2-' + (Date.now() / (1000 * 60 * 60 * 24 * 365)).toFixed(0), 10);
-  return fallback;
 }
 
 /**

@@ -11,10 +11,10 @@ import { api } from '../../../convex/_generated/api';
 import { Id } from '../../../convex/_generated/dataModel';
 import { toast } from 'sonner';
 import { useState } from 'react';
-import { useSession } from 'next-auth/react';
+import { useAuth } from '@/hooks/useAuth';
 
 export const CourseCard = ({ course }: { course: Course }) => {
-  const { data: session } = useSession();
+  const { data: session } = useAuth();
   const isAuthenticated = !!session?.user;
   const userId = session?.user?.id as Id<"users"> | undefined;
   

@@ -14,6 +14,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Loader2, Video, ArrowLeft, Check, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import Image from 'next/image';
+import { getCsrfHeaders } from '@/lib/security/csrfClient';
 
 type VideoData = {
   _id: Id<"videos">;
@@ -133,7 +134,10 @@ export default function SelectVideosPage() {
       // Create course with selected videos
       const response = await fetch('/api/course/create-from-videos', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...getCsrfHeaders(),
+        },
         body: JSON.stringify({
           courseName: courseData.name,
           courseDescription: courseData.description,

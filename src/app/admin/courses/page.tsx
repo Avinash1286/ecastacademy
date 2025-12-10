@@ -50,7 +50,7 @@ import {
 import { useState, useCallback, useMemo } from "react";
 import { toast } from "sonner";
 import Link from "next/link";
-import { useSession } from "next-auth/react";
+import { useAuth } from "@/hooks/useAuth";
 
 type CourseStatus = "draft" | "generating" | "ready" | "failed" | undefined;
 
@@ -70,7 +70,7 @@ type CourseWithStats = {
 const COURSES_PER_PAGE = 20;
 
 export default function CoursesManagementPage() {
-  const { data: session } = useSession();
+  const { data: session } = useAuth();
   const [searchQuery, setSearchQuery] = useState("");
   const [cursor, setCursor] = useState<string | undefined>(undefined);
   const [allCourses, setAllCourses] = useState<CourseWithStats[]>([]);

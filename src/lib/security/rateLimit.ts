@@ -203,8 +203,8 @@ export const RATE_LIMIT_PRESETS = {
   CHAT: { interval: 60000, maxRequests: 20 },
   /** Authentication attempts - strict limit to prevent brute force */
   AUTH: { interval: 300000, maxRequests: 5 }, // 5 attempts per 5 minutes
-  /** Capsule creation - expensive operation */
-  CAPSULE_CREATE: { interval: 60000, maxRequests: 5 },
+  /** Capsule creation - expensive operation (3 per hour) */
+  CAPSULE_CREATE: { interval: 60 * 60 * 1000, maxRequests: 3 },
   /** Course creation */
   COURSE_CREATE: { interval: 60000, maxRequests: 10 },
   /** Admin operations */

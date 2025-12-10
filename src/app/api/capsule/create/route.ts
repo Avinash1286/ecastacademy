@@ -6,8 +6,6 @@ import { Id } from '../../../../../convex/_generated/dataModel';
 import { withRateLimit, RATE_LIMIT_PRESETS } from '@/lib/security/rateLimit';
 import { logger } from '@/lib/logging/logger';
 
-const convex = createConvexClient();
-
 // =============================================================================
 // Input Sanitization
 // =============================================================================
@@ -58,6 +56,9 @@ export async function POST(request: NextRequest) {
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+  
+    // Capture Bearer token from the caller to authorize Convex mutations
+    const bearer = request.headers.get('authorization')?.replace(/^Bearer\s+/i, '') ?? null;
 
   let body;
   try {
@@ -125,8 +126,15 @@ export async function POST(request: NextRequest) {
     const sanitizedUserPrompt = sanitizeInput(userPrompt, MAX_USER_PROMPT_LENGTH);
 
     // Get user ID from Convex
-    const userId = session.user.id as Id<'users'>;
-    const user = await convex.query(api.auth.getUserById, {
+    const userId = session.user.id;
+    if (!userId) {
+      return NextResponse.json(
+        { error: 'User profile not found. Please try again.' },
+        { status: 404 }
+      );
+    }
+    const convex = createConvexClient({ userToken: bearer });
+    const user = await convex.query(api.clerkAuth.getUserById, {
       id: userId,
     });
 
@@ -138,7 +146,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Create capsule with storage ID (not base64 data) and sanitized inputs
-    const capsuleId = await convex.mutation(api.capsules.createCapsule, {
+      const capsuleId = await convex.mutation(api.capsules.createCapsule, {
       userId: user._id,
       title: sanitizedTitle,
       sourceType,
@@ -160,9 +168,9 @@ export async function POST(request: NextRequest) {
 
       // Update capsule status to failed (HIGH-4 fix: don't silently swallow errors)
       try {
-        await convex.mutation(api.capsules.updateCapsuleStatus, {
+        await convex.mutation(api.capsules.markCapsuleGenerationFailed, {
           capsuleId,
-          status: 'failed',
+          userId: user._id,
           errorMessage: error instanceof Error ? error.message : 'Generation failed unexpectedly',
         });
       } catch (updateError) {

@@ -57,6 +57,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Use the incoming Bearer token for Convex auth when available
+    const bearer = request.headers.get('authorization')?.replace(/^Bearer\s+/i, '') ?? null;
+
     const formData = await request.formData();
     const pdfFile = formData.get('pdf') as File;
 
@@ -102,7 +105,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Upload to Convex storage for files of any size
-    const convex = createConvexClient();
+    const convex = createConvexClient({ userToken: bearer });
 
     // Step 1: Get upload URL from Convex
     const uploadUrl = await convex.mutation(api.capsules.generateUploadUrl);

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { useQuery } from "convex/react"
+import { useAuthenticatedFetchRaw } from '@/hooks/useAuthenticatedFetch'
 import { api } from "../../../convex/_generated/api"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -23,6 +24,7 @@ export function CertificateView({
   verificationPath = "/certificates",
 }: CertificateViewProps) {
   const certificate = useQuery(api.progress.getCertificate, { certificateId })
+  const authenticatedFetch = useAuthenticatedFetchRaw()
 
   const normalizedVerificationPath = useMemo(() => {
     if (!verificationPath) {
@@ -97,7 +99,7 @@ export function CertificateView({
     
     setIsDownloading(true)
     try {
-      const response = await fetch("/api/certificates/generate-pdf", {
+      const response = await authenticatedFetch("/api/certificates/generate-pdf", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

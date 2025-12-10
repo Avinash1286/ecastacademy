@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import YouTube from "react-youtube";
 import DOMPurify from "isomorphic-dompurify";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -127,23 +126,13 @@ export function ContentRenderer({
               isolation: 'isolate',
             }}
           >
-            <YouTube
-              videoId={contentItem.video.youtubeVideoId}
-              opts={{
-                width: "100%",
-                height: "100%",
-                host: 'https://www.youtube-nocookie.com',
-                playerVars: {
-                  autoplay: 0,
-                  controls: 1,
-                  rel: 0,
-                  showinfo: 0,
-                  modestbranding: 1,
-                  iv_load_policy: 3,
-                  playsinline: 1,
-                },
-              }}
-              className="react-youtube-container"
+            <iframe
+              title={contentItem.video.title || contentItem.title}
+              src={`https://www.youtube-nocookie.com/embed/${contentItem.video.youtubeVideoId}?autoplay=0&controls=1&rel=0&modestbranding=1&playsinline=1&iv_load_policy=3`}
+              className="absolute inset-0 h-full w-full"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              allowFullScreen
+              loading="lazy"
             />
           </div>
 

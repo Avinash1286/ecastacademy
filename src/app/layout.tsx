@@ -1,27 +1,24 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono, Nunito } from "next/font/google";
 import "./globals.css";
-import { Toaster } from "@/components/ui/sonner";
-import { ThemeProvider } from "@/components/theme-provider"; // Import the new provider
-import { ConvexProvider } from "@/components/ConvexProvider";
-import { SessionProvider } from "next-auth/react";
-import { SoundProvider } from "@/context/SoundContext";
-import { InstallPrompt } from "@/components/pwa/InstallPrompt";
-import { OfflineIndicator } from "@/components/pwa/OfflineIndicator";
+import { Providers } from "./providers";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
+  display: "swap",
 });
 
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
+  display: "swap",
 });
 
 const nunito = Nunito({
   subsets: ["latin"],
   variable: "--font-nunito",
+  display: "swap",
 })
 
 export const viewport: Viewport = {
@@ -73,6 +70,12 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        {/* Resource Hints for Performance */}
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link rel="dns-prefetch" href="https://fonts.googleapis.com" />
+        <link rel="dns-prefetch" href="https://fonts.gstatic.com" />
+        
         {/* PWA Meta Tags */}
         <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
         <meta name="mobile-web-app-capable" content="yes" />
@@ -87,23 +90,9 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} ${nunito.variable} antialiased`}
         suppressHydrationWarning
       >
-        <SessionProvider>
-          <ConvexProvider>
-            <SoundProvider>
-              <ThemeProvider
-                attribute="class"
-                defaultTheme="dark"
-                enableSystem
-                disableTransitionOnChange
-              >
-                <OfflineIndicator />
-                {children}
-                <Toaster />
-                <InstallPrompt />
-              </ThemeProvider>
-            </SoundProvider>
-          </ConvexProvider>
-        </SessionProvider>
+        <Providers>
+          {children}
+        </Providers>
       </body>
     </html>
   );

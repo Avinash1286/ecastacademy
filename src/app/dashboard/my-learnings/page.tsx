@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react';
 import { useQuery } from 'convex/react';
-import { useSession } from 'next-auth/react';
+import { useAuth } from '@/hooks/useAuth';
 import { api } from '../../../../convex/_generated/api';
 import { Id } from '../../../../convex/_generated/dataModel';
 
@@ -25,7 +25,7 @@ interface ExtendedUser {
 
 const MyLearningsPage = () => {
   const { debouncedSearchTerm, searchTerm } = useDashboard();
-  const { data: session, status } = useSession();
+  const { data: session, status } = useAuth();
   
   // Get userId from session
   const sessionUser = session?.user as unknown as ExtendedUser | undefined;

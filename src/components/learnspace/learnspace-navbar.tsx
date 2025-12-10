@@ -19,7 +19,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { useMutation, useQuery } from "convex/react";
-import { useSession } from "next-auth/react";
+import { useAuth } from "@/hooks/useAuth";
 import { useRouter } from "next/navigation";
 import { api } from "../../../convex/_generated/api";
 import { Id } from "../../../convex/_generated/dataModel";
@@ -33,7 +33,7 @@ interface LearnspaceNavbarProps {
 }
 
 export function LearnspaceNavbar({ courseTitle, courseId, isCertification }: LearnspaceNavbarProps) {
-  const { data: session, status } = useSession();
+  const { data: session, status } = useAuth();
   const router = useRouter();
   const [isIssuing, setIsIssuing] = useState(false);
   const requestCertificate = useMutation(api.certificates.requestCertificate);
