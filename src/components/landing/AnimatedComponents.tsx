@@ -1,7 +1,13 @@
 'use client';
 
-import { motion, useInView, useScroll, useTransform } from 'framer-motion';
+import { motion, useInView, useScroll, useTransform, useReducedMotion } from 'framer-motion';
 import { useRef, ReactNode, useState, useEffect } from 'react';
+
+// Hook to check for reduced motion preference
+function useMotionPreference() {
+  const prefersReducedMotion = useReducedMotion();
+  return prefersReducedMotion;
+}
 
 // Fade up animation for sections
 export function FadeUp({ 
@@ -14,7 +20,13 @@ export function FadeUp({
   className?: string;
 }) {
   const ref = useRef(null);
-  const isInView = useInView(ref, { once: false, margin: "-100px" });
+  const isInView = useInView(ref, { once: true, margin: "-100px" });
+  const prefersReducedMotion = useMotionPreference();
+
+  // Skip animations if user prefers reduced motion
+  if (prefersReducedMotion) {
+    return <div className={className}>{children}</div>;
+  }
 
   return (
     <motion.div
@@ -40,7 +52,13 @@ export function StaggerContainer({
   staggerDelay?: number;
 }) {
   const ref = useRef(null);
-  const isInView = useInView(ref, { once: false, margin: "-50px" });
+  const isInView = useInView(ref, { once: true, margin: "-50px" });
+  const prefersReducedMotion = useMotionPreference();
+
+  // Skip animations if user prefers reduced motion
+  if (prefersReducedMotion) {
+    return <div className={className}>{children}</div>;
+  }
 
   return (
     <motion.div
@@ -100,6 +118,13 @@ export function FloatingElement({
   y?: number;
   className?: string;
 }) {
+  const prefersReducedMotion = useMotionPreference();
+
+  // Skip floating animation if user prefers reduced motion
+  if (prefersReducedMotion) {
+    return <div className={className}>{children}</div>;
+  }
+
   return (
     <motion.div
       animate={{ 
@@ -173,6 +198,17 @@ export function GradientText({
   children: ReactNode; 
   className?: string;
 }) {
+  const prefersReducedMotion = useMotionPreference();
+
+  // Static gradient for reduced motion
+  if (prefersReducedMotion) {
+    return (
+      <span className={`bg-gradient-to-r from-primary via-violet-500 to-fuchsia-500 bg-clip-text text-transparent ${className}`}>
+        {children}
+      </span>
+    );
+  }
+
   return (
     <motion.span
       className={`bg-gradient-to-r from-primary via-violet-500 to-fuchsia-500 bg-clip-text text-transparent bg-[length:200%_auto] ${className}`}
@@ -377,6 +413,13 @@ export function PulseButton({
   children: ReactNode; 
   className?: string;
 }) {
+  const prefersReducedMotion = useMotionPreference();
+
+  // Simplified version for reduced motion
+  if (prefersReducedMotion) {
+    return <div className={`relative ${className}`}>{children}</div>;
+  }
+
   return (
     <motion.div
       className={`relative ${className}`}
@@ -408,6 +451,25 @@ export function AnimatedBorder({
   children: ReactNode; 
   className?: string;
 }) {
+  const prefersReducedMotion = useMotionPreference();
+
+  // Static border for reduced motion
+  if (prefersReducedMotion) {
+    return (
+      <div className={`relative p-[1px] rounded-xl overflow-hidden ${className}`}>
+        <div
+          className="absolute inset-0"
+          style={{
+            background: 'linear-gradient(90deg, #8b5cf6, #ec4899, #06b6d4)',
+          }}
+        />
+        <div className="relative bg-background rounded-xl">
+          {children}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={`relative p-[1px] rounded-xl overflow-hidden ${className}`}>
       <motion.div

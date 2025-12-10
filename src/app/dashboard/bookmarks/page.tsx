@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
-import { useSession } from "next-auth/react";
+import { useAuth } from "@/hooks/useAuth";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import { Id } from "../../../../convex/_generated/dataModel";
@@ -26,7 +26,7 @@ import { toast } from "sonner";
 
 export default function BookmarksPage() {
   const router = useRouter();
-  const { data: session, status } = useSession();
+  const { data: session, status } = useAuth();
   const isAuthenticated = !!session?.user;
   const userId = session?.user?.id as Id<"users"> | undefined;
 
@@ -93,7 +93,7 @@ export default function BookmarksPage() {
               Sign in to save courses and capsules for later.
             </p>
             <Button asChild>
-              <Link href="/auth/signin">Sign In</Link>
+              <Link href="/sign-in">Sign In</Link>
             </Button>
           </div>
         </div>

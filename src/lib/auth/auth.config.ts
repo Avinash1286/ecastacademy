@@ -1,295 +1,161 @@
-import NextAuth from "next-auth";
-import type { NextAuthConfig } from "next-auth";
-import CredentialsProvider from "next-auth/providers/credentials";
-import GoogleProvider from "next-auth/providers/google";
-import GitHubProvider from "next-auth/providers/github";
+import { auth as clerkAuth, currentUser, clerkClient } from "@clerk/nextjs/server";
+import { createConvexClient } from "../convexClient";
 import { api } from "../../../convex/_generated/api";
-import { hashPassword, verifyPassword, validateEmail, validatePassword } from "./utils";
 import { Id } from "../../../convex/_generated/dataModel";
-import { createConvexClient } from "@/lib/convexClient";
 
-// SECURITY: Auth secret for calling protected Convex mutations
-// This prevents unauthorized clients from calling auth mutations directly
-const AUTH_SECRET = process.env.CONVEX_AUTH_SECRET;
+export type AppRole = "admin" | "user";
 
-// Extend the built-in session and user types
-declare module "next-auth" {
-  interface User {
-    role?: string;
-  }
-  interface Session {
-    user: {
-      id: string;
-      role: string;
-      name?: string | null;
-      email?: string | null;
-      image?: string | null;
-    }
-  }
+export interface SessionUser {
+  id?: Id<"users">; // Convex user id
+  clerkId: string;
+  role?: AppRole;
+  email?: string;
 }
 
-// Create Convex client
-const convex = createConvexClient();
-
-// Helper to make authenticated requests with deploy key
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function authenticatedQuery<T>(queryFunction: any, args: Record<string, unknown>): Promise<T> {
-  try {
-    return await convex.query(queryFunction, args);
-  } catch (error) {
-    console.error("Convex query failed", error);
-    throw error;
-  }
+export interface AppSession {
+  user: SessionUser;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function authenticatedMutation<T>(mutationFunction: any, args: Record<string, unknown>): Promise<T> {
-  try {
-    return await convex.mutation(mutationFunction, args);
-  } catch (error) {
-    console.error("Convex mutation failed", error);
-    throw error;
-  }
-}
-
-const authConfig: NextAuthConfig = {
-  providers: [
-    GoogleProvider({
-      clientId: process.env.GOOGLE_CLIENT_ID!,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-    }),
-    GitHubProvider({
-      clientId: process.env.GITHUB_CLIENT_ID!,
-      clientSecret: process.env.GITHUB_CLIENT_SECRET!,
-    }),
-    CredentialsProvider({
-      id: "credentials",
-      name: "Email and Password",
-      credentials: {
-        email: { label: "Email", type: "email" },
-        password: { label: "Password", type: "password" },
-        action: { label: "Action", type: "text" }, // 'signin' or 'signup'
-        name: { label: "Name", type: "text" },
-      },
-      async authorize(credentials) {
-        if (!credentials?.email || !credentials?.password) {
-          throw new Error("Email and password are required");
-        }
-
-        const email = credentials.email as string;
-        const password = credentials.password as string;
-        const action = credentials.action as string;
-
-        // Validate email format
-        if (!validateEmail(email)) {
-          throw new Error("Invalid email format");
-        }
-
-        if (action === "signup") {
-          // Sign up flow
-          const name = credentials.name as string;
-
-          // Validate password
-          const passwordValidation = validatePassword(password);
-          if (!passwordValidation.valid) {
-            throw new Error(passwordValidation.errors[0]);
-          }
-
-          // Check if user already exists
-          const existingUser = await convex.query(api.auth.getUserByEmail, {
-            email,
-          });
-
-          if (existingUser) {
-            throw new Error("User with this email already exists");
-          }
-
-          // Hash password
-          const hashedPassword = await hashPassword(password);
-
-          // Create user
-          const userId = await convex.mutation(api.auth.createUser, {
-            email,
-            password: hashedPassword,
-            name: name || undefined,
-            _authSecret: AUTH_SECRET,
-          });
-
-          return {
-            id: userId,
-            email,
-            name: name || null,
-            role: "user",
-          };
-        } else {
-          // Sign in flow
-          const user = await convex.query(api.auth.getUserByEmail, { email });
-
-          if (!user) {
-            throw new Error("Invalid email or password");
-          }
-
-          // Check if user has a password (might be OAuth only)
-          if (!user.password) {
-            throw new Error("Please sign in with your OAuth provider");
-          }
-
-          // Verify password
-          const isValidPassword = await verifyPassword(password, user.password);
-
-          if (!isValidPassword) {
-            throw new Error("Invalid email or password");
-          }
-
-          return {
-            id: user._id,
-            email: user.email,
-            name: user.name || null,
-            image: user.image || null,
-            role: user.role,
-          };
-        }
-      },
-    }),
-  ],
-
-  pages: {
-    signIn: "/auth/signin",
-    signOut: "/",
-    error: "/auth/error",
-  },
-
-  session: {
-    strategy: "jwt",
-    maxAge: 7 * 24 * 60 * 60, // 7 days
-  },
-
-  callbacks: {
-    async signIn({ user, account }) {
-      // For OAuth providers, check if user exists or create new one
-      if (account?.provider === "google" || account?.provider === "github") {
-        const email = user.email;
-        if (!email) {
-          return false;
-        }
-
-        const existingUser = await authenticatedQuery<{
-          _id: Id<"users">;
-          name?: string;
-          image?: string;
-          role: string;
-        } | null>(api.auth.getUserByEmail, {
-          email,
-        });
-
-        if (!existingUser) {
-          // Create new user from OAuth
-          const userId = await authenticatedMutation<string>(api.auth.createUser, {
-            email,
-            name: user.name || undefined,
-            image: user.image || undefined,
-            emailVerified: Date.now(),
-            _authSecret: AUTH_SECRET,
-          });
-          user.id = userId as string;
-        } else {
-          user.id = existingUser._id as string;
-          // Update user info if changed
-          if (existingUser.name !== user.name || existingUser.image !== user.image) {
-            await authenticatedMutation(api.auth.updateUser, {
-              id: existingUser._id,
-              name: user.name || undefined,
-              image: user.image || undefined,
-              _authSecret: AUTH_SECRET,
-            });
-          }
-        }
-
-        // Link account if not already linked
-        const existingAccount = await authenticatedQuery(
-          api.auth.getAccountByProvider,
-          {
-            provider: account.provider,
-            providerAccountId: account.providerAccountId,
-          }
-        );
-
-        if (!existingAccount) {
-          await authenticatedMutation(api.auth.linkAccount, {
-            userId: user.id as Id<"users">,
-            type: account.type,
-            provider: account.provider,
-            providerAccountId: account.providerAccountId,
-            access_token: account.access_token,
-            refresh_token: account.refresh_token,
-            expires_at: account.expires_at,
-            token_type: account.token_type,
-            scope: account.scope,
-            id_token: account.id_token,
-            session_state: account.session_state as string | undefined,
-            _authSecret: AUTH_SECRET,
-          });
-        }
-      }
-
-      return true;
-    },
-
-    async jwt({ token, user, trigger, session }) {
-      // Initial sign in - only store minimal data in JWT
-      // SECURITY: Role is NOT stored in JWT to prevent exposure
-      // Role is fetched server-side in the session callback
-      if (user) {
-        token.id = user.id;
-        token.email = user.email;
-        token.name = user.name;
-        token.picture = user.image;
-      }
-
-      // Handle session update
-      if (trigger === "update" && session) {
-        token.name = session.name;
-        token.picture = session.image;
-      }
-
-      return token;
-    },
-
-    async session({ session, token }) {
-      if (session.user) {
-        session.user.id = token.id as string;
-        session.user.name = token.name as string;
-        session.user.email = token.email as string;
-        session.user.image = token.picture as string;
-        
-        // SECURITY: Fetch role server-side instead of storing in JWT
-        // This prevents role from being exposed in client-readable JWT
-        try {
-          const currentUser = await convex.query(api.auth.getUserById, {
-            id: token.id as Id<"users">,
-          });
-          session.user.role = currentUser?.role || "user";
-        } catch (error) {
-          console.error("Error fetching user role in session callback:", error);
-          session.user.role = "user"; // Default to user role on error
-        }
-      }
-      return session;
-    },
-  },
-
-  events: {
-    async signIn({ user, isNewUser }) {
-      console.log("User signed in:", { userId: user.id, isNewUser });
-    },
-    async signOut() {
-      console.log("User signed out");
-    },
-  },
-
-  debug: process.env.NODE_ENV === "development",
+type ClaimsWithRole = {
+  metadata?: { role?: unknown };
+  publicMetadata?: { role?: unknown };
 };
 
-// Export NextAuth instance and handlers
-export const { handlers, auth, signIn, signOut } = NextAuth(authConfig);
+type ClerkUserLike = {
+  publicMetadata?: Record<string, unknown>;
+  privateMetadata?: Record<string, unknown>;
+  emailAddresses?: { emailAddress: string }[];
+};
 
+function roleFromSessionClaims(claims: Record<string, unknown> | null | undefined): AppRole | undefined {
+  const typed = claims as ClaimsWithRole | null | undefined;
+  const metadataRole = typed?.metadata?.role;
+  const publicMetadataRole = typed?.publicMetadata?.role;
+  return (metadataRole ?? publicMetadataRole) as AppRole | undefined;
+}
+
+function roleFromClerkUser(user: ClerkUserLike | null | undefined): AppRole | undefined {
+  const publicRole = user?.publicMetadata?.role as AppRole | undefined;
+  const privateRole = user?.privateMetadata?.role as AppRole | undefined;
+  return publicRole ?? privateRole;
+}
+
+async function fetchConvexUserByEmail(email: string) {
+  try {
+    const convex = createConvexClient();
+    return await convex.query(api.clerkAuth.getUserByEmail, { email });
+  } catch (error) {
+    console.error("Failed to fetch Convex user by email", error);
+    return null;
+  }
+}
+
+async function resolveUserAndRole(clerkUserId: string, sessionClaims: Record<string, unknown> | null | undefined) {
+  const clerkUser = await currentUser();
+  const email = clerkUser?.emailAddresses?.[0]?.emailAddress;
+
+  // Try role from claims -> Clerk metadata -> Convex user
+  const role =
+    roleFromSessionClaims(sessionClaims) ||
+    roleFromClerkUser(clerkUser) ||
+    undefined;
+
+  const convexUser = email ? await fetchConvexUserByEmail(email) : null;
+  const finalRole = (role || convexUser?.role) as AppRole | undefined;
+
+  return {
+    clerkUser,
+    email,
+    convexUser,
+    role: finalRole,
+  };
+}
+
+export async function auth(): Promise<AppSession | null> {
+  const { userId, sessionClaims } = await clerkAuth();
+
+  if (!userId) {
+    return null;
+  }
+
+  const { email, convexUser, role } = await resolveUserAndRole(userId, sessionClaims as Record<string, unknown>);
+
+  return {
+    user: {
+      id: convexUser?._id as Id<"users"> | undefined,
+      clerkId: userId,
+      role,
+      email: email || undefined,
+    },
+  };
+}
+
+export async function requireAuth(): Promise<AppSession> {
+  const session = await auth();
+
+  if (!session || !session.user?.clerkId) {
+    throw new Error("Unauthorized");
+  }
+
+  return session;
+}
+
+export async function requireAdmin(): Promise<AppSession & { user: SessionUser & { role: AppRole; id?: Id<"users"> } }> {
+  const session = await requireAuth();
+  let role = session.user.role;
+  let convexUserId = session.user.id;
+
+  // If role is missing, resolve via Clerk metadata or Convex user record
+  if (!role) {
+    const client = await clerkClient();
+    const clerkUser = await client.users.getUser(session.user.clerkId);
+    role = roleFromClerkUser(clerkUser);
+
+    if (!role) {
+      const email = clerkUser.emailAddresses?.[0]?.emailAddress;
+      const convexUser = email ? await fetchConvexUserByEmail(email) : null;
+      role = convexUser?.role as AppRole | undefined;
+      convexUserId = convexUser?._id as Id<"users"> | undefined;
+    }
+  }
+
+  if (role !== "admin") {
+    console.warn("[requireAdmin] non-admin access", {
+      clerkId: session.user.clerkId,
+      email: session.user.email,
+      resolvedRole: role,
+      convexUserId,
+    });
+    throw new Error("Admin access required");
+  }
+
+  // Ensure Clerk metadata carries the resolved role for future session claims
+  await syncClerkRoleMetadata(session.user.clerkId, role);
+
+  return {
+    user: {
+      ...session.user,
+      id: convexUserId,
+      role,
+    },
+  };
+}
+
+export async function syncClerkRoleMetadata(clerkUserId: string, role: AppRole): Promise<void> {
+  try {
+    const client = await clerkClient();
+    const user = await client.users.getUser(clerkUserId);
+    const currentRole = roleFromClerkUser(user);
+
+    if (currentRole !== role) {
+      await client.users.updateUserMetadata(clerkUserId, {
+        publicMetadata: {
+          ...user.publicMetadata,
+          role,
+        },
+      });
+    }
+  } catch (error) {
+    console.error("Failed to sync Clerk role metadata", error);
+  }
+}

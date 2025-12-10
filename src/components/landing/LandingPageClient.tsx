@@ -1,7 +1,7 @@
 'use client';
 
-import { motion, useScroll, useTransform } from 'framer-motion';
-import { useRef } from 'react';
+import { motion, useScroll, useTransform, useReducedMotion } from 'framer-motion';
+import { useRef, lazy, Suspense, useCallback } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { Button } from '@/components/ui/button';
@@ -33,22 +33,39 @@ import {
 import { FeatureShowcase, BrowserMockup } from '@/components/landing/FeatureShowcase';
 import { cn } from '@/lib/utils';
 
+// Smooth scroll handler for anchor links
+function useSmoothScroll() {
+  return useCallback((e: React.MouseEvent<HTMLAnchorElement>, targetId: string) => {
+    e.preventDefault();
+    const element = document.getElementById(targetId);
+    if (element) {
+      element.scrollIntoView({ 
+        behavior: 'smooth',
+        block: 'start'
+      });
+    }
+  }, []);
+}
+
 export function LandingPageClient() {
   const heroRef = useRef(null);
+  const prefersReducedMotion = useReducedMotion();
+  const handleSmoothScroll = useSmoothScroll();
+  
   const { scrollYProgress } = useScroll({
     target: heroRef,
     offset: ["start start", "end start"]
   });
   
   // Reduced parallax movement and slower fade out
-  const heroY = useTransform(scrollYProgress, [0, 1], [0, 80]);
-  const heroOpacity = useTransform(scrollYProgress, [0, 0.8, 1], [1, 1, 0]);
+  const heroY = useTransform(scrollYProgress, [0, 1], [0, prefersReducedMotion ? 0 : 80]);
+  const heroOpacity = useTransform(scrollYProgress, [0, 0.8, 1], [1, 1, prefersReducedMotion ? 1 : 0]);
 
   return (
     <div className="min-h-screen bg-background overflow-hidden">
       {/* Navigation */}
       <motion.nav 
-        initial={{ y: -100 }}
+        initial={prefersReducedMotion ? { y: 0 } : { y: -100 }}
         animate={{ y: 0 }}
         transition={{ duration: 0.6, ease: [0.25, 0.4, 0.25, 1] }}
         className="fixed top-0 left-0 right-0 z-50 border-b border-border/50 bg-background/80 backdrop-blur-xl"
@@ -60,28 +77,44 @@ export function LandingPageClient() {
             </Link>
             
             <div className="hidden md:flex items-center gap-8">
-              <Link href="#features" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+              <a 
+                href="#features" 
+                onClick={(e) => handleSmoothScroll(e, 'features')}
+                className="text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+              >
                 Features
-              </Link>
-              <Link href="#youtube-learning" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+              </a>
+              <a 
+                href="#youtube-learning" 
+                onClick={(e) => handleSmoothScroll(e, 'youtube-learning')}
+                className="text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+              >
                 YouTube Learning
-              </Link>
-              <Link href="#capsules" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+              </a>
+              <a 
+                href="#capsules" 
+                onClick={(e) => handleSmoothScroll(e, 'capsules')}
+                className="text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+              >
                 Capsules
-              </Link>
-              <Link href="#certification" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+              </a>
+              <a 
+                href="#certification" 
+                onClick={(e) => handleSmoothScroll(e, 'certification')}
+                className="text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+              >
                 Certification
-              </Link>
+              </a>
             </div>
 
             <div className="flex items-center gap-3">
               <div className="hidden md:block">
                 <ThemeToggle />
               </div>
-              <Link href="/auth/signin">
+              <Link href="/sign-in">
                 <Button variant="ghost" size="sm">Sign In</Button>
               </Link>
-              <Link href="/auth/signup" className="hidden md:block">
+              <Link href="/sign-up" className="hidden md:block">
                 <Button size="sm">Get Started</Button>
               </Link>
             </div>
@@ -94,22 +127,32 @@ export function LandingPageClient() {
         {/* Animated background */}
         <div className="absolute inset-0">
           <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-primary/10 via-background to-background" />
-          <motion.div
-            className="absolute top-1/4 left-1/4 w-96 h-96 bg-primary/20 rounded-full blur-3xl"
-            animate={{
-              scale: [1, 1.2, 1],
-              opacity: [0.3, 0.5, 0.3],
-            }}
-            transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
-          />
-          <motion.div
-            className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-purple-500/20 rounded-full blur-3xl"
-            animate={{
-              scale: [1.2, 1, 1.2],
-              opacity: [0.3, 0.5, 0.3],
-            }}
-            transition={{ duration: 8, repeat: Infinity, ease: "easeInOut", delay: 2 }}
-          />
+          {!prefersReducedMotion && (
+            <>
+              <motion.div
+                className="absolute top-1/4 left-1/4 w-96 h-96 bg-primary/20 rounded-full blur-3xl"
+                animate={{
+                  scale: [1, 1.2, 1],
+                  opacity: [0.3, 0.5, 0.3],
+                }}
+                transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
+              />
+              <motion.div
+                className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-purple-500/20 rounded-full blur-3xl"
+                animate={{
+                  scale: [1.2, 1, 1.2],
+                  opacity: [0.3, 0.5, 0.3],
+                }}
+                transition={{ duration: 8, repeat: Infinity, ease: "easeInOut", delay: 2 }}
+              />
+            </>
+          )}
+          {prefersReducedMotion && (
+            <>
+              <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-primary/20 rounded-full blur-3xl opacity-30" />
+              <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-purple-500/20 rounded-full blur-3xl opacity-30" />
+            </>
+          )}
           {/* Grid pattern */}
           <div 
             className="absolute inset-0 opacity-[0.02] dark:opacity-[0.05]"
@@ -203,8 +246,10 @@ export function LandingPageClient() {
                     width={1920}
                     height={1080}
                     className="w-full"
-                    quality={100}
+                    quality={85}
                     priority
+                    placeholder="blur"
+                    blurDataURL="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAAIAAoDASIAAhEBAxEB/8QAFgABAQEAAAAAAAAAAAAAAAAAAAYH/8QAIhAAAgEDAwUBAAAAAAAAAAAAAQIDAAQRBRIhBhMiMUFR/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAZEQACAwEAAAAAAAAAAAAAAAABAgADESH/2gAMAwEAAhEDEQA/AJvpzU7q31C4uGuJZY3kJjV3JAHwKvtN6gvbeBYoriRVUY4Y0pTGwWnZVQhPZ//Z"
                   />
                 </BrowserMockup>
                 
@@ -230,19 +275,28 @@ export function LandingPageClient() {
         </motion.div>
 
         {/* Scroll indicator */}
-        <motion.div 
-          className="absolute bottom-8 left-1/2 -translate-x-1/2"
-          animate={{ y: [0, 10, 0] }}
-          transition={{ duration: 2, repeat: Infinity }}
-        >
-          <div className="w-6 h-10 rounded-full border-2 border-muted-foreground/30 flex justify-center pt-2">
-            <motion.div 
-              className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50"
-              animate={{ y: [0, 12, 0], opacity: [1, 0, 1] }}
-              transition={{ duration: 2, repeat: Infinity }}
-            />
+        {!prefersReducedMotion && (
+          <motion.div 
+            className="absolute bottom-8 left-1/2 -translate-x-1/2"
+            animate={{ y: [0, 10, 0] }}
+            transition={{ duration: 2, repeat: Infinity }}
+          >
+            <div className="w-6 h-10 rounded-full border-2 border-muted-foreground/30 flex justify-center pt-2">
+              <motion.div 
+                className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50"
+                animate={{ y: [0, 12, 0], opacity: [1, 0, 1] }}
+                transition={{ duration: 2, repeat: Infinity }}
+              />
+            </div>
+          </motion.div>
+        )}
+        {prefersReducedMotion && (
+          <div className="absolute bottom-8 left-1/2 -translate-x-1/2">
+            <div className="w-6 h-10 rounded-full border-2 border-muted-foreground/30 flex justify-center pt-2">
+              <div className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50" />
+            </div>
           </div>
-        </motion.div>
+        )}
       </section>
 
       {/* Feature 1: YouTube Learning */}
@@ -452,7 +506,7 @@ export function LandingPageClient() {
                       </Button>
                     </PulseButton>
                   </Link>
-                  <Link href="/auth/signin">
+                  <Link href="/sign-in">
                     <Button size="lg" variant="outline" className="w-full sm:w-auto text-base px-8 h-14 rounded-xl">
                       Sign In to Continue
                     </Button>
@@ -479,10 +533,10 @@ export function LandingPageClient() {
             <div>
               <h3 className="font-semibold mb-4">Product</h3>
               <ul className="space-y-2 text-sm text-muted-foreground">
-                <li><Link href="#features" className="hover:text-foreground transition-colors">Features</Link></li>
-                <li><Link href="#youtube-learning" className="hover:text-foreground transition-colors">YouTube Learning</Link></li>
-                <li><Link href="#capsules" className="hover:text-foreground transition-colors">Capsules</Link></li>
-                <li><Link href="#certification" className="hover:text-foreground transition-colors">Certification</Link></li>
+                <li><a href="#features" onClick={(e) => handleSmoothScroll(e, 'features')} className="hover:text-foreground transition-colors cursor-pointer">Features</a></li>
+                <li><a href="#youtube-learning" onClick={(e) => handleSmoothScroll(e, 'youtube-learning')} className="hover:text-foreground transition-colors cursor-pointer">YouTube Learning</a></li>
+                <li><a href="#capsules" onClick={(e) => handleSmoothScroll(e, 'capsules')} className="hover:text-foreground transition-colors cursor-pointer">Capsules</a></li>
+                <li><a href="#certification" onClick={(e) => handleSmoothScroll(e, 'certification')} className="hover:text-foreground transition-colors cursor-pointer">Certification</a></li>
               </ul>
             </div>
             <div>

@@ -69,7 +69,7 @@ export const generateTutorResponse = action({
         const { userId, chatId, messages, chapterId, contentItemId, courseTitle, chapterTitle, videoTitle } = args;
 
         // 1. Verify user exists (userId is passed from client)
-        const user = await ctx.runQuery(api.auth.getUserById, { id: userId });
+        const user = await ctx.runQuery(api.clerkAuth.getUserById, { id: userId });
         if (!user) {
             throw new Error("User not found");
         }

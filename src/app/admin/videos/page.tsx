@@ -24,7 +24,7 @@ import { useState, useMemo, useCallback } from "react";
 import { toast } from "sonner";
 import Image from "next/image";
 import Link from "next/link";
-import { useSession } from "next-auth/react";
+import { useAuth } from "@/hooks/useAuth";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -53,7 +53,7 @@ type VideoData = {
 const VIDEOS_PER_PAGE = 12;
 
 export default function VideosLibraryPage() {
-  const { data: session } = useSession();
+  const { data: session } = useAuth();
   const [searchQuery, setSearchQuery] = useState("");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [videoToDelete, setVideoToDelete] = useState<{ id: Id<"videos">; title: string } | null>(null);

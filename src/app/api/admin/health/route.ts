@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createConvexClient } from "@/lib/convexClient";
 import { api } from "../../../../../convex/_generated/api";
-import { auth } from "@/lib/auth/auth.config";
+import { requireAdmin } from "@/lib/auth/auth.config";
 import { withRateLimit, RATE_LIMIT_PRESETS } from "@/lib/security/rateLimit";
 
 /**
@@ -44,21 +44,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const rateLimitResponse = await withRateLimit(request, RATE_LIMIT_PRESETS.ADMIN);
   if (rateLimitResponse) return rateLimitResponse;
 
-  // Require admin authentication
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json(
-      { error: "Authentication required" },
-      { status: 401 }
-    );
-  }
-
-  if (session.user.role !== "admin") {
-    return NextResponse.json(
-      { error: "Admin access required" },
-      { status: 403 }
-    );
-  }
+  // Require admin authentication (Clerk + Convex role)
+  await requireAdmin();
 
   const startTime = process.hrtime();
   const checks: DetailedHealthStatus["checks"] = [];
@@ -72,7 +59,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   // Check 2: Environment variables
   const requiredEnvVars = [
     "NEXT_PUBLIC_CONVEX_URL",
-    "NEXTAUTH_SECRET",
+    "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY",
+    "CLERK_SECRET_KEY",
     "CONVEX_DEPLOY_KEY",
   ];
   

@@ -1859,7 +1859,7 @@ export function MixedLesson({
       }
       onComplete?.(100);
     }
-  }, [onComplete, onTypedAnswer, playCorrectSound, hasQuiz, questionResults, practiceQuestions.length, effectiveLessonId, questionStates, currentQuestionIndex]);
+  }, [onComplete, onTypedAnswer, hasQuiz, questionResults, practiceQuestions.length, effectiveLessonId, questionStates, currentQuestionIndex]);
 
   const getCorrectIndex = (q: MCQQuestion) => q.correctIndex ?? q.correct ?? 0;
 

@@ -200,8 +200,9 @@ async function handler(req: NextRequest): Promise<NextResponse> {
   }
 
   // Require authentication for certificate generation
+  // Allow either Convex user id or email to be present; don't block when id is missing
   const session = await auth();
-  if (!session?.user?.id) {
+  if (!session?.user?.clerkId) {
     return NextResponse.json(
       { error: "Authentication required" },
       { status: 401 }
@@ -242,8 +243,22 @@ async function handler(req: NextRequest): Promise<NextResponse> {
       const certificate = await convex.query(api.certificates.getCertificate, {
         certificateId,
       });
-      
-      if (certificate.userId !== session.user.id) {
+
+      const isOwnerById = session.user.id && certificate.userId === session.user.id;
+
+      // Fallback: match by email in case the Convex user id is not hydrated in the session
+      let isOwnerByEmail = false;
+      if (!isOwnerById && session.user.email) {
+        const owner = await convex.query(api.clerkAuth.getUserById, { id: certificate.userId });
+        if (owner?.email && owner.email.toLowerCase() === session.user.email.toLowerCase()) {
+          isOwnerByEmail = true;
+        }
+      }
+
+      // Allow admins as well
+      const isAdmin = session.user.role === "admin";
+
+      if (!isOwnerById && !isOwnerByEmail && !isAdmin) {
         return NextResponse.json(
           { error: "Forbidden: You can only generate certificates for your own courses" },
           { status: 403 }

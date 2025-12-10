@@ -1,6 +1,5 @@
 'use client';
 
-import YouTube, { YouTubeProps } from 'react-youtube';
 import type { ChapterWithVideo } from '@/lib/types';
 
 type VideoPlayerProps = {
@@ -9,20 +8,6 @@ type VideoPlayerProps = {
 };
 
 export function VideoPlayer({ video, isPlayerVisible }: VideoPlayerProps) {
-
-  const opts: YouTubeProps['opts'] = {
-    playerVars: {
-      autoplay: isPlayerVisible ? 1 : 0, 
-      controls: 1,
-      rel: 0,
-      showinfo: 0,
-      modestbranding: 1,
-      iv_load_policy: 3, // Hide annotations
-      playsinline: 1,
-    },
-    host: 'https://www.youtube-nocookie.com', // Privacy-enhanced mode - fewer extension triggers
-  };
-
   // Handle null video or missing videoId
   if (!video || !video.videoId) {
     return (
@@ -32,6 +17,8 @@ export function VideoPlayer({ video, isPlayerVisible }: VideoPlayerProps) {
     );
   }
 
+  const src = `https://www.youtube-nocookie.com/embed/${video.videoId}?autoplay=${isPlayerVisible ? 1 : 0}&controls=1&rel=0&modestbranding=1&playsinline=1&iv_load_policy=3`;
+
   return (
     <div 
       className="protected-youtube-container relative aspect-video w-full overflow-hidden rounded-lg bg-black"
@@ -40,11 +27,13 @@ export function VideoPlayer({ video, isPlayerVisible }: VideoPlayerProps) {
         isolation: 'isolate',
       }}
     >
-      <YouTube
-        videoId={video.videoId}
-        opts={opts}
-        className="react-youtube-container absolute inset-0 h-full w-full"
-        iframeClassName="h-full w-full"
+      <iframe
+        title={video.title || 'Video player'}
+        src={src}
+        className="absolute inset-0 h-full w-full"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+        allowFullScreen
+        loading="lazy"
       />
     </div>
   );

@@ -13,6 +13,7 @@ import { ChapterWithVideo, ContentItem } from '@/lib/types';
 import { LearnspaceNavbar } from '@/components/learnspace/learnspace-navbar';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Id } from '../../../convex/_generated/dataModel';
+import { useAuthenticatedFetchRaw } from '@/hooks/useAuthenticatedFetch';
 
 interface LearnspaceProps {
   initialChapters: ChapterWithVideo[];
@@ -31,6 +32,7 @@ const getInitialChapter = (chapters: ChapterWithVideo[], chapterIdFromUrl: strin
 export default function Learnspace({ initialChapters, courseId, isCertification }: LearnspaceProps) {
   const searchParams = useSearchParams();
   const chapterIdFromUrl = searchParams.get('chapter');
+  const authenticatedFetch = useAuthenticatedFetchRaw();
   
   // Store chapters with their loaded content - allows updating individual chapters
   const [chapters, setChapters] = useState<ChapterWithVideo[]>(initialChapters);
@@ -78,7 +80,7 @@ export default function Learnspace({ initialChapters, courseId, isCertification 
       const timeoutId = setTimeout(() => controller.abort(), 15000);
       
       // Use the on-demand content endpoint
-      const response = await fetch(
+      const response = await authenticatedFetch(
         `/api/courses/${activeChapter.course.id}/chapters/${chapterId}/content`,
         { signal: controller.signal }
       );
@@ -117,7 +119,7 @@ export default function Learnspace({ initialChapters, courseId, isCertification 
     } finally {
       setIsContentLoading(false);
     }
-  }, [activeChapter.course]);
+  }, [activeChapter.course, authenticatedFetch]);
 
   // Load content for initial chapter if coming from URL and it's not the first chapter
   useEffect(() => {

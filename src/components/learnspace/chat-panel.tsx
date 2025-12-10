@@ -2,7 +2,7 @@
 
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 // import { useChat } from '@ai-sdk/react'; // Removed
-import { useSession } from 'next-auth/react';
+import { useAuth } from '@/hooks/useAuth';
 import { useMutation, usePaginatedQuery, useAction } from 'convex/react';
 import { toast } from 'sonner';
 import { api } from '../../../convex/_generated/api';
@@ -85,7 +85,7 @@ export function ChatPanel({ activeChapter, activeContentItem }: ChatPanelProps) 
     return `${chapterKey}-${transcriptReady ? 'ready' : 'pending'}`;
   }, [chapterKey, transcriptReady]);
 
-  const { data: session, status: sessionStatus } = useSession();
+  const { data: session, status: sessionStatus } = useAuth();
   const sessionUser = session?.user as unknown as ExtendedUser | undefined;
   const userId = sessionUser?.id;
 

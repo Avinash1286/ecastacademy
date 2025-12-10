@@ -3,8 +3,9 @@
 import { useRef, useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { useSession } from 'next-auth/react';
+import { useAuth } from '@/hooks/useAuth';
 import { useQuery, useMutation, useAction } from 'convex/react';
+import { useAuthenticatedFetchRaw } from '@/hooks/useAuthenticatedFetch';
 import { api } from '../../../../convex/_generated/api';
 import { Doc, Id } from '../../../../convex/_generated/dataModel';
 import { Button } from '@/components/ui/button';
@@ -33,9 +34,10 @@ const STALE_THRESHOLD_MS = 15 * 60 * 1000; // 15 minutes
 
 export default function CapsulePage() {
   const router = useRouter();
-  const { data: session, status } = useSession();
+  const { data: session, status } = useAuth();
   const userId = session?.user?.id as Id<'users'> | undefined;
   const isAuthenticated = !!userId;
+  const authenticatedFetch = useAuthenticatedFetchRaw();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
@@ -258,13 +260,19 @@ export default function CapsulePage() {
         const formData = new FormData();
         formData.append('pdf', pdfFile);
 
-        const uploadResponse = await fetch('/api/capsule/upload-pdf', {
+        const uploadResponse = await authenticatedFetch('/api/capsule/upload-pdf', {
           method: 'POST',
           body: formData,
         });
 
         if (!uploadResponse.ok) {
           const errorData = await uploadResponse.json().catch(() => ({}));
+          if (uploadResponse.status === 429) {
+            const retryAfterSeconds = Number(uploadResponse.headers.get('Retry-After') || errorData.retryAfter || 0);
+            const retryMinutes = Math.max(1, Math.ceil(retryAfterSeconds / 60));
+            toast.error(`Capsule generation is rate limited. Please try again in about ${retryMinutes} minute(s).`);
+            return;
+          }
           throw new Error(errorData.error || 'Failed to upload PDF');
         }
 
@@ -289,7 +297,7 @@ export default function CapsulePage() {
         userPrompt: trimmedIdea || undefined,
       };
 
-      const response = await fetch('/api/capsule/create', {
+      const response = await authenticatedFetch('/api/capsule/create', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -298,7 +306,14 @@ export default function CapsulePage() {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to create capsule');
+        const errorData = await response.json().catch(() => ({}));
+        if (response.status === 429) {
+          const retryAfterSeconds = Number(response.headers.get('Retry-After') || errorData.retryAfter || 0);
+          const retryMinutes = Math.max(1, Math.ceil(retryAfterSeconds / 60));
+          toast.error(`Capsule generation is rate limited. Please try again in about ${retryMinutes} minute(s).`);
+          return;
+        }
+        throw new Error(errorData.error || 'Failed to create capsule');
       }
 
       await response.json();
@@ -476,23 +491,38 @@ export default function CapsulePage() {
 
         {/* My Capsules Section */}
         <section className="mt-16">
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-4">
-              <h2 className="text-xl font-semibold">My Capsules</h2>
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Clock className="h-4 w-4" />
-                <span>Newest</span>
-              </div>
+          {/* Mobile: View all on top right */}
+          <div className="flex flex-col gap-2 mb-6">
+            <div className="flex items-center justify-end md:hidden">
+              {capsuleList.length > 0 && (
+                <Button
+                  variant="ghost"
+                  className="text-sm"
+                  onClick={() => router.push('/dashboard/capsule/library')}
+                >
+                  View all
+                </Button>
+              )}
             </div>
-            {capsuleList.length > 0 && (
-              <Button
-                variant="ghost"
-                className="text-sm"
-                onClick={() => router.push('/dashboard/capsule/library')}
-              >
-                View all
-              </Button>
-            )}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 md:gap-4 flex-wrap">
+                <h2 className="text-xl font-semibold">My Capsules</h2>
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Clock className="h-4 w-4" />
+                  <span>Newest</span>
+                </div>
+              </div>
+              {/* Desktop: View all inline */}
+              {capsuleList.length > 0 && (
+                <Button
+                  variant="ghost"
+                  className="text-sm hidden md:flex"
+                  onClick={() => router.push('/dashboard/capsule/library')}
+                >
+                  View all
+                </Button>
+              )}
+            </div>
           </div>
 
           {!isAuthenticated && status !== 'loading' ? (
@@ -617,27 +647,43 @@ export default function CapsulePage() {
 
         {/* Community Capsules Section */}
         <section className="mt-16">
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-4">
-              <h2 className="text-xl font-semibold flex items-center gap-2">
-                <Globe className="h-5 w-5 text-primary" />
-                Community Capsules
-              </h2>
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Users className="h-4 w-4" />
-                <span>Shared by learners</span>
-              </div>
+          {/* Mobile: View all on top right */}
+          <div className="flex flex-col gap-2 mb-6">
+            <div className="flex items-center justify-end md:hidden">
+              {communityCapsules?.capsules && communityCapsules.capsules.length > 0 && (
+                <Button
+                  variant="ghost"
+                  className="text-sm gap-1"
+                  onClick={() => router.push('/dashboard/capsule/community')}
+                >
+                  View all
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              )}
             </div>
-            {communityCapsules?.capsules && communityCapsules.capsules.length > 0 && (
-              <Button
-                variant="ghost"
-                className="text-sm gap-1"
-                onClick={() => router.push('/dashboard/capsule/community')}
-              >
-                View all
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            )}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 md:gap-4 flex-wrap">
+                <h2 className="text-xl font-semibold flex items-center gap-2">
+                  <Globe className="h-5 w-5 text-primary" />
+                  Community Capsules
+                </h2>
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Users className="h-4 w-4" />
+                  <span>Shared by learners</span>
+                </div>
+              </div>
+              {/* Desktop: View all inline */}
+              {communityCapsules?.capsules && communityCapsules.capsules.length > 0 && (
+                <Button
+                  variant="ghost"
+                  className="text-sm gap-1 hidden md:flex"
+                  onClick={() => router.push('/dashboard/capsule/community')}
+                >
+                  View all
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
           </div>
 
           {communityCapsules === undefined ? (

@@ -1,13 +1,11 @@
+import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server'
 import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
-import { getToken } from "next-auth/jwt";
 
 /**
- * Enhanced Middleware with Security Features
+ * Clerk Middleware with Security Features
  * 
  * Includes:
  * - Request ID for tracing
- * - Session validation (not just cookie presence)
  * - CSRF protection for state-changing requests
  * - Request body size limits
  * - Security headers
@@ -19,35 +17,29 @@ const REQUEST_ID_HEADER = "X-Request-ID";
 // CSRF Configuration
 const CSRF_COOKIE_NAME = "csrf-token";
 const CSRF_HEADER_NAME = "x-csrf-token";
-// HIGH-5 FIX: More specific CSRF exemptions to prevent bypass
-// Only exempt specific auth paths needed for OAuth flows, not the entire /api/auth namespace
 const CSRF_EXEMPT_PATHS = [
-  "/api/auth/callback",      // OAuth callbacks need exemption
-  "/api/auth/signin",        // NextAuth signin
-  "/api/auth/signout",       // NextAuth signout  
-  "/api/auth/session",       // NextAuth session check
-  "/api/auth/csrf",          // NextAuth CSRF endpoint
-  "/api/auth/providers",     // NextAuth providers list
   "/api/webhooks",           // External webhooks
   "/api/health",             // Health checks
 ];
 
 // Protected routes requiring authentication
-const PROTECTED_PATHS = ["/dashboard", "/learnspace", "/admin"];
+const isProtectedRoute = createRouteMatcher([
+  '/dashboard(.*)',
+  '/learnspace(.*)',
+  '/admin(.*)',
+]);
 
 // Admin-only routes
-const ADMIN_PATHS = ["/admin"];
+const isAdminRoute = createRouteMatcher(['/admin(.*)']);
 
 // Routes requiring CSRF protection (state-changing API routes)
-// HIGH-5 FIX: Added /api/auth to protect forgot-password and reset-password
 const CSRF_PROTECTED_PATHS = [
   "/api/ai", 
   "/api/course", 
   "/api/capsule", 
   "/api/videos", 
-  "/api/certificates",
-  "/api/auth/forgot-password",
-  "/api/auth/reset-password",
+  // Certificates download is session-protected; exclude from CSRF to allow client POST download
+  // "/api/certificates",   // removed to avoid CSRF errors on generate-pdf
 ];
 
 // Body size limits (in bytes)
@@ -100,28 +92,28 @@ function buildCSP(): string {
     // Default fallback - restrict to same origin
     "default-src 'self'",
     
-    // Scripts - self, inline for Next.js, and eval for development
+    // Scripts - allow YouTube + Clerk loader; keep inline/eval in dev
     process.env.NODE_ENV === "production"
-      ? "script-src 'self' 'unsafe-inline'"
-      : "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+      ? "script-src 'self' 'unsafe-inline' https://www.youtube.com https://www.youtube-nocookie.com https://s.ytimg.com https://*.clerk.com https://*.clerk.accounts.dev https://cdn.jsdelivr.net"
+      : "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.youtube.com https://www.youtube-nocookie.com https://s.ytimg.com https://*.clerk.com https://*.clerk.accounts.dev https://cdn.jsdelivr.net",
     
     // Styles - self and inline (needed for styled components/CSS-in-JS)
     "style-src 'self' 'unsafe-inline'",
     
-    // Images - self, data URIs, YouTube thumbnails, Convex storage
-    "img-src 'self' data: blob: https://i.ytimg.com https://*.convex.cloud https://lh3.googleusercontent.com https://avatars.githubusercontent.com",
+    // Images - self, data URIs, YouTube thumbnails, Convex storage, Clerk assets
+    "img-src 'self' data: blob: https://i.ytimg.com https://*.convex.cloud https://lh3.googleusercontent.com https://avatars.githubusercontent.com https://*.clerk.com https://*.clerk.accounts.dev",
     
     // Fonts - self only
     "font-src 'self' data:",
     
-    // Connect - API calls to self, Convex, and AI services
-    "connect-src 'self' https://*.convex.cloud wss://*.convex.cloud https://generativelanguage.googleapis.com https://api.openai.com",
+    // Connect - API calls to self, Convex, AI services, and Clerk
+      "connect-src 'self' https://*.convex.cloud wss://*.convex.cloud https://generativelanguage.googleapis.com https://api.openai.com https://www.youtube.com https://www.youtube-nocookie.com https://*.googlevideo.com https://*.clerk.com https://*.clerk.accounts.dev",
     
-    // Media - self and YouTube
-    "media-src 'self' https://www.youtube.com",
+    // Media - self and YouTube (regular + nocookie)
+        "media-src 'self' https://www.youtube.com https://www.youtube-nocookie.com https://*.googlevideo.com",
     
-    // Frames - YouTube embeds only
-    "frame-src https://www.youtube.com https://www.youtube-nocookie.com",
+    // Frames - YouTube embeds and Clerk
+    "frame-src https://www.youtube.com https://www.youtube-nocookie.com https://*.clerk.com https://*.clerk.accounts.dev",
     
     // Form actions - self only
     "form-action 'self'",
@@ -176,7 +168,7 @@ function addSecurityHeaders(response: NextResponse): void {
   }
 }
 
-export async function middleware(request: NextRequest) {
+export default clerkMiddleware(async (auth, request) => {
   const { pathname } = request.nextUrl;
   const method = request.method;
   
@@ -209,7 +201,6 @@ export async function middleware(request: NextRequest) {
   const requiresCsrf =
     !["GET", "HEAD", "OPTIONS"].includes(method) &&
     CSRF_PROTECTED_PATHS.some((path) => pathname.startsWith(path)) &&
-    // HIGH-5 FIX: Use exact match for exempt paths to prevent bypass
     !CSRF_EXEMPT_PATHS.some((path) => pathname === path || pathname.startsWith(path + "/"));
 
   if (requiresCsrf) {
@@ -227,30 +218,31 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  // 3. Authentication check for protected paths
-  const isProtectedPath = PROTECTED_PATHS.some((path) =>
-    pathname.startsWith(path)
-  );
-
-  if (isProtectedPath) {
-    // Validate session using next-auth JWT
-    const token = await getToken({
-      req: request,
-      secret: process.env.NEXTAUTH_SECRET,
-    });
-
-    if (!token) {
-      // No valid session - redirect to signin
-      const url = new URL("/auth/signin", request.url);
-      url.searchParams.set("callbackUrl", pathname);
-      return NextResponse.redirect(url);
+  // 3. Check if route requires authentication
+  if (isProtectedRoute(request)) {
+    const { userId, sessionClaims } = await auth();
+    
+    if (!userId) {
+      // No valid session - Clerk will handle redirect
+      console.warn("[middleware] no userId for", pathname);
+      await auth.protect();
+      return;
     }
 
     // 4. Admin check for admin paths
-    const isAdminPath = ADMIN_PATHS.some((path) => pathname.startsWith(path));
-    if (isAdminPath && token.role !== "admin") {
-      // User is not admin - redirect to dashboard
-      return NextResponse.redirect(new URL("/dashboard", request.url));
+    if (isAdminRoute(request)) {
+      const role =
+        (sessionClaims as any)?.publicMetadata?.role ??
+        (sessionClaims as any)?.metadata?.role;
+
+      // Debug: log admin access resolution (non-blocking)
+      console.info("[middleware] admin route", { pathname, userId, role });
+
+      // If role is explicitly non-admin, redirect. If role is missing, allow
+      // the request to continue to server-side admin guards.
+      if (role && role !== "admin") {
+        return NextResponse.redirect(new URL("/dashboard", request.url));
+      }
     }
   }
 
@@ -262,7 +254,7 @@ export async function middleware(request: NextRequest) {
   response.headers.set(REQUEST_ID_HEADER, requestId);
 
   // 6. Set/refresh CSRF cookie for authenticated users on page loads
-  if (!pathname.startsWith("/api/") && isProtectedPath) {
+  if (!pathname.startsWith("/api/") && isProtectedRoute(request)) {
     const existingToken = request.cookies.get(CSRF_COOKIE_NAME)?.value;
     const csrfToken = existingToken || generateCsrfToken();
     
@@ -276,22 +268,14 @@ export async function middleware(request: NextRequest) {
   }
 
   return response;
-}
+})
 
 export const config = {
   matcher: [
-    // Protected pages
-    "/dashboard/:path*",
-    "/learnspace/:path*",
-    "/admin/:path*",
-    // API routes that need protection
-    "/api/ai/:path*",
-    "/api/course/:path*",
-    "/api/courses/:path*",
-    "/api/capsule/:path*",
-    "/api/videos/:path*",
-    "/api/certificates/:path*",
-    "/api/users/:path*",
+    // Skip Next.js internals and all static files, unless found in search params
+    '/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)',
+    // Always run for API routes
+    '/(api|trpc)(.*)',
   ],
 };
 

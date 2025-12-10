@@ -35,7 +35,7 @@ import {
     AlertDialogTitle,
     AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { useSession } from "next-auth/react";
+import { useAuth } from "@/hooks/useAuth";
 
 // Types for AI models and features
 interface AIModel {
@@ -55,7 +55,7 @@ interface AIFeature {
 }
 
 export default function AIAdminPage() {
-    const { data: session } = useSession();
+    const { data: session } = useAuth();
     const models = useQuery(api.aiConfig.getAllModels);
     const features = useQuery(api.aiConfig.getAllFeatures);
     const upsertModel = useMutation(api.aiConfig.upsertModel);

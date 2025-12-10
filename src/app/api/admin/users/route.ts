@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth/auth.config";
+import { requireAdmin, syncClerkRoleMetadata } from "@/lib/auth/auth.config";
 import { api } from "../../../../../convex/_generated/api";
 import { Id } from "../../../../../convex/_generated/dataModel";
 import { createConvexClient } from "@/lib/convexClient";
@@ -15,13 +15,12 @@ export async function GET(request: NextRequest) {
   if (rateLimitResponse) return rateLimitResponse;
 
   try {
-    const session = await auth();
+    const adminSession = await requireAdmin();
+    const currentUserId = adminSession.user.id as Id<"users"> | undefined;
 
-    if (!session || !session.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!currentUserId) {
+      return NextResponse.json({ error: "Admin user mapping missing" }, { status: 403 });
     }
-
-    const currentUserId = session.user.id as Id<"users">;
 
     // Fetch users with stats
     const result = await convex.query(api.admin.listUsers, {
@@ -57,13 +56,12 @@ export async function PATCH(request: NextRequest) {
   }
 
   try {
-    const session = await auth();
+    const adminSession = await requireAdmin();
+    const currentUserId = adminSession.user.id as Id<"users"> | undefined;
 
-    if (!session || !session.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!currentUserId) {
+      return NextResponse.json({ error: "Admin user mapping missing" }, { status: 403 });
     }
-
-    const currentUserId = session.user.id as Id<"users">;
     const { targetUserId, newRole } = body;
 
     if (!targetUserId || !newRole) {
@@ -86,6 +84,11 @@ export async function PATCH(request: NextRequest) {
       targetUserId: targetUserId as Id<"users">,
       newRole,
     });
+
+    // Sync Clerk metadata so future sessions carry the admin role claim
+    if (updatedUser?.clerkId) {
+      await syncClerkRoleMetadata(updatedUser.clerkId, newRole);
+    }
 
     return NextResponse.json({ user: updatedUser });
   } catch (error: unknown) {
@@ -113,13 +116,12 @@ export async function DELETE(request: NextRequest) {
   if (rateLimitResponse) return rateLimitResponse;
 
   try {
-    const session = await auth();
+    const adminSession = await requireAdmin();
+    const currentUserId = adminSession.user.id as Id<"users"> | undefined;
 
-    if (!session || !session.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!currentUserId) {
+      return NextResponse.json({ error: "Admin user mapping missing" }, { status: 403 });
     }
-
-    const currentUserId = session.user.id as Id<"users">;
     const { searchParams } = new URL(request.url);
     const targetUserId = searchParams.get("userId");
 

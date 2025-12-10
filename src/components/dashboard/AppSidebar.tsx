@@ -14,12 +14,12 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
 import { cn } from "@/lib/utils"
-import { Book, Bookmark, Compass, Settings, Sparkles, type LucideIcon } from "lucide-react"
+import { Book, Bookmark, Compass, Settings, Sparkles, User, type LucideIcon } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useSidebar } from "@/components/ui/sidebar" 
 import { Skeleton } from "@/components/ui/skeleton"
-import { useSession } from "next-auth/react"
+import { useAuth } from "@/hooks/useAuth"
 
 type NavItem = {
   href: string
@@ -55,6 +55,12 @@ const navItems: NavItem[] = [
     variant: "link",
   },
   {
+    href: "/dashboard/profile",
+    icon: User,
+    label: "Profile",
+    variant: "link",
+  },
+  {
     href: "/admin/courses",
     icon: Settings,
     label: "Admin Panel",
@@ -66,7 +72,7 @@ const navItems: NavItem[] = [
 const AppSidebar = () => {
   const pathname = usePathname()
   const { isMobile, setOpenMobile } = useSidebar();
-  const { data: session } = useSession();
+  const { data: session } = useAuth();
   
   // Check if user is admin
   const isAdmin = (session?.user as { role?: string })?.role === "admin";

@@ -994,7 +994,7 @@ export const regenerateVisualization = action({
 
     // SECURITY: Verify ownership - only capsule owner can regenerate visualizations
     // Verify the user exists in database
-    const user = await ctx.runQuery(api.auth.getUserById, { id: args.userId });
+    const user = await ctx.runQuery(api.clerkAuth.getUserById, { id: args.userId });
     if (!user) {
       throw new Error("User not found. Please sign in again.");
     }
@@ -1471,7 +1471,7 @@ export const regenerateQuestion = action({
 
     // SECURITY: Verify ownership - only capsule owner can regenerate questions
     // Verify the user exists in database
-    const user = await ctx.runQuery(api.auth.getUserById, { id: args.userId });
+    const user = await ctx.runQuery(api.clerkAuth.getUserById, { id: args.userId });
     if (!user) {
       throw new Error("User not found. Please sign in again.");
     }

@@ -179,25 +179,11 @@ export const deleteUser = mutation({
     const deletedUserEmail = targetUser.email;
     const deletedUserRole = targetUser.role;
     
-    // Delete user's accounts
-    const accounts = await ctx.db
-      .query("accounts")
-      .withIndex("by_userId", (q) => q.eq("userId", args.targetUserId))
-      .collect();
+    // With Clerk, accounts and sessions are handled by Clerk
+    // We only need to delete the Convex user record
+    // Note: The user's Clerk account should be deleted separately via Clerk Dashboard or API
     
-    for (const account of accounts) {
-      await ctx.db.delete(account._id);
-    }
-    
-    // Delete user's sessions
-    const sessions = await ctx.db
-      .query("sessions")
-      .withIndex("by_userId", (q) => q.eq("userId", args.targetUserId))
-      .collect();
-    
-    for (const session of sessions) {
-      await ctx.db.delete(session._id);
-    }
+    // Delete user from Convex database
     
     // Delete user's progress
     const progressEntries = await ctx.db
@@ -221,8 +207,6 @@ export const deleteUser = mutation({
       metadata: {
         deletedUserEmail,
         deletedUserRole,
-        accountsDeleted: accounts.length,
-        sessionsDeleted: sessions.length,
         progressEntriesDeleted: progressEntries.length,
       },
       success: true,

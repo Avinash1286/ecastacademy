@@ -528,6 +528,39 @@ export const updateCapsuleStatus = internalMutation({
 });
 
 /**
+ * Mutation: Mark capsule generation as failed
+ * SECURITY: Only the capsule owner or an admin can set this
+ */
+export const markCapsuleGenerationFailed = mutation({
+  args: {
+    capsuleId: v.id("capsules"),
+    userId: v.id("users"),
+    errorMessage: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const { user } = await requireAuthenticatedUserWithFallback(ctx, args.userId);
+
+    const capsule = await ctx.db.get(args.capsuleId);
+    if (!capsule) {
+      throw new Error("Capsule not found");
+    }
+
+    const isOwner = capsule.userId === args.userId;
+    const isAdmin = user.role === "admin";
+    if (!isOwner && !isAdmin) {
+      throw new Error("Unauthorized: Cannot update this capsule");
+    }
+
+    await ctx.db.patch(args.capsuleId, {
+      status: "failed",
+      errorMessage: args.errorMessage,
+      updatedAt: Date.now(),
+      completedAt: undefined,
+    });
+  },
+});
+
+/**
  * Mutation: Update capsule metadata
  * SECURITY: Restricted to internal use only via internalMutation pattern
  */
@@ -1469,7 +1502,7 @@ export const generateCapsuleContent = action({
 
     if (identity?.email) {
       // If we have identity, verify through email lookup
-      const user = await ctx.runQuery(api.auth.getUserByEmail, {
+      const user = await ctx.runQuery(api.clerkAuth.getUserByEmail, {
         email: identity.email,
       });
       if (user) {
@@ -1478,7 +1511,7 @@ export const generateCapsuleContent = action({
     }
 
     // Verify the capsule owner exists
-    const owner = await ctx.runQuery(api.auth.getUserById, {
+    const owner = await ctx.runQuery(api.clerkAuth.getUserById, {
       id: capsule.userId,
     });
 

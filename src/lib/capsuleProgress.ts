@@ -59,7 +59,7 @@ export const buildProgressByLesson = (
   return map;
 };
 
-export const countCompletedLessons = (progressMap: LessonProgressMap): number => {
+export const countCompletedLessons = (progressMap: Map<Id<'capsuleLessons'>, { completed?: boolean }>): number => {
   let completed = 0;
   for (const record of progressMap.values()) {
     if (record.completed) {
@@ -69,10 +69,19 @@ export const countCompletedLessons = (progressMap: LessonProgressMap): number =>
   return completed;
 };
 
+// Type for merged progress that can include both full DB records and optimistic partial updates
+export type MergedProgressRecord = { 
+  completed?: boolean; 
+  score?: number; 
+  maxScore?: number; 
+  lastAnswer?: Doc<'capsuleProgress'>['lastAnswer'];
+};
+export type MergedProgressMap = Map<Id<'capsuleLessons'>, MergedProgressRecord>;
+
 export const getLessonProgress = (
-  progressMap: LessonProgressMap,
+  progressMap: MergedProgressMap,
   lessonId?: Id<'capsuleLessons'>
-): Doc<'capsuleProgress'> | undefined => {
+): MergedProgressRecord | undefined => {
   if (!lessonId) {
     return undefined;
   }

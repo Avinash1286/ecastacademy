@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState, useMemo } from 'react';
 import { useMutation, useQuery } from 'convex/react';
-import { useSession } from 'next-auth/react';
+import { useAuth } from '@/hooks/useAuth';
 import { api } from '../../../convex/_generated/api';
 import { QuizInterface } from '../quiz/QuizInterface';
 import { QuizResults } from '../quiz/QuizResults';
@@ -44,7 +44,7 @@ export function QuizzesPanel({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [validationResults, setValidationResults] = useState<QuizQuestionResult[] | undefined>(undefined);
 
-  const { data: session } = useSession();
+  const { data: session } = useAuth();
   const sessionUser = session?.user as unknown as ExtendedUser | undefined;
   
   // Use the new secure validation mutation

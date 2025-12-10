@@ -35,7 +35,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   // Check 1: Required environment variables exist (don't reveal which ones)
   const requiredEnvVars = [
     "NEXT_PUBLIC_CONVEX_URL",
-    "NEXTAUTH_SECRET",
+    "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY",
   ];
   
   const missingEnvVars = requiredEnvVars.filter(

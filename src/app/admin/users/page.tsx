@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useSession } from "next-auth/react";
+import { useAuth } from "@/hooks/useAuth";
 import {
   Table,
   TableBody,
@@ -45,7 +45,7 @@ interface UserData {
 }
 
 export default function AdminUsersPage() {
-  const { data: session } = useSession();
+  const { data: session } = useAuth();
   const [users, setUsers] = useState<UserData[]>([]);
   const [filteredUsers, setFilteredUsers] = useState<UserData[]>([]);
   const [searchTerm, setSearchTerm] = useState("");

@@ -1,7 +1,7 @@
 "use client"
 
 import { useQuery } from "convex/react"
-import { useSession } from "next-auth/react"
+import { useAuth } from "@/hooks/useAuth"
 import { api } from "../../../../convex/_generated/api"
 import { Id } from "../../../../convex/_generated/dataModel"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -20,7 +20,7 @@ interface ExtendedUser {
 }
 
 export default function CertificatesPage() {
-  const { data: session, status } = useSession()
+  const { data: session, status } = useAuth()
   
   // Get userId from session - must be valid Convex ID
   const sessionUser = session?.user as unknown as ExtendedUser | undefined
@@ -50,7 +50,7 @@ export default function CertificatesPage() {
             <p className="text-muted-foreground max-w-md mb-6">
               Please sign in to view your certificates.
             </p>
-            <Link href="/auth/signin">
+            <Link href="/sign-in">
               <Button>Sign In</Button>
             </Link>
           </CardContent>

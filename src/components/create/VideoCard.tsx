@@ -7,9 +7,10 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
-import { ExternalLink, Trash2, FileText, User, Save, X, Edit } from 'lucide-react';
+import { ExternalLink, Trash2, FileText, User, Save, X, Edit, Loader2 } from 'lucide-react';
 import type { VideoInfo } from '@/lib/types';
 import Image from 'next/image';
+import { fetchTranscript } from '@/lib/services/youtubeApi';
 
 interface VideoCardProps {
   video: VideoInfo;
@@ -20,6 +21,7 @@ interface VideoCardProps {
 export const VideoCard: React.FC<VideoCardProps> = ({ video, onRemove, onTranscriptUpdate }) => {
     const [isEditing, setIsEditing] = useState(false);
     const [editText, setEditText] = useState(video.transcript || '');
+  const [isRetryingTranscript, setIsRetryingTranscript] = useState(false);
 
     const handleSave = () => {
       onTranscriptUpdate(video.id, editText);
@@ -35,6 +37,27 @@ export const VideoCard: React.FC<VideoCardProps> = ({ video, onRemove, onTranscr
     const handleEditClick = () => {
       setEditText(video.transcript || '');
       setIsEditing(true);
+    };
+
+    const handleRetryTranscript = async () => {
+      setIsRetryingTranscript(true);
+      try {
+        const transcript = await fetchTranscript(video.id);
+
+        if (!transcript) {
+          toast.error('Transcript not available yet. The video may not have captions.');
+          return;
+        }
+
+        onTranscriptUpdate(video.id, transcript);
+        setEditText(transcript);
+        toast.success('Transcript fetched successfully.');
+      } catch (error) {
+        console.error('Transcript retry failed', error);
+        toast.error('Failed to fetch transcript. Please try again.');
+      } finally {
+        setIsRetryingTranscript(false);
+      }
     };
     
     return (
@@ -116,6 +139,25 @@ export const VideoCard: React.FC<VideoCardProps> = ({ video, onRemove, onTranscr
                     </span>
                   )}
                 </p>
+                {!video.skipTranscript && !video.transcript && !isEditing && (
+                  <div className="mt-3 flex items-center gap-2">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={handleRetryTranscript}
+                      disabled={isRetryingTranscript}
+                    >
+                      {isRetryingTranscript ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Retrying transcript
+                        </>
+                      ) : (
+                        'Retry transcript fetch'
+                      )}
+                    </Button>
+                  </div>
+                )}
               </div>
             )}
           </div>

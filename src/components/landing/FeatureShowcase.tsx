@@ -1,6 +1,6 @@
 'use client';
 
-import { motion, useInView } from 'framer-motion';
+import { motion, useInView, useReducedMotion } from 'framer-motion';
 import { useRef, useState } from 'react';
 import { Play, Pause } from 'lucide-react';
 import Image from 'next/image';
@@ -34,9 +34,10 @@ export function FeatureShowcase({
   className = '',
 }: FeatureShowcaseProps) {
   const ref = useRef(null);
-  const isInView = useInView(ref, { once: false, margin: "-100px" });
+  const isInView = useInView(ref, { once: true, margin: "-100px" });
   const [isPlaying, setIsPlaying] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const prefersReducedMotion = useReducedMotion();
 
   const toggleVideo = () => {
     if (videoRef.current) {
@@ -138,8 +139,9 @@ export function FeatureShowcase({
                 alt={mediaAlt}
                 width={1920}
                 height={1080}
-                quality={100}
+                quality={85}
                 className="w-full h-auto"
+                loading="lazy"
               />
             </div>
           ) : (
@@ -164,22 +166,32 @@ export function FeatureShowcase({
         </div>
         
         {/* Decorative elements */}
-        <motion.div
-          className={cn(
-            "absolute -z-10 w-72 h-72 rounded-full blur-3xl opacity-20",
-            `bg-${accentColor}`,
-            reversed ? "-top-20 -left-20" : "-bottom-20 -right-20"
-          )}
-          animate={{
-            scale: [1, 1.2, 1],
-            opacity: [0.2, 0.3, 0.2],
-          }}
-          transition={{
-            duration: 4,
-            repeat: Infinity,
-            ease: "easeInOut",
-          }}
-        />
+        {!prefersReducedMotion ? (
+          <motion.div
+            className={cn(
+              "absolute -z-10 w-72 h-72 rounded-full blur-3xl opacity-20",
+              `bg-${accentColor}`,
+              reversed ? "-top-20 -left-20" : "-bottom-20 -right-20"
+            )}
+            animate={{
+              scale: [1, 1.2, 1],
+              opacity: [0.2, 0.3, 0.2],
+            }}
+            transition={{
+              duration: 4,
+              repeat: Infinity,
+              ease: "easeInOut",
+            }}
+          />
+        ) : (
+          <div
+            className={cn(
+              "absolute -z-10 w-72 h-72 rounded-full blur-3xl opacity-20",
+              `bg-${accentColor}`,
+              reversed ? "-top-20 -left-20" : "-bottom-20 -right-20"
+            )}
+          />
+        )}
       </motion.div>
     </motion.div>
   );

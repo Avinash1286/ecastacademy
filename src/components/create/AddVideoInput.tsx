@@ -15,6 +15,7 @@ import { Progress } from "@/components/ui/progress"
 import { toast } from 'sonner'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
+import { useAuthenticatedFetchRaw } from '@/hooks/useAuthenticatedFetch'
 
 const formSchema = z.object({
   link: z.string().url({ message: "Please enter a valid YouTube URL." }).min(1, {
@@ -25,6 +26,7 @@ const formSchema = z.object({
 const AddVideoInput = () => {
   const router = useRouter();
   const { videos, isLoading, progress, loadingText, error, updateTranscript, importFromUrl, removeVideo, clearAllVideos } = useYouTubeImporter();
+  const authenticatedFetch = useAuthenticatedFetchRaw();
   
   const [isCreating, setIsCreating] = useState(false);
   const [noTranscript, setNoTranscript] = useState(false);
@@ -55,7 +57,7 @@ const AddVideoInput = () => {
         skipTranscript: v.skipTranscript ?? false,
       }));
 
-      const response = await fetch('/api/videos/create', {
+      const response = await authenticatedFetch('/api/videos/create', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

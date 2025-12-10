@@ -57,9 +57,7 @@ export function CapsuleBookmarkButton({
       size="icon"
       variant="ghost"
       className={`h-8 w-8 transition-opacity ${
-        isBookmarked
-          ? "opacity-100 text-primary"
-          : "opacity-0 group-hover:opacity-100"
+        isBookmarked ? "text-primary" : "text-muted-foreground"
       } ${className}`}
       onClick={handleClick}
       disabled={isToggling}
