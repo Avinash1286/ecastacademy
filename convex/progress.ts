@@ -380,8 +380,16 @@ export const calculateCourseProgress = query({
         (p) => p.contentItemId && gradedItemIds.has(p.contentItemId)
       );
 
+      // Use course's current passing grade for re-evaluation
+      const coursePassingGrade = course.passingGrade ?? 70;
+
       gradingInfo.gradedItems = gradedContentItems.length;
-      gradingInfo.passedGradedItems = gradedProgress.filter((p) => p.passed).length;
+      // Re-evaluate passed status using current course passing grade (not stored p.passed)
+      // This ensures that updating the course's passing grade immediately reflects in progress
+      gradingInfo.passedGradedItems = gradedProgress.filter((p) => {
+        const percentage = p.percentage ?? ((p.bestScore ?? p.score ?? 0) / (p.maxScore ?? 100) * 100);
+        return percentage >= coursePassingGrade;
+      }).length;
 
       // Calculate overall grade using best scores
       if (gradedProgress.length > 0) {

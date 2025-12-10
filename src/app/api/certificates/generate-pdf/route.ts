@@ -1,16 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withRateLimit, RATE_LIMIT_PRESETS } from "@/lib/security/rateLimit";
-import { auth } from "@/lib/auth/auth.config";
+import { auth as appAuth } from "@/lib/auth/auth.config";
 import { createConvexClient } from "@/lib/convexClient";
 import { api } from "../../../../../convex/_generated/api";
-
-const convex = createConvexClient();
+import { jsPDF } from "jspdf";
 
 /**
  * PDF Certificate Generation API
  * 
  * Generates a downloadable PDF certificate for verified users.
- * Uses SVG-to-PDF conversion for high-quality output.
+ * Uses jsPDF for high-quality PDF output.
  */
 
 interface CertificateData {
@@ -25,9 +24,9 @@ interface CertificateData {
 }
 
 /**
- * Generate SVG certificate template
+ * Generate PDF certificate
  */
-function generateCertificateSVG(data: CertificateData): string {
+function generateCertificatePDF(data: CertificateData): ArrayBuffer {
   const formattedDate = new Date(data.completionDate).toLocaleDateString("en-US", {
     year: "numeric",
     month: "long",
@@ -36,151 +35,168 @@ function generateCertificateSVG(data: CertificateData): string {
 
   const grade = Math.round(data.overallGrade);
   
-  // A4 size in pixels at 96 DPI (landscape)
-  const width = 1122;
-  const height = 794;
+  // Create PDF in landscape A4
+  const doc = new jsPDF({
+    orientation: "landscape",
+    unit: "mm",
+    format: "a4",
+  });
 
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
-  <defs>
-    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#FFFBEB;stop-opacity:1" />
-      <stop offset="50%" style="stop-color:#FFFFFF;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#FFFBEB;stop-opacity:1" />
-    </linearGradient>
-    <linearGradient id="goldGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#F59E0B;stop-opacity:1" />
-      <stop offset="50%" style="stop-color:#FBBF24;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#F59E0B;stop-opacity:1" />
-    </linearGradient>
-    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#000" flood-opacity="0.1"/>
-    </filter>
-  </defs>
-  
-  <!-- Background -->
-  <rect width="${width}" height="${height}" fill="url(#bgGradient)"/>
-  
-  <!-- Border -->
-  <rect x="20" y="20" width="${width - 40}" height="${height - 40}" 
-        fill="none" stroke="url(#goldGradient)" stroke-width="8" rx="8"/>
-  <rect x="35" y="35" width="${width - 70}" height="${height - 70}" 
-        fill="none" stroke="#F59E0B" stroke-width="2" rx="4" opacity="0.5"/>
-  
-  <!-- Corner Decorations -->
-  <g fill="#F59E0B" opacity="0.3">
-    <circle cx="60" cy="60" r="20"/>
-    <circle cx="${width - 60}" cy="60" r="20"/>
-    <circle cx="60" cy="${height - 60}" r="20"/>
-    <circle cx="${width - 60}" cy="${height - 60}" r="20"/>
-  </g>
-  
-  <!-- Award Icon Circle -->
-  <circle cx="${width / 2}" cy="100" r="45" fill="url(#goldGradient)" filter="url(#shadow)"/>
-  <text x="${width / 2}" y="115" font-family="Arial, sans-serif" font-size="40" 
-        fill="white" text-anchor="middle">★</text>
-  
-  <!-- Title -->
-  <text x="${width / 2}" y="190" font-family="Georgia, serif" font-size="42" font-weight="bold" 
-        fill="#78350F" text-anchor="middle" letter-spacing="4">
-    CERTIFICATE OF COMPLETION
-  </text>
-  
-  <!-- Decorative Line -->
-  <rect x="${width / 2 - 150}" y="210" width="300" height="4" fill="url(#goldGradient)" rx="2"/>
-  
-  <!-- "This certifies that" -->
-  <text x="${width / 2}" y="270" font-family="Georgia, serif" font-size="18" 
-        fill="#6B7280" text-anchor="middle" font-style="italic">
-    This certifies that
-  </text>
-  
-  <!-- User Name -->
-  <text x="${width / 2}" y="330" font-family="Georgia, serif" font-size="38" font-weight="bold" 
-        fill="#1F2937" text-anchor="middle">
-    ${escapeXml(data.userName)}
-  </text>
-  
-  <!-- "has successfully completed" -->
-  <text x="${width / 2}" y="380" font-family="Georgia, serif" font-size="18" 
-        fill="#6B7280" text-anchor="middle" font-style="italic">
-    has successfully completed
-  </text>
-  
-  <!-- Course Name -->
-  <text x="${width / 2}" y="440" font-family="Georgia, serif" font-size="32" font-weight="bold" 
-        fill="#78350F" text-anchor="middle">
-    ${escapeXml(truncateText(data.courseName, 50))}
-  </text>
-  
-  <!-- Stats Row -->
-  <g transform="translate(${width / 2 - 200}, 480)">
-    <!-- Grade -->
-    <g transform="translate(0, 0)">
-      <rect x="0" y="0" width="180" height="80" rx="8" fill="#FEF3C7" stroke="#F59E0B" stroke-width="2"/>
-      <text x="90" y="35" font-family="Arial, sans-serif" font-size="28" font-weight="bold" 
-            fill="#78350F" text-anchor="middle">${grade}%</text>
-      <text x="90" y="60" font-family="Arial, sans-serif" font-size="14" 
-            fill="#92400E" text-anchor="middle">Overall Grade</text>
-    </g>
-    
-    <!-- Items Passed -->
-    <g transform="translate(220, 0)">
-      <rect x="0" y="0" width="180" height="80" rx="8" fill="#D1FAE5" stroke="#10B981" stroke-width="2"/>
-      <text x="90" y="35" font-family="Arial, sans-serif" font-size="28" font-weight="bold" 
-            fill="#065F46" text-anchor="middle">${data.passedItems}/${data.totalGradedItems}</text>
-      <text x="90" y="60" font-family="Arial, sans-serif" font-size="14" 
-            fill="#047857" text-anchor="middle">Items Completed</text>
-    </g>
-  </g>
-  
-  <!-- Bottom Section -->
-  <line x1="100" y1="610" x2="${width - 100}" y2="610" stroke="#E5E7EB" stroke-width="2"/>
-  
-  <!-- Date -->
-  <g transform="translate(200, 640)">
-    <text x="0" y="0" font-family="Arial, sans-serif" font-size="14" fill="#6B7280">Date of Completion</text>
-    <text x="0" y="28" font-family="Georgia, serif" font-size="18" font-weight="bold" fill="#1F2937">
-      ${formattedDate}
-    </text>
-  </g>
-  
-  <!-- Signature -->
-  <g transform="translate(${width - 350}, 640)">
-    <text x="100" y="0" font-family="Arial, sans-serif" font-size="14" fill="#6B7280" text-anchor="middle">
-      ECAST Academy
-    </text>
-    <line x1="0" y1="28" x2="200" y2="28" stroke="#1F2937" stroke-width="1"/>
-    <text x="100" y="48" font-family="Arial, sans-serif" font-size="12" fill="#9CA3AF" text-anchor="middle">
-      Authorized Signature
-    </text>
-  </g>
-  
-  <!-- Certificate ID -->
-  <g transform="translate(${width / 2}, 720)">
-    <text x="0" y="0" font-family="Arial, sans-serif" font-size="12" fill="#9CA3AF" text-anchor="middle">
-      Certificate ID
-    </text>
-    <text x="0" y="20" font-family="monospace" font-size="11" fill="#6B7280" text-anchor="middle">
-      ${escapeXml(data.certificateId)}
-    </text>
-    <text x="0" y="42" font-family="Arial, sans-serif" font-size="10" fill="#9CA3AF" text-anchor="middle">
-      Verify at: ${escapeXml(data.verificationUrl)}
-    </text>
-  </g>
-</svg>`;
-}
+  const width = 297; // A4 landscape width in mm
+  const height = 210; // A4 landscape height in mm
+  const centerX = width / 2;
 
-/**
- * Escape XML special characters
- */
-function escapeXml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
+  // Background - cream/warm white
+  doc.setFillColor(255, 251, 235); // #FFFBEB
+  doc.rect(0, 0, width, height, "F");
+
+  // Outer border - gold
+  doc.setDrawColor(245, 158, 11); // #F59E0B
+  doc.setLineWidth(2);
+  doc.roundedRect(5, 5, width - 10, height - 10, 3, 3, "S");
+
+  // Inner border - lighter gold
+  doc.setDrawColor(245, 158, 11);
+  doc.setLineWidth(0.5);
+  doc.roundedRect(10, 10, width - 20, height - 20, 2, 2, "S");
+
+  // Corner decorations - gold circles (lighter shade to simulate opacity)
+  doc.setFillColor(251, 211, 141); // Lighter gold to simulate 0.3 opacity
+  doc.circle(15, 15, 5, "F");
+  doc.circle(width - 15, 15, 5, "F");
+  doc.circle(15, height - 15, 5, "F");
+  doc.circle(width - 15, height - 15, 5, "F");
+
+  // Award icon circle
+  doc.setFillColor(245, 158, 11);
+  doc.circle(centerX, 28, 12, "F");
+
+  // Star in circle
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(20);
+  doc.text("★", centerX, 32, { align: "center" });
+
+  // Title
+  doc.setTextColor(120, 53, 15); // #78350F
+  doc.setFontSize(24);
+  doc.setFont("helvetica", "bold");
+  doc.text("CERTIFICATE OF COMPLETION", centerX, 55, { align: "center" });
+
+  // Decorative line under title
+  doc.setFillColor(245, 158, 11);
+  doc.rect(centerX - 40, 60, 80, 1.5, "F");
+
+  // "This certifies that"
+  doc.setTextColor(107, 114, 128); // #6B7280
+  doc.setFontSize(11);
+  doc.setFont("helvetica", "italic");
+  doc.text("This certifies that", centerX, 75, { align: "center" });
+
+  // User Name
+  doc.setTextColor(31, 41, 55); // #1F2937
+  doc.setFontSize(22);
+  doc.setFont("helvetica", "bold");
+  doc.text(data.userName, centerX, 90, { align: "center" });
+
+  // "has successfully completed"
+  doc.setTextColor(107, 114, 128);
+  doc.setFontSize(11);
+  doc.setFont("helvetica", "italic");
+  doc.text("has successfully completed", centerX, 102, { align: "center" });
+
+  // Course Name
+  doc.setTextColor(120, 53, 15);
+  doc.setFontSize(18);
+  doc.setFont("helvetica", "bold");
+  const courseName = truncateText(data.courseName, 50);
+  doc.text(courseName, centerX, 115, { align: "center" });
+
+  // Stats boxes
+  const boxY = 125;
+  const boxWidth = 50;
+  const boxHeight = 22;
+  const boxGap = 15;
+
+  // Grade box
+  const gradeBoxX = centerX - boxWidth - boxGap / 2;
+  doc.setFillColor(254, 243, 199); // #FEF3C7
+  doc.setDrawColor(245, 158, 11);
+  doc.setLineWidth(0.5);
+  doc.roundedRect(gradeBoxX, boxY, boxWidth, boxHeight, 2, 2, "FD");
+
+  doc.setTextColor(120, 53, 15);
+  doc.setFontSize(16);
+  doc.setFont("helvetica", "bold");
+  doc.text(`${grade}%`, gradeBoxX + boxWidth / 2, boxY + 10, { align: "center" });
+
+  doc.setTextColor(146, 64, 14); // #92400E
+  doc.setFontSize(8);
+  doc.setFont("helvetica", "normal");
+  doc.text("Overall Grade", gradeBoxX + boxWidth / 2, boxY + 17, { align: "center" });
+
+  // Items Completed box
+  const itemsBoxX = centerX + boxGap / 2;
+  doc.setFillColor(209, 250, 229); // #D1FAE5
+  doc.setDrawColor(16, 185, 129); // #10B981
+  doc.roundedRect(itemsBoxX, boxY, boxWidth, boxHeight, 2, 2, "FD");
+
+  doc.setTextColor(6, 95, 70); // #065F46
+  doc.setFontSize(16);
+  doc.setFont("helvetica", "bold");
+  doc.text(`${data.passedItems}/${data.totalGradedItems}`, itemsBoxX + boxWidth / 2, boxY + 10, { align: "center" });
+
+  doc.setTextColor(4, 120, 87); // #047857
+  doc.setFontSize(8);
+  doc.setFont("helvetica", "normal");
+  doc.text("Items Completed", itemsBoxX + boxWidth / 2, boxY + 17, { align: "center" });
+
+  // Horizontal line
+  doc.setDrawColor(229, 231, 235); // #E5E7EB
+  doc.setLineWidth(0.5);
+  doc.line(30, 160, width - 30, 160);
+
+  // Date section (left)
+  doc.setTextColor(107, 114, 128);
+  doc.setFontSize(9);
+  doc.setFont("helvetica", "normal");
+  doc.text("Date of Completion", 50, 170);
+
+  doc.setTextColor(31, 41, 55);
+  doc.setFontSize(11);
+  doc.setFont("helvetica", "bold");
+  doc.text(formattedDate, 50, 178);
+
+  // Signature section (right)
+  doc.setTextColor(107, 114, 128);
+  doc.setFontSize(9);
+  doc.setFont("helvetica", "normal");
+  doc.text("ECAST Academy", width - 50, 170, { align: "center" });
+
+  doc.setDrawColor(31, 41, 55);
+  doc.setLineWidth(0.3);
+  doc.line(width - 80, 175, width - 20, 175);
+
+  doc.setTextColor(156, 163, 175); // #9CA3AF
+  doc.setFontSize(8);
+  doc.text("Authorized Signature", width - 50, 182, { align: "center" });
+
+  // Certificate ID (bottom center)
+  doc.setTextColor(156, 163, 175);
+  doc.setFontSize(8);
+  doc.setFont("helvetica", "normal");
+  doc.text("Certificate ID", centerX, 192, { align: "center" });
+
+  doc.setTextColor(107, 114, 128);
+  doc.setFontSize(7);
+  doc.setFont("courier", "normal");
+  doc.text(data.certificateId, centerX, 197, { align: "center" });
+
+  doc.setTextColor(156, 163, 175);
+  doc.setFontSize(6);
+  doc.setFont("helvetica", "normal");
+  doc.text(`Verify at: ${data.verificationUrl}`, centerX, 202, { align: "center" });
+
+  return doc.output("arraybuffer");
 }
 
 /**
@@ -201,13 +217,17 @@ async function handler(req: NextRequest): Promise<NextResponse> {
 
   // Require authentication for certificate generation
   // Allow either Convex user id or email to be present; don't block when id is missing
-  const session = await auth();
+  const session = await appAuth();
   if (!session?.user?.clerkId) {
     return NextResponse.json(
       { error: "Authentication required" },
       { status: 401 }
     );
   }
+
+  // Create Convex client with admin auth for internal ownership verification
+  // User is already authenticated via Clerk session above
+  const convex = createConvexClient({ useAdminAuth: true });
 
   let body;
   try {
@@ -244,20 +264,22 @@ async function handler(req: NextRequest): Promise<NextResponse> {
         certificateId,
       });
 
-      const isOwnerById = session.user.id && certificate.userId === session.user.id;
+      // Get the current user's Convex ID via their Clerk ID
+      const currentUser = await convex.query(api.clerkAuth.getUserByClerkId, {
+        clerkId: session.user.clerkId,
+      });
 
-      // Fallback: match by email in case the Convex user id is not hydrated in the session
-      let isOwnerByEmail = false;
-      if (!isOwnerById && session.user.email) {
-        const owner = await convex.query(api.clerkAuth.getUserById, { id: certificate.userId });
-        // Check if owner has email property (full user data returned for owner/admin)
-        if (owner && 'email' in owner && owner.email && owner.email.toLowerCase() === session.user.email.toLowerCase()) {
-          isOwnerByEmail = true;
-        }
-      }
+      const isOwnerById = currentUser && certificate.userId === currentUser._id;
 
       // Allow admins as well
       const isAdmin = session.user.role === "admin";
+
+      // For email-based fallback, compare emails directly if we have both
+      let isOwnerByEmail = false;
+      if (!isOwnerById && !isAdmin && session.user.email && currentUser?.email) {
+        // We already have the current user's email from Convex, just compare
+        isOwnerByEmail = currentUser.email.toLowerCase() === session.user.email.toLowerCase();
+      }
 
       if (!isOwnerById && !isOwnerByEmail && !isAdmin) {
         return NextResponse.json(
@@ -265,7 +287,8 @@ async function handler(req: NextRequest): Promise<NextResponse> {
           { status: 403 }
         );
       }
-    } catch {
+    } catch (error) {
+      console.error("Certificate verification error:", error);
       return NextResponse.json(
         { error: "Certificate not found" },
         { status: 404 }
@@ -287,15 +310,15 @@ async function handler(req: NextRequest): Promise<NextResponse> {
       verificationUrl,
     };
 
-    // Generate SVG certificate
-    const svg = generateCertificateSVG(certificateData);
+    // Generate PDF certificate
+    const pdfBuffer = generateCertificatePDF(certificateData);
 
-    // Return SVG as downloadable file
-    const response = new NextResponse(svg, {
+    // Return PDF as downloadable file
+    const response = new NextResponse(pdfBuffer, {
       status: 200,
       headers: {
-        "Content-Type": "image/svg+xml",
-        "Content-Disposition": `attachment; filename="certificate-${certificateId}.svg"`,
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `attachment; filename="certificate-${certificateId}.pdf"`,
         "Cache-Control": "private, max-age=3600",
       },
     });

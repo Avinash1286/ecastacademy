@@ -75,6 +75,8 @@ export type ChapterWithVideo = {
     id: string;
     name: string;
     description: string | null;
+    isCertification?: boolean;
+    passingGrade?: number;
   },
   contentItems?: ContentItem[];
   video: {
@@ -211,6 +213,7 @@ export interface QuizInterfaceProps {
   onQuizComplete: (answers: number[]) => void;
   contentItem?: ContentItem | null;
   isSubmitting?: boolean;
+  coursePassingGrade?: number;
 }
 
 
@@ -221,6 +224,7 @@ export interface QuizResultsProps {
   validationResults?: QuizQuestionResult[];
   onRestart: () => void;
   contentItem?: ContentItem | null;
+  coursePassingGrade?: number;
   attemptHistory?: Array<{
     _id: string;
     attemptNumber: number;

@@ -192,8 +192,7 @@ export function LandingPageClient() {
             {/* Subheadline */}
             <FadeUp delay={0.3}>
               <p className="text-lg sm:text-xl text-muted-foreground max-w-3xl mx-auto leading-relaxed">
-                AI-powered learning that generates interactive notes, smart quizzes, and provides 
-                a 24/7 tutor for any video. Fill knowledge gaps with AI Capsules. Earn certificates 
+                AI-powered learning with interactive notes, smart quizzes, and a 24/7 tutor for YouTube courses. Fill knowledge gaps with AI Capsules. Earn certificates 
                 that matter.
               </p>
             </FadeUp>
@@ -209,12 +208,12 @@ export function LandingPageClient() {
                     </Button>
                   </PulseButton>
                 </Link>
-                <Link href="#demo">
+                {/* <Link href="#demo">
                   <Button size="lg" variant="outline" className="w-full sm:w-auto text-base px-8 h-14 rounded-xl gap-2">
                     <Play className="h-5 w-5" />
                     Watch Demo
                   </Button>
-                </Link>
+                </Link> */}
               </div>
             </FadeUp>
 
@@ -223,15 +222,15 @@ export function LandingPageClient() {
               <div className="flex flex-wrap items-center justify-center gap-6 pt-8 text-sm text-muted-foreground">
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="h-4 w-4 text-green-500" />
-                  <span>No credit card required</span>
+                  <span>YouTube Courses</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="h-4 w-4 text-green-500" />
-                  <span>AI-powered features</span>
+                  <span>Capsule Courses</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="h-4 w-4 text-green-500" />
-                  <span>Works with any YouTube video</span>
+                  <span>Mastery Learning</span>
                 </div>
               </div>
             </FadeUp>
@@ -312,7 +311,7 @@ export function LandingPageClient() {
                 A New Way to Learn from YouTube
               </h2>
               <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-                Stop passive watching. Start active learning. Transform any YouTube video into 
+                Stop passive watching. Start active learning. Enroll in YouTube courses and get
                 an interactive learning experience with AI-generated content.
               </p>
             </div>
@@ -322,10 +321,10 @@ export function LandingPageClient() {
             title="Interactive Notes, Automatically Generated"
             description="Our AI watches the video so you can focus on learning. Get structured notes with key concepts, definitions, examples, and code snippets—all organized for easy review."
             features={[
-              "Automatic transcript extraction",
               "Section-by-section breakdown",
               "Key terms and definitions highlighted",
               "Code blocks with syntax highlighting",
+              "Interactive quizzes",
               "Interactive prompts and reflection questions"
             ]}
             mediaType="image"
@@ -494,8 +493,8 @@ export function LandingPageClient() {
                   Ready to Transform How You Learn?
                 </h2>
                 <p className="text-lg text-muted-foreground max-w-2xl mx-auto mb-8">
-                  Join thousands of learners who&apos;ve discovered a smarter way to learn from YouTube. 
-                  Start free, no credit card required.
+                  Join the learners who&apos;ve discovered a smarter way to learn from YouTube. 
+                  Start free.
                 </p>
                 <div className="flex flex-col sm:flex-row gap-4 justify-center">
                   <Link href="/sign-up">

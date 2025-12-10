@@ -6,27 +6,27 @@ import { requireAdminUser, requireAdminUserWithFallback } from "./utils/auth";
 // Default models to seed
 const DEFAULT_MODELS = [
     {
-        name: "Gemini 1.5 Pro",
+        name: "Gemini 2.5 Pro",
         provider: "google" as const,
-        modelId: "gemini-1.5-pro",
+        modelId: "gemini-2.5-pro",
         isEnabled: true,
     },
     {
-        name: "Gemini 1.5 Flash",
+        name: "Gemini Flash",
         provider: "google" as const,
-        modelId: "gemini-1.5-flash",
+        modelId: "gemini-flash-latest",
+        isEnabled: true,
+    },
+    {
+        name: "GPT-5.1",
+        provider: "openai" as const,
+        modelId: "gpt-5.1",
         isEnabled: true,
     },
     {
         name: "GPT-4o",
         provider: "openai" as const,
         modelId: "gpt-4o",
-        isEnabled: true,
-    },
-    {
-        name: "GPT-3.5 Turbo",
-        provider: "openai" as const,
-        modelId: "gpt-3.5-turbo",
         isEnabled: true,
     },
 ];
@@ -36,25 +36,25 @@ const DEFAULT_FEATURES = [
         key: "tutor_chat",
         name: "Tutor Chat",
         description: "AI Tutor for video Q&A",
-        defaultModelId: "gemini-1.5-pro",
+        defaultModelId: "gemini-flash-latest",
     },
     {
         key: "capsule_generation",
         name: "Capsule Generation",
         description: "Generates course capsules from PDFs/Topics",
-        defaultModelId: "gemini-1.5-pro",
+        defaultModelId: "gemini-2.5-pro",
     },
     {
         key: "quiz_generation",
         name: "Quiz Generation",
         description: "Generates quizzes from notes",
-        defaultModelId: "gemini-1.5-flash",
+        defaultModelId: "gemini-2.5-pro",
     },
     {
         key: "notes_generation",
         name: "Notes Generation",
         description: "Generates interactive notes from transcripts",
-        defaultModelId: "gemini-1.5-pro",
+        defaultModelId: "gemini-2.5-pro",
     },
 ];
 

@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Award, Calendar, GraduationCap, TrendingUp, Eye, AlertCircle, ArrowLeft } from "lucide-react"
+import { toast } from "sonner"
 import Link from "next/link"
 
 // Extend session user type to include id
@@ -219,7 +220,7 @@ function CertificateCard({ certificate }: CertificateCardProps) {
                 navigator.clipboard.writeText(
                   `${window.location.origin}/certificates/${certificate.certificateId}`
                 )
-                alert("Certificate link copied to clipboard!")
+                toast.success("Certificate link copied to clipboard!")
               }}
             >
               Share

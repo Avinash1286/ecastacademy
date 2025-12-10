@@ -193,3 +193,25 @@ export const getOwnUserByEmail = query({
     return user;
   },
 });
+
+/**
+ * Internal query to get user by Clerk ID
+ * Not exposed to clients - use only from Convex actions, internal mutations, or scheduled functions.
+ * Used for server-side operations like certificate verification.
+ */
+export const getUserByClerkId = internalQuery({
+  args: { clerkId: v.string() },
+  handler: async (ctx, args) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerk_id", (q) => q.eq("clerkId", args.clerkId))
+      .first();
+    
+    if (!user) {
+      return null;
+    }
+    
+    // Return full user info for internal server-side use
+    return user;
+  },
+});
