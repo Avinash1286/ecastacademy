@@ -159,26 +159,10 @@ export const getUserById = query({
 });
 
 // Internal query for server-side user lookup by email
-// Not exposed to clients - use only from server actions, internal mutations, or auth resolution
+// Not exposed to clients - use only from Convex actions, internal mutations, or scheduled functions
 export const getUserByEmail = internalQuery({
   args: { email: v.string() },
   handler: async (ctx, args) => {
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_email", (q) => q.eq("email", args.email))
-      .first();
-    return user;
-  },
-});
-
-// Admin query for server-side user lookup by email (accessible via deploy key auth)
-// Used by server-side auth resolution where we don't have user context yet
-// SECURITY: This should only be called from trusted server-side code with admin auth
-export const getUserByEmailAdmin = query({
-  args: { email: v.string() },
-  handler: async (ctx, args) => {
-    // This query is intended to be called with admin/deploy key auth
-    // No user identity check - the security comes from requiring admin auth on the client
     const user = await ctx.db
       .query("users")
       .withIndex("by_email", (q) => q.eq("email", args.email))

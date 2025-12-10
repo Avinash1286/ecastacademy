@@ -40,18 +40,22 @@ function roleFromClerkUser(user: ClerkUserLike | null | undefined): AppRole | un
   return publicRole ?? privateRole;
 }
 
-async function fetchConvexUserByEmail(email: string) {
+async function fetchConvexUserByEmail(email: string, userToken: string | null) {
+  if (!userToken) {
+    // Can't look up user without auth token
+    return null;
+  }
   try {
-    // Use admin auth since this is server-side auth resolution (no user context yet)
-    const convex = createConvexClient({ useAdminAuth: true });
-    return await convex.query(api.clerkAuth.getUserByEmailAdmin, { email });
+    // Use user's own token to authenticate - getOwnUserByEmail validates caller email matches
+    const convex = createConvexClient({ userToken });
+    return await convex.query(api.clerkAuth.getOwnUserByEmail, { email });
   } catch (error) {
     console.error("Failed to fetch Convex user by email", error);
     return null;
   }
 }
 
-async function resolveUserAndRole(clerkUserId: string, sessionClaims: Record<string, unknown> | null | undefined) {
+async function resolveUserAndRole(clerkUserId: string, sessionClaims: Record<string, unknown> | null | undefined, userToken: string | null) {
   const clerkUser = await currentUser();
   const email = clerkUser?.emailAddresses?.[0]?.emailAddress;
 
@@ -61,7 +65,7 @@ async function resolveUserAndRole(clerkUserId: string, sessionClaims: Record<str
     roleFromClerkUser(clerkUser) ||
     undefined;
 
-  const convexUser = email ? await fetchConvexUserByEmail(email) : null;
+  const convexUser = email ? await fetchConvexUserByEmail(email, userToken) : null;
   const finalRole = (role || convexUser?.role) as AppRole | undefined;
 
   return {
@@ -73,13 +77,17 @@ async function resolveUserAndRole(clerkUserId: string, sessionClaims: Record<str
 }
 
 export async function auth(): Promise<AppSession | null> {
-  const { userId, sessionClaims } = await clerkAuth();
+  const clerkAuthResult = await clerkAuth();
+  const { userId, sessionClaims } = clerkAuthResult;
 
   if (!userId) {
     return null;
   }
 
-  const { email, convexUser, role } = await resolveUserAndRole(userId, sessionClaims as Record<string, unknown>);
+  // Get user token for authenticated Convex queries
+  const userToken = await clerkAuthResult.getToken({ template: "convex" });
+
+  const { email, convexUser, role } = await resolveUserAndRole(userId, sessionClaims as Record<string, unknown>, userToken);
 
   return {
     user: {
@@ -114,7 +122,10 @@ export async function requireAdmin(): Promise<AppSession & { user: SessionUser &
 
     if (!role) {
       const email = clerkUser.emailAddresses?.[0]?.emailAddress;
-      const convexUser = email ? await fetchConvexUserByEmail(email) : null;
+      // Get user token for authenticated Convex query
+      const clerkAuthResult = await clerkAuth();
+      const userToken = await clerkAuthResult.getToken({ template: "convex" });
+      const convexUser = email ? await fetchConvexUserByEmail(email, userToken) : null;
       role = convexUser?.role as AppRole | undefined;
       convexUserId = convexUser?._id as Id<"users"> | undefined;
     }
@@ -122,10 +133,10 @@ export async function requireAdmin(): Promise<AppSession & { user: SessionUser &
 
   if (role !== "admin") {
     console.warn("[requireAdmin] non-admin access", {
-      clerkId: session.user.clerkId,
-      email: session.user.email,
+      hasClerkId: !!session.user.clerkId,
+      hasEmail: !!session.user.email,
       resolvedRole: role,
-      convexUserId,
+      hasConvexUserId: !!convexUserId,
     });
     throw new Error("Admin access required");
   }
