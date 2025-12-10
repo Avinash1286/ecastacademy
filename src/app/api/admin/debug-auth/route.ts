@@ -24,11 +24,16 @@ export async function GET() {
     return NextResponse.json({ error: "Admin access required" }, { status: 403 });
   }
 
-  const { sessionClaims }: { sessionClaims: unknown } = await clerkAuth();
+  const clerkAuthResult = await clerkAuth();
+  const { sessionClaims } = clerkAuthResult;
   const user = await currentUser();
 
+  // Get the user's token to authenticate Convex queries as the current user
+  const userToken = await clerkAuthResult.getToken({ template: "convex" });
+
   const email = user?.emailAddresses?.[0]?.emailAddress;
-  const convex = createConvexClient();
+  // Create Convex client with user's token so getOwnUserByEmail can verify identity
+  const convex = createConvexClient({ userToken });
   const convexUser = email ? await convex.query(api.clerkAuth.getOwnUserByEmail, { email }) : null;
 
   return NextResponse.json({

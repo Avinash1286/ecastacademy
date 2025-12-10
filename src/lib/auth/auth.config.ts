@@ -42,8 +42,9 @@ function roleFromClerkUser(user: ClerkUserLike | null | undefined): AppRole | un
 
 async function fetchConvexUserByEmail(email: string) {
   try {
-    const convex = createConvexClient();
-    return await convex.query(api.clerkAuth.getOwnUserByEmail, { email });
+    // Use admin auth since this is server-side auth resolution (no user context yet)
+    const convex = createConvexClient({ useAdminAuth: true });
+    return await convex.query(api.clerkAuth.getUserByEmailAdmin, { email });
   } catch (error) {
     console.error("Failed to fetch Convex user by email", error);
     return null;

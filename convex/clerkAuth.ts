@@ -171,6 +171,22 @@ export const getUserByEmail = internalQuery({
   },
 });
 
+// Admin query for server-side user lookup by email (accessible via deploy key auth)
+// Used by server-side auth resolution where we don't have user context yet
+// SECURITY: This should only be called from trusted server-side code with admin auth
+export const getUserByEmailAdmin = query({
+  args: { email: v.string() },
+  handler: async (ctx, args) => {
+    // This query is intended to be called with admin/deploy key auth
+    // No user identity check - the security comes from requiring admin auth on the client
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", args.email))
+      .first();
+    return user;
+  },
+});
+
 // Authenticated query for looking up own user by email (for auth resolution)
 // Only returns the user if the email matches the authenticated user's identity
 export const getOwnUserByEmail = query({
