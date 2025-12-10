@@ -78,9 +78,8 @@ export function useAuthenticatedQueryFn<T>(
  * This is a helper function that creates the query function.
  * Use it with your own useQuery from @tanstack/react-query.
  * 
- * @param queryKey - Unique key for the query
  * @param url - The API endpoint URL
- * @param options - Tanstack Query options
+ * @param options - Additional fetch options
  * @returns Query function to use with useQuery
  * 
  * @example
@@ -104,40 +103,12 @@ export function useAuthenticatedQueryFn<T>(
  * 
  *   if (isLoading) return <div>Loading...</div>;
  *   if (error) return <div>Error: {error.message}</div>;
-export function useAuthenticatedQueryHelper<T>(
-  url: string,
-  options?: Omit<RequestInit, "method">
-) {
-  const { getToken } = useClerkAuth();
-
-  return async (): Promise<T> => {
-    // Get the session token
-    const token = await getToken();
-
-    // Make the request with the token
-    const response = await fetch(url, {
-      ...options,
-      headers: {
-        Authorization: token ? `Bearer ${token}` : "",
-        "Content-Type": "application/json",
-        ...options?.headers,
-      },
-    });
-
-    if (!response.ok) {
-      // Include status code and status text in error message
-      throw new Error(`API Error: ${response.status} ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    return data as T;
-  };
-}   queryFn,
-    retry: 2,
-    staleTime: 5 * 60 * 1000, // 5 minutes default
-    ...options,
-  });
-}
+ *   return <div>Hello, {data.name}!</div>;
+ * }
+ * ```
+ */
+// Note: useAuthenticatedQueryFn above provides the query function.
+// Import useQuery from @tanstack/react-query and use it with the query function.
 
 /**
  * Create an authenticated mutation function for Tanstack Query

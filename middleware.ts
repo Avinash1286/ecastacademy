@@ -1,5 +1,6 @@
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server'
 import { NextResponse } from "next/server";
+import { roleFromSessionClaims } from "@/lib/auth/auth.config";
 
 /**
  * Clerk Middleware with Security Features
@@ -94,8 +95,8 @@ function buildCSP(): string {
     
     // Scripts - allow YouTube + Clerk loader; keep inline/eval in dev
     process.env.NODE_ENV === "production"
-      ? "script-src 'self' 'unsafe-inline' https://www.youtube.com https://www.youtube-nocookie.com https://s.ytimg.com https://*.clerk.com https://*.clerk.accounts.dev https://cdn.jsdelivr.net"
-      : "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.youtube.com https://www.youtube-nocookie.com https://s.ytimg.com https://*.clerk.com https://*.clerk.accounts.dev https://cdn.jsdelivr.net",
+      ? "script-src 'self' 'unsafe-inline' https://www.youtube.com https://www.youtube-nocookie.com https://s.ytimg.com https://*.clerk.com https://*.clerk.accounts.dev"
+      : "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.youtube.com https://www.youtube-nocookie.com https://s.ytimg.com https://*.clerk.com https://*.clerk.accounts.dev",
     
     // Styles - self and inline (needed for styled components/CSS-in-JS)
     "style-src 'self' 'unsafe-inline'",
@@ -231,16 +232,13 @@ export default clerkMiddleware(async (auth, request) => {
 
     // 4. Admin check for admin paths
     if (isAdminRoute(request)) {
-      const role =
-        (sessionClaims as any)?.publicMetadata?.role ??
-        (sessionClaims as any)?.metadata?.role;
+      const role = roleFromSessionClaims(sessionClaims as Record<string, unknown> | null | undefined);
 
       // Debug: log admin access resolution (non-blocking)
       console.info("[middleware] admin route", { pathname, userId, role });
 
-      // If role is explicitly non-admin, redirect. If role is missing, allow
-      // the request to continue to server-side admin guards.
-      if (role && role !== "admin") {
+      // Require explicit admin role - redirect if missing or non-admin
+      if (role !== "admin") {
         return NextResponse.redirect(new URL("/dashboard", request.url));
       }
     }

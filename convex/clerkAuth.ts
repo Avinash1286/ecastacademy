@@ -37,7 +37,12 @@ export const syncUser = mutation({
     }
 
     const clerkId = identity.subject;
-    const email = identity.email!;
+    const email = identity.email;
+    if (!email) {
+      throw new Error(
+        "Email is required for user sync. Clerk user is missing an email address."
+      );
+    }
     const name = identity.name || identity.givenName || "";
     const image = identity.pictureUrl || "";
 

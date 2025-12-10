@@ -201,7 +201,7 @@ export function LandingPageClient() {
             {/* CTA Buttons */}
             <FadeUp delay={0.4}>
               <div className="flex flex-col sm:flex-row gap-4 justify-center pt-4">
-                <Link href="/auth/signup">
+                <Link href="/sign-up">
                   <PulseButton>
                     <Button size="lg" className="w-full sm:w-auto text-base px-8 h-14 rounded-xl">
                       Start Learning Free
@@ -498,7 +498,7 @@ export function LandingPageClient() {
                   Start free, no credit card required.
                 </p>
                 <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                  <Link href="/auth/signup">
+                  <Link href="/sign-up">
                     <PulseButton>
                       <Button size="lg" className="w-full sm:w-auto text-base px-8 h-14 rounded-xl">
                         Get Started Free

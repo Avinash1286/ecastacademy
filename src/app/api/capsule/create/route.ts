@@ -126,7 +126,13 @@ export async function POST(request: NextRequest) {
     const sanitizedUserPrompt = sanitizeInput(userPrompt, MAX_USER_PROMPT_LENGTH);
 
     // Get user ID from Convex
-    const userId = session.user.id as Id<'users'>;
+    const userId = session.user.id;
+    if (!userId) {
+      return NextResponse.json(
+        { error: 'User profile not found. Please try again.' },
+        { status: 404 }
+      );
+    }
     const convex = createConvexClient({ userToken: bearer });
     const user = await convex.query(api.clerkAuth.getUserById, {
       id: userId,

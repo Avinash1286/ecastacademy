@@ -27,7 +27,7 @@ type ClerkUserLike = {
   emailAddresses?: { emailAddress: string }[];
 };
 
-function roleFromSessionClaims(claims: Record<string, unknown> | null | undefined): AppRole | undefined {
+export function roleFromSessionClaims(claims: Record<string, unknown> | null | undefined): AppRole | undefined {
   const typed = claims as ClaimsWithRole | null | undefined;
   const metadataRole = typed?.metadata?.role;
   const publicMetadataRole = typed?.publicMetadata?.role;

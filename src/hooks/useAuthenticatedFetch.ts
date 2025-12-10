@@ -1,4 +1,5 @@
 import { useAuth as useClerkAuth } from "@clerk/nextjs";
+import { useCallback } from "react";
 
 /**
  * Authenticated Fetch Hook for Clerk
@@ -39,7 +40,7 @@ function readCsrfToken(): string | null {
 export function useAuthenticatedFetch() {
   const { getToken } = useClerkAuth();
 
-  const authenticatedFetch = async <T = unknown>(
+  const authenticatedFetch = useCallback(async <T = unknown>(
     url: string | URL | Request,
     options?: RequestInit
   ): Promise<T> => {
@@ -69,7 +70,7 @@ export function useAuthenticatedFetch() {
     }
 
     return response.json() as Promise<T>;
-  };
+  }, [getToken]);
 
   return authenticatedFetch;
 }
@@ -98,7 +99,7 @@ export function useAuthenticatedFetch() {
 export function useAuthenticatedFetchRaw() {
   const { getToken } = useClerkAuth();
 
-  const authenticatedFetch = async (
+  const authenticatedFetch = useCallback(async (
     url: string | URL | Request,
     options?: RequestInit
   ): Promise<Response> => {
@@ -121,13 +122,15 @@ export function useAuthenticatedFetchRaw() {
       ...options,
       headers,
     });
-  };
+  }, [getToken]);
 
   return authenticatedFetch;
 }
 
 /**
  * Hook for creating an authenticated fetcher for SWR
+ * 
+ * Uses the "convex" JWT template for consistency with other authenticated fetch hooks.
  * 
  * @returns A fetcher function compatible with SWR
  * 
@@ -148,14 +151,18 @@ export function useAuthenticatedFetchRaw() {
 export function useAuthenticatedSWRFetcher<T = unknown>() {
   const { getToken } = useClerkAuth();
 
-  const fetcher = async (url: string): Promise<T> => {
-    // Get the session token
-    const token = await getToken();
+  const fetcher = useCallback(async (url: string): Promise<T> => {
+    // Get the session token (Convex expects the "convex" Clerk JWT template)
+    const token = await getToken({ template: "convex" });
+
+    // Get CSRF token for consistency with other fetch utilities
+    const csrf = readCsrfToken();
 
     // Make the request with the token
     const response = await fetch(url, {
       headers: {
         Authorization: token ? `Bearer ${token}` : "",
+        ...(csrf ? { "x-csrf-token": csrf } : {}),
       },
     });
 
@@ -164,7 +171,7 @@ export function useAuthenticatedSWRFetcher<T = unknown>() {
     }
 
     return response.json() as Promise<T>;
-  };
+  }, [getToken]);
 
   return fetcher;
 }

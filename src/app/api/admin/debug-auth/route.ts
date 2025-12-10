@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth as clerkAuth, currentUser } from "@clerk/nextjs/server";
-import { auth } from "@/lib/auth/auth.config";
+import { requireAdmin } from "@/lib/auth/auth.config";
 import { createConvexClient } from "@/lib/convexClient";
 import { api } from "../../../../../convex/_generated/api";
 
@@ -19,10 +19,20 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  // Require any signed-in user
-  const session: { user?: { clerkId?: string } } | null = await auth();
-  if (!session?.user?.clerkId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Only allow this debug endpoint in development/staging environments
+  if (process.env.NODE_ENV === "production" && process.env.ENABLE_DEBUG_ENDPOINTS !== "true") {
+    return NextResponse.json(
+      { error: "Debug endpoint is disabled in production" },
+      { status: 404 }
+    );
+  }
+
+  // Require admin access for debug endpoint
+  let adminSession;
+  try {
+    adminSession = await requireAdmin();
+  } catch {
+    return NextResponse.json({ error: "Admin access required" }, { status: 403 });
   }
 
   const { sessionClaims }: { sessionClaims: unknown } = await clerkAuth();
@@ -33,13 +43,13 @@ export async function GET() {
   const convexUser = email ? await convex.query(api.clerkAuth.getUserByEmail, { email }) : null;
 
   return NextResponse.json({
-    clerkUserId: session.user.clerkId,
+    clerkUserId: adminSession.user.clerkId,
     email,
     roleFromSessionClaims: roleFromSessionClaims(sessionClaims),
     roleFromClerkPublicMetadata: typeof user?.publicMetadata?.role === "string" ? user.publicMetadata.role : undefined,
     roleFromClerkPrivateMetadata: typeof user?.privateMetadata?.role === "string" ? user.privateMetadata.role : undefined,
     roleFromConvexUser: typeof convexUser?.role === "string" ? convexUser.role : undefined,
     convexUserId: convexUser?._id,
-    sessionUser: session.user,
+    sessionUser: adminSession.user,
   });
 }
