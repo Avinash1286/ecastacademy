@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { mutation, query, internalQuery } from "./_generated/server";
 
 /**
  * Clerk-based authentication helpers for Convex
@@ -118,18 +118,74 @@ export const updateUserProfile = mutation({
   },
 });
 
-// Get user by ID (public query)
+// Get user by ID (requires authentication, returns safe subset of fields)
 export const getUserById = query({
   args: { id: v.id("users") },
   handler: async (ctx, args) => {
-    return await ctx.db.get(args.id);
+    // Require authentication to prevent anonymous enumeration
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Authentication required");
+    }
+
+    const user = await ctx.db.get(args.id);
+    if (!user) {
+      return null;
+    }
+
+    // Return only safe public profile fields (exclude sensitive data like email for non-owners)
+    const requestingUser = await ctx.db
+      .query("users")
+      .withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject))
+      .first();
+
+    const isOwner = requestingUser?._id === user._id;
+    const isAdmin = requestingUser?.role === "admin";
+
+    if (isOwner || isAdmin) {
+      // Full access for owner or admin
+      return user;
+    }
+
+    // Return limited public profile for other authenticated users
+    return {
+      _id: user._id,
+      _creationTime: user._creationTime,
+      name: user.name,
+      image: user.image,
+      // Omit: email, clerkId, role, and other sensitive fields
+    };
   },
 });
 
-// Legacy compatibility: Get user by email
-export const getUserByEmail = query({
+// Internal query for server-side user lookup by email
+// Not exposed to clients - use only from server actions, internal mutations, or auth resolution
+export const getUserByEmail = internalQuery({
   args: { email: v.string() },
   handler: async (ctx, args) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", args.email))
+      .first();
+    return user;
+  },
+});
+
+// Authenticated query for looking up own user by email (for auth resolution)
+// Only returns the user if the email matches the authenticated user's identity
+export const getOwnUserByEmail = query({
+  args: { email: v.string() },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Authentication required");
+    }
+
+    // Only allow looking up your own email to prevent enumeration
+    if (identity.email !== args.email) {
+      throw new Error("Can only look up your own user record");
+    }
+
     const user = await ctx.db
       .query("users")
       .withIndex("by_email", (q) => q.eq("email", args.email))

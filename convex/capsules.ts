@@ -1501,8 +1501,8 @@ export const generateCapsuleContent = action({
     let authenticatedUserId = capsule.userId;
 
     if (identity?.email) {
-      // If we have identity, verify through email lookup
-      const user = await ctx.runQuery(api.clerkAuth.getUserByEmail, {
+      // If we have identity, verify through email lookup (internal query)
+      const user = await ctx.runQuery(internal.clerkAuth.getUserByEmail, {
         email: identity.email,
       });
       if (user) {

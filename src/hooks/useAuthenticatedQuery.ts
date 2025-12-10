@@ -4,6 +4,10 @@
  * Provides hooks for authenticated queries using Tanstack Query.
  * Implements Clerk security best practices for request authentication.
  * 
+ * SECURITY NOTE: These helpers are intended ONLY for same-origin backend routes
+ * (e.g., /api/...). Do NOT use with absolute third-party URLs as this would
+ * leak authentication tokens to external services.
+ * 
  * NOTE: These hooks require @tanstack/react-query to be installed.
  * Install with: npm install @tanstack/react-query
  * 
@@ -19,7 +23,7 @@ import { useAuth as useClerkAuth } from "@clerk/nextjs";
  * The native Fetch API doesn't throw errors for non-200 responses,
  * so this includes explicit error handling required by Tanstack Query.
  * 
- * @param url - The API endpoint URL
+ * @param url - The API endpoint URL (must be a same-origin relative path like /api/...)
  * @param options - Additional fetch options
  * @returns Query function compatible with Tanstack Query
  * 
@@ -49,19 +53,30 @@ export function useAuthenticatedQueryFn<T>(
     // Get the session token
     const token = await getToken();
 
+    // Build headers - only include Authorization if token exists
+    const headers: HeadersInit = {
+      "Content-Type": "application/json",
+      ...options?.headers,
+    };
+    if (token) {
+      (headers as Record<string, string>)["Authorization"] = `Bearer ${token}`;
+    }
+
     // Make the request with the token
     const response = await fetch(url, {
       ...options,
-      headers: {
-        Authorization: token ? `Bearer ${token}` : "",
-        "Content-Type": "application/json",
-        ...options?.headers,
-      },
+      headers,
     });
 
     if (!response.ok) {
       // Include status code and status text in error message
       throw new Error(`API Error: ${response.status} ${response.statusText}`);
+    }
+
+    // Handle empty responses (e.g., 204 No Content) and non-JSON responses
+    const contentType = response.headers.get("content-type");
+    if (!contentType?.includes("application/json")) {
+      return {} as T;
     }
 
     const data = await response.json();
