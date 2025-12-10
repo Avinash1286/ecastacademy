@@ -32,10 +32,12 @@ function toSecureQuiz(quiz: Quiz | null | undefined): SecureQuiz | null {
 
 export function QuizzesPanel({
   questions,
-  contentItem
+  contentItem,
+  coursePassingGrade
 }: {
   questions: Quiz | null | undefined;
   contentItem?: ContentItem | null;
+  coursePassingGrade?: number;
 }) {
   const [currentView, setCurrentView] = useState<'quiz' | 'results'>('quiz');
   const [userAnswers, setUserAnswers] = useState<number[]>([]);
@@ -175,6 +177,7 @@ export function QuizzesPanel({
             onQuizComplete={handleQuizComplete}
             contentItem={contentItem}
             isSubmitting={isSubmitting}
+            coursePassingGrade={coursePassingGrade}
           />
         )}
         {currentView === 'results' && secureQuiz && (
@@ -187,6 +190,7 @@ export function QuizzesPanel({
             contentItem={contentItem}
             attemptHistory={attemptHistory || []}
             isPreviousAttempt={showPreviousAttempt}
+            coursePassingGrade={coursePassingGrade}
           />
         )}
         {!secureQuiz && (

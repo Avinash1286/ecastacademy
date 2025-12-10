@@ -225,17 +225,27 @@ export default clerkMiddleware(async (auth, request) => {
     
     if (!userId) {
       // No valid session - Clerk will handle redirect
-      console.warn("[middleware] no userId for", pathname);
       await auth.protect();
       return;
     }
 
     // 4. Admin check for admin paths
     if (isAdminRoute(request)) {
-      const role = roleFromSessionClaims(sessionClaims as Record<string, unknown> | null | undefined);
-
-      // Debug: log admin access resolution (non-blocking)
-      console.info("[middleware] admin route", { pathname, userId, role });
+      // Try multiple locations where Clerk might store the role
+      const claims = sessionClaims as Record<string, unknown> | null | undefined;
+      
+      // Check various possible locations for the role
+      const role = 
+        // Standard metadata locations
+        (claims?.metadata as Record<string, unknown>)?.role as string ||
+        (claims?.publicMetadata as Record<string, unknown>)?.role as string ||
+        // Clerk often puts custom claims at the root level
+        (claims?.role as string) ||
+        // Some Clerk versions use 'public_metadata'
+        (claims?.public_metadata as Record<string, unknown>)?.role as string ||
+        // Check under 'user' if present
+        ((claims?.user as Record<string, unknown>)?.publicMetadata as Record<string, unknown>)?.role as string ||
+        undefined;
 
       // Require explicit admin role - redirect if missing or non-admin
       if (role !== "admin") {

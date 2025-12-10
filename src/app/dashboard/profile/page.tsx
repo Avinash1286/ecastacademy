@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Award, Calendar, TrendingUp, Eye, Mail, User as UserIcon, GraduationCap, Shield, Sun, Moon, Monitor } from "lucide-react"
+import { toast } from "sonner"
 import { useTheme } from "next-themes"
 import Link from "next/link"
 
@@ -343,7 +344,7 @@ function CertificateCard({ certificate }: CertificateCardProps) {
                 navigator.clipboard.writeText(
                   `${window.location.origin}/dashboard/certificates/${certificate.certificateId}`
                 )
-                alert("Certificate link copied!")
+                toast.success("Certificate link copied to clipboard!")
               }}
             >
               Share

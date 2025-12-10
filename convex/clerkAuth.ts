@@ -193,3 +193,29 @@ export const getOwnUserByEmail = query({
     return user;
   },
 });
+
+/**
+ * Query to get user by Clerk ID
+ * This is a public query that returns basic user info.
+ * Used for server-side operations like certificate verification.
+ */
+export const getUserByClerkId = query({
+  args: { clerkId: v.string() },
+  handler: async (ctx, args) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerk_id", (q) => q.eq("clerkId", args.clerkId))
+      .first();
+    
+    if (!user) {
+      return null;
+    }
+    
+    // Return limited info for public access
+    return {
+      _id: user._id,
+      email: user.email,
+      name: user.name,
+    };
+  },
+});

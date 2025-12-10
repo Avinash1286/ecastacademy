@@ -16,7 +16,8 @@ export const QuizResults = ({
   onRestart, 
   contentItem, 
   attemptHistory,
-  isPreviousAttempt = false 
+  isPreviousAttempt = false,
+  coursePassingGrade
 }: QuizResultsProps & { isPreviousAttempt?: boolean }) => {
   const [showConfetti, setShowConfetti] = useState(false);
   const { playCorrectSound, playIncorrectSound } = useSoundEffects();
@@ -24,9 +25,10 @@ export const QuizResults = ({
   const totalQuestions = quiz.questions.length || 0;
   const percentage = totalQuestions > 0 ? Math.round((score / totalQuestions) * 100) : 0;
   
-  // Grading information
+  // Grading information - prefer course's passingGrade over contentItem's stored value
+  // This ensures that updating the course's passing grade immediately reflects in all quizzes
   const isGraded = contentItem?.isGraded ?? false;
-  const passingScore = contentItem?.passingScore ?? 70;
+  const passingScore = coursePassingGrade ?? contentItem?.passingScore ?? 70;
   const passed = percentage >= passingScore;
   const allowRetakes = contentItem?.allowRetakes ?? true;
   const historyPercentages = attemptHistory?.map((attempt) => attempt.percentage) ?? [];

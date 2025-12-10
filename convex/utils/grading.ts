@@ -40,7 +40,9 @@ export function calculateStudentGrade(
 
     const maxPoints = item.maxPoints ?? 100;
     const bestPercentage = summary.bestPercentage ?? 0;
-    const itemPassingScore = item.passingScore ?? coursePassingGrade;
+    // Prefer course's passing grade over item's stored value
+    // This ensures updating the course's passing grade immediately reflects in all calculations
+    const itemPassingScore = coursePassingGrade ?? item.passingScore ?? 70;
 
     totalPossiblePoints += maxPoints;
     totalEarnedPoints += (bestPercentage / 100) * maxPoints;

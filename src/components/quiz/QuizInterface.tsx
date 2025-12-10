@@ -7,7 +7,7 @@ import { Award, TrendingUp, Loader2 } from 'lucide-react';
 import { cn } from "@/lib/utils";
 import { QuizInterfaceProps } from '@/lib/types';
 
-export const QuizInterface = ({ quiz, onQuizComplete, contentItem, isSubmitting = false }: QuizInterfaceProps) => {
+export const QuizInterface = ({ quiz, onQuizComplete, contentItem, isSubmitting = false, coursePassingGrade }: QuizInterfaceProps) => {
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
   const [answers, setAnswers] = useState<(number | null)[]>(new Array(quiz.questions.length).fill(null));
@@ -15,9 +15,10 @@ export const QuizInterface = ({ quiz, onQuizComplete, contentItem, isSubmitting 
   const progress = ((currentQuestion + 1) / quiz.questions.length) * 100;
   const question = quiz.questions[currentQuestion];
   
-  // Grading information
+  // Grading information - prefer course's passingGrade over contentItem's stored value
+  // This ensures that updating the course's passing grade immediately reflects in all quizzes
   const isGraded = contentItem?.isGraded ?? false;
-  const passingScore = contentItem?.passingScore ?? 70;
+  const passingScore = coursePassingGrade ?? contentItem?.passingScore ?? 70;
   const maxPoints = contentItem?.maxPoints ?? 100;
 
   const handleAnswerSelect = (answerIndex: number) => {

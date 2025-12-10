@@ -94,7 +94,7 @@ export function CertificateView({
     window.print()
   }
 
-  const handleDownloadSVG = async () => {
+  const handleDownloadPDF = async () => {
     if (!certificate) return
     
     setIsDownloading(true)
@@ -119,15 +119,14 @@ export function CertificateView({
         throw new Error("Failed to generate certificate")
       }
 
-      // Get the SVG content
-      const svgContent = await response.text()
+      // Get the PDF content as blob
+      const pdfBlob = await response.blob()
       
-      // Create a blob and download
-      const blob = new Blob([svgContent], { type: "image/svg+xml" })
-      const url = URL.createObjectURL(blob)
+      // Create a blob URL and download
+      const url = URL.createObjectURL(pdfBlob)
       const a = document.createElement("a")
       a.href = url
-      a.download = `certificate-${certificate.certificateId}.svg`
+      a.download = `certificate-${certificate.certificateId}.pdf`
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
@@ -153,7 +152,7 @@ export function CertificateView({
             <div className="h-10" />
           )}
           <div className="flex gap-2">
-            <Button onClick={handleDownloadSVG} disabled={isDownloading}>
+            <Button onClick={handleDownloadPDF} disabled={isDownloading}>
               <Download className="h-4 w-4 mr-2" />
               {isDownloading ? "Generating..." : "Download Certificate"}
             </Button>

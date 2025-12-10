@@ -111,10 +111,13 @@ export function AiTutorPanel({ activeChapter, activeContentItem, isLeftPanelVisi
     );
   })();
 
+  // Get course passing grade for quiz fallback
+  const coursePassingGrade = activeChapter.course?.passingGrade;
+
   const quizzesContent = (() => {
     if (isTextContent) {
       if (textQuiz) {
-        return <QuizzesPanel questions={textQuiz} contentItem={activeContentItem} />;
+        return <QuizzesPanel questions={textQuiz} contentItem={activeContentItem} coursePassingGrade={coursePassingGrade} />;
       }
       return (
         <div className="flex h-full items-center justify-center p-8 text-center text-muted-foreground">
@@ -127,7 +130,7 @@ export function AiTutorPanel({ activeChapter, activeContentItem, isLeftPanelVisi
     }
 
     if (quiz) {
-      return <QuizzesPanel questions={quiz} contentItem={activeContentItem} />;
+      return <QuizzesPanel questions={quiz} contentItem={activeContentItem} coursePassingGrade={coursePassingGrade} />;
     }
 
     return (
