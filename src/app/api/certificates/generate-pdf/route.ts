@@ -256,9 +256,9 @@ async function handler(req: NextRequest): Promise<NextResponse> {
       });
 
       // Get the current user's Convex ID via their Clerk ID
-      // Using getUserIdByClerkId which doesn't require Convex auth context
+      // Using getUserIdByClerkId action which is internal-query backed
       // (the API route has already verified the user via Clerk session)
-      const currentUser = await convex.query(api.clerkAuth.getUserIdByClerkId, {
+      const currentUser = await convex.action(api.clerkAuth.getUserIdByClerkId, {
         clerkId: session.user.clerkId,
       });
 
