@@ -194,6 +194,29 @@ export const getOwnUserByEmail = query({
   },
 });
 
+// Authenticated query for looking up own user by Clerk ID (for API routes)
+// Only returns the user if the Clerk ID matches the authenticated user's identity
+export const getOwnUserByClerkId = query({
+  args: { clerkId: v.string() },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Authentication required");
+    }
+
+    // Only allow looking up your own Clerk ID to prevent enumeration
+    if (identity.subject !== args.clerkId) {
+      throw new Error("Can only look up your own user record");
+    }
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerk_id", (q) => q.eq("clerkId", args.clerkId))
+      .first();
+    return user;
+  },
+});
+
 /**
  * Internal query to get user by Clerk ID
  * Not exposed to clients - use only from Convex actions, internal mutations, or scheduled functions.
@@ -213,5 +236,33 @@ export const getUserByClerkId = internalQuery({
     
     // Return full user info for internal server-side use
     return user;
+  },
+});
+
+/**
+ * Public query to get minimal user info by Clerk ID for server-side verification.
+ * This is used by API routes that have already authenticated the user via Clerk session
+ * and need to resolve the Convex user ID for ownership checks.
+ * 
+ * SECURITY: Only returns _id and email - no sensitive data.
+ * The API route is responsible for validating that the clerkId belongs to the authenticated user.
+ */
+export const getUserIdByClerkId = query({
+  args: { clerkId: v.string() },
+  handler: async (ctx, args) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerk_id", (q) => q.eq("clerkId", args.clerkId))
+      .first();
+    
+    if (!user) {
+      return null;
+    }
+    
+    // Return only minimal info needed for ownership verification
+    return {
+      _id: user._id,
+      email: user.email,
+    };
   },
 });

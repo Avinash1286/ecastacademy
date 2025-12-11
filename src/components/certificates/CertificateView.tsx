@@ -156,9 +156,6 @@ export function CertificateView({
               <Download className="h-4 w-4 mr-2" />
               {isDownloading ? "Generating..." : "Download Certificate"}
             </Button>
-            <Button variant="outline" onClick={handlePrint}>
-              Print
-            </Button>
           </div>
         </div>
 
