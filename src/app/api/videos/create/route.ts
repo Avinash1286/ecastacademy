@@ -7,7 +7,7 @@ import { requireAdmin } from "@/lib/auth/auth.config";
 import { logger } from "@/lib/logging/logger";
 
 // Use admin auth since this is an admin-only operation
-const convex = createConvexClient({ useAdminAuth: true });
+const adminConvex = createConvexClient({ useAdminAuth: true });
 
 export async function POST(request: NextRequest) {
   // Apply rate limiting
@@ -25,15 +25,35 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Get the user ID - prefer Convex ID but use clerkId as fallback for validation
-  const currentUserId = session.user.id as Id<"users"> | undefined;
-  if (!currentUserId) {
-    logger.warn("Admin authenticated but Convex user ID not found", { clerkId: session.user.clerkId });
+  // Get bearer token for user-authenticated Convex queries
+  const bearer = request.headers.get('authorization')?.replace(/^Bearer\s+/i, '') ?? null;
+  const userConvex = createConvexClient({ userToken: bearer });
+
+  // Get user from Convex using Clerk ID (more reliable than session.user.id which requires prior sync)
+  let user = await userConvex.query(api.clerkAuth.getOwnUserByClerkId, {
+    clerkId: session.user.clerkId,
+  });
+
+  // If user doesn't exist, trigger a sync and try again
+  if (!user) {
+    try {
+      await userConvex.mutation(api.clerkAuth.syncUser, {});
+      user = await userConvex.query(api.clerkAuth.getOwnUserByClerkId, {
+        clerkId: session.user.clerkId,
+      });
+    } catch (syncError) {
+      logger.error('Failed to sync user during video creation', { clerkId: session.user.clerkId }, syncError as Error);
+    }
+  }
+
+  if (!user) {
     return NextResponse.json(
-      { error: "User account not properly synced. Please refresh and try again." },
+      { error: "User account not properly synced. Please sign out and sign in again." },
       { status: 401 }
     );
   }
+
+  const currentUserId = user._id;
 
   let body;
   try {
@@ -87,7 +107,7 @@ export async function POST(request: NextRequest) {
     // First, create all videos with pending status (don't trigger processing yet)
     for (const video of videos) {
       // Check if video already exists
-      const existingVideo = await convex.query(api.videos.findVideoByYoutubeId, {
+      const existingVideo = await adminConvex.query(api.videos.findVideoByYoutubeId, {
         youtubeVideoId: video.id,
       });
 
@@ -97,7 +117,7 @@ export async function POST(request: NextRequest) {
         const shouldSkipProcessing = Boolean(video.skipTranscript);
 
         // Create video with pending status
-        const videoId = await convex.mutation(api.videos.createVideo, {
+        const videoId = await adminConvex.mutation(api.videos.createVideo, {
           youtubeVideoId: video.id,
           title: video.title,
           url: `https://www.youtube.com/watch?v=${video.id}`,
@@ -124,7 +144,7 @@ export async function POST(request: NextRequest) {
     // Now trigger sequential processing for all created videos
     if (createdVideoIds.length > 0) {
       try {
-        await convex.action(api.videoProcessing.processVideosSequentially, {
+        await adminConvex.action(api.videoProcessing.processVideosSequentially, {
           videoIds: createdVideoIds,
         });
       } catch (error) {

@@ -79,6 +79,7 @@ function cleanupExpiredEntries(): void {
 
 /**
  * Rate limit using Redis (Upstash) - production-ready for multi-instance deployments
+ * Uses a sliding window approach where each user's window starts from their first request
  */
 async function rateLimitWithRedis(
   identifier: string,
@@ -88,11 +89,97 @@ async function rateLimitWithRedis(
   const token = process.env.UPSTASH_REDIS_REST_TOKEN!;
   
   const now = Date.now();
-  const windowKey = `ratelimit:${identifier}:${Math.floor(now / config.interval)}`;
+  // Use a per-identifier key (not time-bucketed) for sliding window
+  const windowKey = `ratelimit:${identifier}`;
+  const resetKey = `ratelimit:${identifier}:reset`;
   
   try {
-    // Increment counter with automatic expiry
-    const response = await fetch(`${url}/pipeline`, {
+    // First, get the current state
+    const getResponse = await fetch(`${url}/pipeline`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify([
+        ["GET", windowKey],
+        ["GET", resetKey],
+      ]),
+    });
+
+    if (!getResponse.ok) {
+      console.error("[RATE_LIMIT] Redis error, falling back to in-memory rate limiting");
+      return rateLimitInMemory(identifier, config);
+    }
+
+    const getResults = await getResponse.json();
+    const currentCount = parseInt(getResults[0]?.result || "0", 10);
+    const storedResetTime = parseInt(getResults[1]?.result || "0", 10);
+
+    // Check if window has expired (reset time has passed)
+    if (storedResetTime > 0 && now > storedResetTime) {
+      // Window expired, reset the counter
+      const resetTime = now + config.interval;
+      await fetch(`${url}/pipeline`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify([
+          ["SET", windowKey, "1"],
+          ["SET", resetKey, resetTime.toString()],
+          ["PEXPIRE", windowKey, (config.interval + 1000).toString()],
+          ["PEXPIRE", resetKey, (config.interval + 1000).toString()],
+        ]),
+      });
+
+      return {
+        success: true,
+        limit: config.maxRequests,
+        remaining: config.maxRequests - 1,
+        reset: resetTime,
+      };
+    }
+
+    // Window still active
+    if (currentCount === 0) {
+      // First request in this window
+      const resetTime = now + config.interval;
+      await fetch(`${url}/pipeline`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify([
+          ["SET", windowKey, "1"],
+          ["SET", resetKey, resetTime.toString()],
+          ["PEXPIRE", windowKey, (config.interval + 1000).toString()],
+          ["PEXPIRE", resetKey, (config.interval + 1000).toString()],
+        ]),
+      });
+
+      return {
+        success: true,
+        limit: config.maxRequests,
+        remaining: config.maxRequests - 1,
+        reset: resetTime,
+      };
+    }
+
+    // Check if limit exceeded
+    if (currentCount >= config.maxRequests) {
+      return {
+        success: false,
+        limit: config.maxRequests,
+        remaining: 0,
+        reset: storedResetTime,
+      };
+    }
+
+    // Increment counter (window still valid)
+    await fetch(`${url}/pipeline`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
@@ -100,34 +187,14 @@ async function rateLimitWithRedis(
       },
       body: JSON.stringify([
         ["INCR", windowKey],
-        ["PEXPIRE", windowKey, config.interval.toString()],
       ]),
     });
-
-    if (!response.ok) {
-      console.error("[RATE_LIMIT] Redis error, falling back to in-memory rate limiting");
-      // HIGH-1 FIX: Fall back to in-memory instead of failing open
-      return rateLimitInMemory(identifier, config);
-    }
-
-    const results = await response.json();
-    const count = results[0]?.result || 1;
-    const resetTime = now + config.interval - (now % config.interval);
-
-    if (count > config.maxRequests) {
-      return {
-        success: false,
-        limit: config.maxRequests,
-        remaining: 0,
-        reset: resetTime,
-      };
-    }
 
     return {
       success: true,
       limit: config.maxRequests,
-      remaining: Math.max(0, config.maxRequests - count),
-      reset: resetTime,
+      remaining: Math.max(0, config.maxRequests - currentCount - 1),
+      reset: storedResetTime,
     };
   } catch (error) {
     console.error("[RATE_LIMIT] Redis connection error:", error);

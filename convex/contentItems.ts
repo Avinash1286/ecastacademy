@@ -1,8 +1,16 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { action, internalAction, internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { recalculateCourseProgressSync } from "./completions";
 import { requireAuthenticatedUser, requireAuthenticatedUserWithFallback } from "./utils/auth";
 import { validateContentItemFields, validatePositiveNumber } from "./utils/validation";
+import { generateQuiz } from "@shared/ai/generation";
+import { validateAndCorrectJson } from "@shared/ai/structuredValidation";
+import {
+  generatedQuizSchema,
+  generatedQuizSchemaDescription,
+} from "@/lib/validators/generatedContentSchemas";
+import { resolveWithConvexCtx } from "@shared/ai/modelResolver";
 
 // Create a content item
 export const createContentItem = mutation({
@@ -557,6 +565,200 @@ export const syncContentItemsGradingStatus = mutation({
       success: true,
       updatedCount,
       message: `Updated ${updatedCount} content items`,
+    };
+  },
+});
+
+// =============================================================================
+// Text Quiz Generation (Background Job)
+// =============================================================================
+
+// Internal mutation to update text quiz status (no auth required - called from internal actions)
+export const updateTextQuizStatusInternal = internalMutation({
+  args: {
+    contentItemId: v.id("contentItems"),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("processing"),
+      v.literal("completed"),
+      v.literal("failed")
+    ),
+    textQuiz: v.optional(v.any()),
+    textQuizError: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const { contentItemId, status, textQuiz, textQuizError } = args;
+
+    const updates: {
+      textQuizStatus: "pending" | "processing" | "completed" | "failed";
+      textQuiz?: unknown;
+      textQuizError?: string;
+    } = {
+      textQuizStatus: status,
+    };
+
+    if (textQuiz !== undefined) {
+      updates.textQuiz = textQuiz;
+    }
+
+    if (textQuizError !== undefined) {
+      updates.textQuizError = textQuizError;
+    }
+
+    await ctx.db.patch(contentItemId, updates);
+    return await ctx.db.get(contentItemId);
+  },
+});
+
+// Internal action to generate text quiz (runs in background)
+export const generateTextQuizInternal = internalAction({
+  args: {
+    contentItemId: v.id("contentItems"),
+  },
+  handler: async (ctx, args) => {
+    const { contentItemId } = args;
+
+    try {
+      // Get the content item
+      const contentItem = await ctx.runQuery(internal.contentItems.getContentItemByIdInternal, {
+        id: contentItemId,
+      });
+
+      if (!contentItem) {
+        throw new Error("Content item not found");
+      }
+
+      if (contentItem.type !== "text") {
+        throw new Error("Content item must be of type 'text'");
+      }
+
+      if (!contentItem.textContent) {
+        throw new Error("Content item has no text content");
+      }
+
+      // Resolve AI model config
+      let quizModelConfig;
+      try {
+        quizModelConfig = await resolveWithConvexCtx(ctx, "quiz_generation");
+      } catch (resolverError) {
+        await ctx.runMutation(internal.contentItems.updateTextQuizStatusInternal, {
+          contentItemId,
+          status: "failed",
+          textQuizError: "Quiz generation is unavailable. Please contact an administrator.",
+        });
+        throw resolverError;
+      }
+
+      // Generate quiz from text content
+      const quizJson = await generateQuiz(contentItem.textContent, quizModelConfig);
+      const validatedQuiz = await validateAndCorrectJson(quizJson, {
+        schema: generatedQuizSchema,
+        schemaName: "InteractiveQuiz",
+        schemaDescription: generatedQuizSchemaDescription,
+        originalInput: contentItem.textContent,
+        format: "interactive-quiz",
+        modelConfig: quizModelConfig,
+      });
+      const quiz = JSON.parse(validatedQuiz);
+
+      // Validate quiz structure
+      if (!quiz.topic || !Array.isArray(quiz.questions) || quiz.questions.length === 0) {
+        throw new Error("Invalid quiz format");
+      }
+
+      // Update with completed status and quiz data
+      await ctx.runMutation(internal.contentItems.updateTextQuizStatusInternal, {
+        contentItemId,
+        status: "completed",
+        textQuiz: quiz,
+      });
+
+      console.log(`[Text Quiz] Successfully generated quiz for content item ${contentItemId}`);
+      return { success: true, quiz };
+    } catch (error) {
+      // Parse and simplify error message
+      let userFriendlyMessage = "Failed to generate quiz";
+
+      if (error instanceof Error) {
+        const errorMsg = error.message;
+
+        if (errorMsg.includes("quota") || errorMsg.includes("RESOURCE_EXHAUSTED") || errorMsg.includes("429")) {
+          userFriendlyMessage = "AI quota exceeded. Please try again in a minute.";
+        } else if (errorMsg.includes("rate limit") || errorMsg.includes("Too Many Requests")) {
+          userFriendlyMessage = "Rate limit exceeded. Please wait before trying again.";
+        } else if (errorMsg.includes("API key") || errorMsg.includes("authentication")) {
+          userFriendlyMessage = "AI service authentication failed. Please contact support.";
+        } else if (errorMsg.includes("timeout") || errorMsg.includes("network")) {
+          userFriendlyMessage = "Request timeout. Please try again.";
+        } else if (errorMsg.length < 100) {
+          userFriendlyMessage = errorMsg;
+        }
+      }
+
+      console.error(`[Text Quiz] Failed to generate quiz for content item ${contentItemId}:`, error);
+
+      // Update status to failed
+      await ctx.runMutation(internal.contentItems.updateTextQuizStatusInternal, {
+        contentItemId,
+        status: "failed",
+        textQuizError: userFriendlyMessage,
+      });
+
+      throw error;
+    }
+  },
+});
+
+// Internal query to get content item by ID (no auth - for internal use)
+export const getContentItemByIdInternal = internalQuery({
+  args: {
+    id: v.id("contentItems"),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.id);
+  },
+});
+
+// Public action to trigger text quiz generation (starts background job)
+export const triggerTextQuizGeneration = action({
+  args: {
+    contentItemId: v.id("contentItems"),
+  },
+  handler: async (ctx, args) => {
+    const { contentItemId } = args;
+
+    // Get content item to validate
+    const contentItem = await ctx.runQuery(internal.contentItems.getContentItemByIdInternal, {
+      id: contentItemId,
+    });
+
+    if (!contentItem) {
+      throw new Error("Content item not found");
+    }
+
+    if (contentItem.type !== "text") {
+      throw new Error("Content item must be of type 'text'");
+    }
+
+    if (!contentItem.textContent) {
+      throw new Error("Content item has no text content");
+    }
+
+    // Update status to processing
+    await ctx.runMutation(internal.contentItems.updateTextQuizStatusInternal, {
+      contentItemId,
+      status: "processing",
+    });
+
+    // Schedule the background job
+    await ctx.scheduler.runAfter(0, internal.contentItems.generateTextQuizInternal, {
+      contentItemId,
+    });
+
+    return { 
+      success: true, 
+      message: "Quiz generation started in background",
+      contentItemId,
     };
   },
 });

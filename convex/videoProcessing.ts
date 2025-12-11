@@ -11,7 +11,7 @@ import {
   interactiveNotesSchemaDescription,
 } from "@/lib/validators/generatedContentSchemas";
 
-const RATE_LIMIT_DELAY = 5000; // 5 seconds between videos
+const RATE_LIMIT_DELAY = 15000; // 15 seconds between videos to avoid AI provider rate limits
 
 // Helper to check if notes/quiz content is valid (not undefined, null, or empty object)
 function hasValidNotes(notes: unknown): boolean {
@@ -231,12 +231,16 @@ export const processVideoInternal = internalAction({
 
       // Check if it's a rate limit error
       if (errorMessage.includes("429") || errorMessage.includes("quota") || errorMessage.includes("RESOURCE_EXHAUSTED")) {
-        console.error("Rate limit exceeded. Video will remain in processing state.");
-        // Don't mark as failed for rate limit errors - it will be retried
+        console.error("Rate limit exceeded. Scheduling automatic retry in 60 seconds.");
+        // Set to pending and schedule retry
         await ctx.runMutation(internal.videoProcessing.updateVideoStatus, {
           videoId: args.videoId,
           status: "pending",
           errorMessage: "Rate limit exceeded. Will retry automatically.",
+        });
+        // Schedule automatic retry after 60 seconds
+        await ctx.scheduler.runAfter(60000, internal.videoProcessing.processVideoInternal, {
+          videoId: args.videoId,
         });
       } else {
         // For other errors, mark as failed
@@ -322,12 +326,16 @@ export const processVideoQuizInternal = internalAction({
 
       // Check if it's a rate limit error
       if (errorMessage.includes("429") || errorMessage.includes("quota") || errorMessage.includes("RESOURCE_EXHAUSTED")) {
-        console.error("Rate limit exceeded during quiz generation.");
-        // Keep in processing state, quiz can be retried
+        console.error("Rate limit exceeded during quiz generation. Scheduling retry in 60 seconds.");
+        // Keep in processing state, schedule retry
         await ctx.runMutation(internal.videoProcessing.updateVideoStatus, {
           videoId: args.videoId,
           status: "processing",
           errorMessage: "Quiz generation rate limited. Will retry.",
+        });
+        // Schedule automatic retry after 60 seconds
+        await ctx.scheduler.runAfter(60000, internal.videoProcessing.processVideoQuizInternal, {
+          videoId: args.videoId,
         });
       } else {
         // For other errors, mark as failed but keep notes

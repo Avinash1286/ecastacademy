@@ -3,7 +3,7 @@ import { auth } from '@/lib/auth/auth.config';
 import { createConvexClient } from '@/lib/convexClient';
 import { api } from '../../../../../convex/_generated/api';
 import { Id } from '../../../../../convex/_generated/dataModel';
-import { withRateLimit, RATE_LIMIT_PRESETS } from '@/lib/security/rateLimit';
+import { withRateLimitByUser, RATE_LIMIT_PRESETS } from '@/lib/security/rateLimit';
 import { logger } from '@/lib/logging/logger';
 
 // =============================================================================
@@ -48,13 +48,36 @@ function sanitizeTitle(title: string): string {
 }
 
 export async function POST(request: NextRequest) {
-  // Apply rate limiting for capsule creation (expensive AI operation)
-  const rateLimitResponse = await withRateLimit(request, RATE_LIMIT_PRESETS.CAPSULE_CREATE);
-  if (rateLimitResponse) return rateLimitResponse;
-
+  // Authenticate first - we need user ID for per-user rate limiting
   const session = await auth();
   if (!session?.user?.clerkId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  // Apply per-user rate limiting for capsule creation (expensive AI operation)
+  const rateLimitResult = await withRateLimitByUser(
+    session.user.clerkId,
+    RATE_LIMIT_PRESETS.CAPSULE_CREATE,
+    'capsule-create'
+  );
+  if (!rateLimitResult.success) {
+    const retryAfter = Math.ceil((rateLimitResult.reset - Date.now()) / 1000);
+    return NextResponse.json(
+      {
+        error: 'Too many requests',
+        message: 'Rate limit exceeded. Please try again later.',
+        retryAfter,
+      },
+      {
+        status: 429,
+        headers: {
+          'Retry-After': retryAfter.toString(),
+          'X-RateLimit-Limit': rateLimitResult.limit.toString(),
+          'X-RateLimit-Remaining': '0',
+          'X-RateLimit-Reset': rateLimitResult.reset.toString(),
+        },
+      }
+    );
   }
   
     // Capture Bearer token from the caller to authorize Convex mutations
@@ -125,22 +148,29 @@ export async function POST(request: NextRequest) {
     const sanitizedTopic = sanitizeInput(sourceTopic, MAX_TOPIC_LENGTH);
     const sanitizedUserPrompt = sanitizeInput(userPrompt, MAX_USER_PROMPT_LENGTH);
 
-    // Get user ID from Convex
-    const userId = session.user.id;
-    if (!userId) {
-      return NextResponse.json(
-        { error: 'User profile not found. Please try again.' },
-        { status: 404 }
-      );
-    }
+    // Get user from Convex using Clerk ID (more reliable than session.user.id which requires prior sync)
     const convex = createConvexClient({ userToken: bearer });
-    const user = await convex.query(api.clerkAuth.getUserById, {
-      id: userId,
+    
+    // First try to get user by Clerk ID
+    let user = await convex.query(api.clerkAuth.getOwnUserByClerkId, {
+      clerkId: session.user.clerkId,
     });
+
+    // If user doesn't exist, trigger a sync and try again
+    if (!user) {
+      try {
+        await convex.mutation(api.clerkAuth.syncUser, {});
+        user = await convex.query(api.clerkAuth.getOwnUserByClerkId, {
+          clerkId: session.user.clerkId,
+        });
+      } catch (syncError) {
+        logger.error('Failed to sync user during capsule creation', { clerkId: session.user.clerkId }, syncError as Error);
+      }
+    }
 
     if (!user) {
       return NextResponse.json(
-        { error: 'User not found' },
+        { error: 'User profile not found. Please sign out and sign in again.' },
         { status: 404 }
       );
     }

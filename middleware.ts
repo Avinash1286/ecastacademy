@@ -34,8 +34,8 @@ const isProtectedRoute = createRouteMatcher([
 const isAdminRoute = createRouteMatcher(['/admin(.*)']);
 
 // Routes requiring CSRF protection (state-changing API routes)
+// Note: /api/ai routes are protected by admin auth check in the route handlers
 const CSRF_PROTECTED_PATHS = [
-  "/api/ai", 
   "/api/course", 
   "/api/capsule", 
   "/api/videos", 

@@ -4,7 +4,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../../../../../convex/_generated/api";
 import { Id } from "../../../../../../convex/_generated/dataModel";
-import { useState } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -60,7 +60,84 @@ export default function CourseBuilderPage() {
 
   const course = useQuery(api.courses.getCourse, { id: courseId });
   const chapters = useQuery(api.chapters.getChaptersByCourse, { courseId });
-  const videos = useQuery(api.videoProcessing.getAllVideos);
+  
+  // Video selector dialog states - moved up so we can use for conditional query
+  const [videoSelectorDialog, setVideoSelectorDialog] = useState(false);
+  const [videoSearchQuery, setVideoSearchQuery] = useState("");
+  
+  // Video pagination states
+  const [videoCursor, setVideoCursor] = useState<string | undefined>(undefined);
+  const [allLoadedVideos, setAllLoadedVideos] = useState<Array<{
+    _id: Id<"videos">;
+    title: string;
+    thumbnailUrl?: string;
+    channelTitle?: string;
+    durationInSeconds?: number;
+    status?: string;
+  }>>([]);
+  const [isLoadingMoreVideos, setIsLoadingMoreVideos] = useState(false);
+  const [lastKnownHasMoreVideos, setLastKnownHasMoreVideos] = useState(false);
+  
+  const VIDEOS_PER_PAGE = 20;
+  
+  // Lazy load videos only when the video selector dialog is opened
+  // This significantly improves initial page load time
+  const videosResult = useQuery(
+    api.videoProcessing.getVideosPaginated,
+    videoSelectorDialog ? { limit: VIDEOS_PER_PAGE, cursor: videoCursor, status: "completed" } : "skip"
+  );
+  
+  // Combine loaded videos with new results
+  const completedVideos = useMemo(() => {
+    if (!videosResult?.videos) return allLoadedVideos;
+    
+    // If no cursor was set, this is fresh data (first load or reset)
+    if (!videoCursor) {
+      return videosResult.videos;
+    }
+    
+    // Otherwise append to existing videos (avoiding duplicates)
+    const existingIds = new Set(allLoadedVideos.map(v => v._id));
+    const uniqueNewVideos = videosResult.videos.filter(v => !existingIds.has(v._id));
+    return [...allLoadedVideos, ...uniqueNewVideos];
+  }, [videosResult?.videos, videoCursor, allLoadedVideos]);
+
+  // Handle load more videos
+  const handleLoadMoreVideos = useCallback(() => {
+    if (videosResult?.nextCursor) {
+      setIsLoadingMoreVideos(true);
+      setAllLoadedVideos(completedVideos);
+      setVideoCursor(videosResult.nextCursor);
+    }
+  }, [videosResult?.nextCursor, completedVideos]);
+
+  // Update hasMore and reset loading state when new data arrives
+  useEffect(() => {
+    if (videosResult !== undefined) {
+      setLastKnownHasMoreVideos(videosResult.hasMore);
+      setIsLoadingMoreVideos(false);
+    }
+  }, [videosResult]);
+
+  // Reset video pagination when dialog closes
+  useEffect(() => {
+    if (!videoSelectorDialog) {
+      setVideoCursor(undefined);
+      setAllLoadedVideos([]);
+      setIsLoadingMoreVideos(false);
+    }
+  }, [videoSelectorDialog]);
+
+  // Use lastKnownHasMoreVideos while loading to prevent button from hiding
+  const hasMoreVideos = isLoadingMoreVideos ? lastKnownHasMoreVideos : (videosResult?.hasMore ?? lastKnownHasMoreVideos);
+  
+  // Filter videos by search query (client-side filtering of loaded videos)
+  const filteredVideos = useMemo(() => {
+    if (!videoSearchQuery) return completedVideos;
+    return completedVideos.filter((video) =>
+      video.title.toLowerCase().includes(videoSearchQuery.toLowerCase())
+    );
+  }, [completedVideos, videoSearchQuery]);
 
   const createChapter = useMutation(api.chapters.createChapterV2);
   const updateChapter = useMutation(api.chapters.updateChapterV2);
@@ -89,7 +166,6 @@ export default function CourseBuilderPage() {
   const [selectedChapterId, setSelectedChapterId] = useState<Id<"chapters"> | null>(null);
   const [contentType, setContentType] = useState<ContentType>("video");
   const [generatingQuizForContentId, setGeneratingQuizForContentId] = useState<Id<"contentItems"> | null>(null);
-  const [generatingNotesForContentId, setGeneratingNotesForContentId] = useState<Id<"contentItems"> | null>(null);
   // Loading states for DB operations
   const [creatingChapter, setCreatingChapter] = useState(false);
   const [updatingChapter, setUpdatingChapter] = useState(false);
@@ -107,10 +183,6 @@ export default function CourseBuilderPage() {
     id: Id<"chapters"> | Id<"contentItems">;
     title: string;
   } | null>(null);
-
-  // Video selector dialog states
-  const [videoSelectorDialog, setVideoSelectorDialog] = useState(false);
-  const [videoSearchQuery, setVideoSearchQuery] = useState("");
 
   // Drag and drop states
   const [draggedChapterIndex, setDraggedChapterIndex] = useState<number | null>(null);
@@ -130,13 +202,6 @@ export default function CourseBuilderPage() {
   const [maxPoints, setMaxPoints] = useState("100");
   const [passingScore, setPassingScore] = useState("70");
   const [allowRetakes, setAllowRetakes] = useState(true);
-
-  const completedVideos = videos?.filter((v) => v.status === "completed") || [];
-
-  // Filter videos by search query
-  const filteredVideos = completedVideos.filter((video) =>
-    video.title.toLowerCase().includes(videoSearchQuery.toLowerCase())
-  );
 
   const handleSelectVideo = (videoId: string, videoTitle: string) => {
     setSelectedVideoId(videoId);
@@ -418,7 +483,6 @@ export default function CourseBuilderPage() {
   const handleGenerateTextQuiz = async (contentItemId: Id<"contentItems">) => {
     try {
       setGeneratingQuizForContentId(contentItemId);
-      toast.info("Generating quiz from text content...");
 
       const response = await fetch("/api/ai/generate-text-quiz", {
         method: "POST",
@@ -436,7 +500,8 @@ export default function CourseBuilderPage() {
         throw new Error(errorMessage);
       }
 
-      toast.success("Quiz generated successfully!");
+      // Quiz generation started in background - status will update via Convex subscription
+      toast.success("Quiz generation started! The status will update automatically.");
     } catch (error) {
       // Show clean error message
       const errorMessage = error instanceof Error ? error.message : "Failed to generate quiz";
@@ -458,37 +523,6 @@ export default function CourseBuilderPage() {
 
   const handleRetryTextQuiz = async (contentItemId: Id<"contentItems">) => {
     await handleGenerateTextQuiz(contentItemId);
-  };
-
-  const handleGenerateVideoNotes = async (contentItemId: Id<"contentItems">) => {
-    setGeneratingNotesForContentId(contentItemId);
-    toast.info("Generating AI notes...");
-    try {
-      const response = await fetch("/api/ai/generate-notes", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ contentItemId }),
-      });
-
-      const data = await response
-        .json()
-        .catch(() => ({}));
-
-      if (!response.ok) {
-        const errorMessage = (data as { error?: string })?.error ?? "Failed to generate notes";
-        throw new Error(errorMessage);
-      }
-
-      toast.success("Notes generated successfully!");
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Failed to generate notes";
-      toast.error(errorMessage);
-      console.error("Generate notes error:", error);
-    } finally {
-      setGeneratingNotesForContentId(null);
-    }
   };
 
   // Drag and drop handlers for chapters
@@ -709,7 +743,6 @@ export default function CourseBuilderPage() {
                       const videoDetails = item.type === "video" && "video" in item ? item.video : null;
                       const isGeneratingQuiz = generatingQuizForContentId === item._id;
                       const textQuizStatus = item.type === "text" ? item.textQuizStatus : null;
-                      const isGeneratingNotes = item.type === "video" && generatingNotesForContentId === item._id;
 
                       return (
                         <div
@@ -782,23 +815,6 @@ export default function CourseBuilderPage() {
                             </div>
                           </div>
                           <div className="flex gap-2">
-                            {item.type === "video" && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleGenerateVideoNotes(item._id)}
-                                disabled={isGeneratingNotes}
-                                title={videoDetails?.notes ? "Regenerate notes" : "Generate notes"}
-                              >
-                                {isGeneratingNotes ? (
-                                  <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : videoDetails?.notes ? (
-                                  <RotateCcw className="h-4 w-4" />
-                                ) : (
-                                  <Sparkles className="h-4 w-4" />
-                                )}
-                              </Button>
-                            )}
                             {item.type === "text" && (
                               <>
                                 {!textQuizStatus || textQuizStatus === "failed" ? (
@@ -1182,7 +1198,12 @@ export default function CourseBuilderPage() {
 
             {/* Video List */}
             <div className="border rounded-lg overflow-hidden max-h-[50vh] overflow-y-auto">
-              {filteredVideos.length === 0 ? (
+              {videosResult === undefined && completedVideos.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  <Loader2 className="mx-auto h-8 w-8 mb-2 animate-spin" />
+                  <p>Loading videos...</p>
+                </div>
+              ) : filteredVideos.length === 0 ? (
                 <div className="text-center py-12 text-muted-foreground">
                   <Video className="mx-auto h-12 w-12 mb-2 opacity-50" />
                   <p>{videoSearchQuery ? "No videos found matching your search" : "No completed videos available"}</p>
@@ -1232,6 +1253,27 @@ export default function CourseBuilderPage() {
                       </button>
                     );
                   })}
+                  
+                  {/* Load More Button */}
+                  {hasMoreVideos && !videoSearchQuery && (
+                    <div className="p-4 flex justify-center">
+                      <Button
+                        onClick={handleLoadMoreVideos}
+                        disabled={isLoadingMoreVideos}
+                        variant="outline"
+                        size="sm"
+                      >
+                        {isLoadingMoreVideos ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Loading...
+                          </>
+                        ) : (
+                          'Load More Videos'
+                        )}
+                      </Button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
