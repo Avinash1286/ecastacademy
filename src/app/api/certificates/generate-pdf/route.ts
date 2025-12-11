@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { withRateLimit, RATE_LIMIT_PRESETS } from "@/lib/security/rateLimit";
 import { auth as appAuth } from "@/lib/auth/auth.config";
 import { createConvexClient } from "@/lib/convexClient";
-import { api } from "../../../../../convex/_generated/api";
+import { api, internal } from "../../../../../convex/_generated/api";
 import { jsPDF } from "jspdf";
 
 /**
@@ -66,15 +66,6 @@ function generateCertificatePDF(data: CertificateData): ArrayBuffer {
   doc.circle(width - 15, 15, 5, "F");
   doc.circle(15, height - 15, 5, "F");
   doc.circle(width - 15, height - 15, 5, "F");
-
-  // Award icon circle
-  doc.setFillColor(245, 158, 11);
-  doc.circle(centerX, 28, 12, "F");
-
-  // Star in circle
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(20);
-  doc.text("★", centerX, 32, { align: "center" });
 
   // Title
   doc.setTextColor(120, 53, 15); // #78350F
@@ -265,7 +256,9 @@ async function handler(req: NextRequest): Promise<NextResponse> {
       });
 
       // Get the current user's Convex ID via their Clerk ID
-      const currentUser = await convex.query(api.clerkAuth.getUserByClerkId, {
+      // Using internal getUserIdByClerkId action (server-only, requires admin auth)
+      // (the API route has already verified the user via Clerk session)
+      const currentUser = await convex.action(internal.clerkAuth.getUserIdByClerkId, {
         clerkId: session.user.clerkId,
       });
 
