@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { withRateLimit, RATE_LIMIT_PRESETS } from "@/lib/security/rateLimit";
 import { auth as appAuth } from "@/lib/auth/auth.config";
 import { createConvexClient } from "@/lib/convexClient";
-import { api, internal } from "../../../../../convex/_generated/api";
+import { api } from "../../../../../convex/_generated/api";
 import { jsPDF } from "jspdf";
 
 /**
@@ -251,30 +251,25 @@ async function handler(req: NextRequest): Promise<NextResponse> {
 
     // Verify certificate ownership - user can only generate their own certificates
     try {
-      const certificate = await convex.query(api.certificates.getCertificate, {
-        certificateId,
-      });
-
-      // Get the current user's Convex ID via their Clerk ID
-      // Using internal getUserIdByClerkId action (server-only, requires admin auth)
-      // (the API route has already verified the user via Clerk session)
-      const currentUser = await convex.action(internal.clerkAuth.getUserIdByClerkId, {
-        clerkId: session.user.clerkId,
-      });
-
-      const isOwnerById = currentUser && certificate.userId === currentUser._id;
+      // Use verifyCertificateOwnership for lightweight ownership check
+      const { isOwner, userEmail } = await convex.query(
+        api.certificates.verifyCertificateOwnership,
+        {
+          certificateId,
+          clerkId: session.user.clerkId,
+        }
+      );
 
       // Allow admins as well
       const isAdmin = session.user.role === "admin";
 
       // For email-based fallback, compare emails directly if we have both
       let isOwnerByEmail = false;
-      if (!isOwnerById && !isAdmin && session.user.email && currentUser?.email) {
-        // We already have the current user's email from Convex, just compare
-        isOwnerByEmail = currentUser.email.toLowerCase() === session.user.email.toLowerCase();
+      if (!isOwner && !isAdmin && session.user.email && userEmail) {
+        isOwnerByEmail = userEmail.toLowerCase() === session.user.email.toLowerCase();
       }
 
-      if (!isOwnerById && !isOwnerByEmail && !isAdmin) {
+      if (!isOwner && !isOwnerByEmail && !isAdmin) {
         return NextResponse.json(
           { error: "Forbidden: You can only generate certificates for your own courses" },
           { status: 403 }

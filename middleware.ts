@@ -1,6 +1,5 @@
-import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server'
+import { clerkMiddleware, createRouteMatcher, clerkClient } from '@clerk/nextjs/server'
 import { NextResponse } from "next/server";
-import { roleFromSessionClaims } from "@/lib/auth/auth.config";
 
 /**
  * Clerk Middleware with Security Features
@@ -10,6 +9,7 @@ import { roleFromSessionClaims } from "@/lib/auth/auth.config";
  * - CSRF protection for state-changing requests
  * - Request body size limits
  * - Security headers
+ * - Real-time admin role verification (not cached)
  */
 
 // Request ID header name
@@ -221,7 +221,7 @@ export default clerkMiddleware(async (auth, request) => {
 
   // 3. Check if route requires authentication
   if (isProtectedRoute(request)) {
-    const { userId, sessionClaims } = await auth();
+    const { userId } = await auth();
     
     if (!userId) {
       // No valid session - Clerk will handle redirect
@@ -231,24 +231,36 @@ export default clerkMiddleware(async (auth, request) => {
 
     // 4. Admin check for admin paths
     if (isAdminRoute(request)) {
-      // Try multiple locations where Clerk might store the role
-      const claims = sessionClaims as Record<string, unknown> | null | undefined;
-      
-      // Check various possible locations for the role
-      const role = 
-        // Standard metadata locations
-        (claims?.metadata as Record<string, unknown>)?.role as string ||
-        (claims?.publicMetadata as Record<string, unknown>)?.role as string ||
-        // Clerk often puts custom claims at the root level
-        (claims?.role as string) ||
-        // Some Clerk versions use 'public_metadata'
-        (claims?.public_metadata as Record<string, unknown>)?.role as string ||
-        // Check under 'user' if present
-        ((claims?.user as Record<string, unknown>)?.publicMetadata as Record<string, unknown>)?.role as string ||
-        undefined;
-
-      // Require explicit admin role - redirect if missing or non-admin
-      if (role !== "admin") {
+      // Fetch fresh user data from Clerk API to get real-time role
+      // This ensures demoted users are immediately blocked, not relying on cached session claims
+      try {
+        const client = await clerkClient();
+        const clerkUser = await client.users.getUser(userId);
+        
+        // Check role from Clerk's publicMetadata (source of truth)
+        const role = clerkUser.publicMetadata?.role as string | undefined;
+        
+        // Require explicit admin role - redirect if missing or non-admin
+        if (role !== "admin") {
+          return NextResponse.redirect(new URL("/dashboard", request.url));
+        }
+      } catch (error) {
+        // Distinguish between operational errors and legitimate access denials
+        if (error && typeof error === "object" && "status" in error) {
+          // Clerk API error with status code
+          const status = (error as { status: number }).status;
+          if (status === 404) {
+            // User not found: treat as access denial
+            console.warn(`Admin check failed: user ${userId} not found.`);
+          } else {
+            // Operational error (e.g., network, Clerk API down)
+            console.error(`Operational error during admin verification for user ${userId}:`, error);
+          }
+        } else {
+          // Unknown error type
+          console.error(`Unknown error during admin verification for user ${userId}:`, error);
+        }
+        // If we can't verify admin status, deny access to be safe
         return NextResponse.redirect(new URL("/dashboard", request.url));
       }
     }

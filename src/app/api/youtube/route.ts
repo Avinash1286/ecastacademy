@@ -7,7 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { withRateLimit, RATE_LIMIT_PRESETS } from '@/lib/security/rateLimit';
-import { auth } from '@/lib/auth/auth.config';
+import { requireAdmin } from '@/lib/auth/auth.config';
 import { logger } from '@/lib/logging/logger';
 
 const YOUTUBE_API_BASE_URL = 'https://www.googleapis.com/youtube/v3';
@@ -108,11 +108,12 @@ export async function GET(request: NextRequest) {
   const rateLimitResponse = await withRateLimit(request, RATE_LIMIT_PRESETS.YOUTUBE);
   if (rateLimitResponse) return rateLimitResponse;
 
-  // HIGH-4 FIX: Require authentication to prevent unauthorized API usage
-  const session = await auth();
-  if (!session?.user?.id) {
+  // Require admin authentication - YouTube API access is only for admin video import
+  try {
+    await requireAdmin();
+  } catch {
     return NextResponse.json(
-      { error: 'Authentication required to access YouTube API.' },
+      { error: 'Admin authentication required to access YouTube API.' },
       { status: 401 }
     );
   }

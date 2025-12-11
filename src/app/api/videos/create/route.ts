@@ -3,21 +3,34 @@ import { api } from "../../../../../convex/_generated/api";
 import { Id } from "../../../../../convex/_generated/dataModel";
 import { createConvexClient } from "@/lib/convexClient";
 import { withRateLimit, RATE_LIMIT_PRESETS } from "@/lib/security/rateLimit";
-import { auth } from "@/lib/auth/auth.config";
+import { requireAdmin } from "@/lib/auth/auth.config";
 import { logger } from "@/lib/logging/logger";
 
-const convex = createConvexClient();
+// Use admin auth since this is an admin-only operation
+const convex = createConvexClient({ useAdminAuth: true });
 
 export async function POST(request: NextRequest) {
   // Apply rate limiting
   const rateLimitResponse = await withRateLimit(request, RATE_LIMIT_PRESETS.VIDEO_CREATE);
   if (rateLimitResponse) return rateLimitResponse;
 
-  // Require authentication for video creation
-  const session = await auth();
-  if (!session?.user?.id) {
+  // Require admin authentication for video creation
+  let session;
+  try {
+    session = await requireAdmin();
+  } catch {
     return NextResponse.json(
-      { error: "Authentication required" },
+      { error: "Admin authentication required" },
+      { status: 401 }
+    );
+  }
+
+  // Get the user ID - prefer Convex ID but use clerkId as fallback for validation
+  const currentUserId = session.user.id as Id<"users"> | undefined;
+  if (!currentUserId) {
+    logger.warn("Admin authenticated but Convex user ID not found", { clerkId: session.user.clerkId });
+    return NextResponse.json(
+      { error: "User account not properly synced. Please refresh and try again." },
       { status: 401 }
     );
   }
@@ -70,7 +83,6 @@ export async function POST(request: NextRequest) {
     let existing = 0;
     let skippedProcessing = 0;
     const createdVideoIds: Id<"videos">[] = [];
-    const currentUserId = session.user.id as Id<"users">;
 
     // First, create all videos with pending status (don't trigger processing yet)
     for (const video of videos) {

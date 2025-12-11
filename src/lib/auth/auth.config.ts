@@ -114,20 +114,30 @@ export async function requireAdmin(): Promise<AppSession & { user: SessionUser &
   let role = session.user.role;
   let convexUserId = session.user.id;
 
-  // If role is missing, resolve via Clerk metadata or Convex user record
-  if (!role) {
+  // If role or convexUserId is missing, resolve via Clerk metadata or Convex user record
+  if (!role || !convexUserId) {
     const client = await clerkClient();
     const clerkUser = await client.users.getUser(session.user.clerkId);
-    role = roleFromClerkUser(clerkUser);
-
+    
+    // Get role from Clerk metadata if not already set
     if (!role) {
+      role = roleFromClerkUser(clerkUser);
+    }
+
+    // If we still need role or convexUserId, fetch from Convex
+    if (!role || !convexUserId) {
       const email = clerkUser.emailAddresses?.[0]?.emailAddress;
       // Get user token for authenticated Convex query
       const clerkAuthResult = await clerkAuth();
       const userToken = await clerkAuthResult.getToken({ template: "convex" });
       const convexUser = email ? await fetchConvexUserByEmail(email, userToken) : null;
-      role = convexUser?.role as AppRole | undefined;
-      convexUserId = convexUser?._id as Id<"users"> | undefined;
+      
+      if (!role) {
+        role = convexUser?.role as AppRole | undefined;
+      }
+      if (!convexUserId) {
+        convexUserId = convexUser?._id as Id<"users"> | undefined;
+      }
     }
   }
 

@@ -10,7 +10,7 @@ import {
 } from "@/lib/validators/generatedContentSchemas";
 import { resolveWithConvexClient, MissingAIModelMappingError } from "@shared/ai/modelResolver";
 import { withRateLimit, withRateLimitByUser, RATE_LIMIT_PRESETS } from "@/lib/security/rateLimit";
-import { auth } from "@/lib/auth/auth.config";
+import { requireAdmin } from "@/lib/auth/auth.config";
 
 const convex = createConvexClient();
 
@@ -19,18 +19,20 @@ export async function POST(request: NextRequest) {
   const rateLimitResponse = await withRateLimit(request, RATE_LIMIT_PRESETS.AI_GENERATION);
   if (rateLimitResponse) return rateLimitResponse;
 
-  // Require authentication - AI generation is expensive
-  const session = await auth();
-  if (!session?.user?.id) {
+  // Require admin authentication - text quiz generation is only for admin course building
+  let session;
+  try {
+    session = await requireAdmin();
+  } catch {
     return NextResponse.json(
-      { error: "Authentication required" },
+      { error: "Admin authentication required" },
       { status: 401 }
     );
   }
 
   // MEDIUM-5 FIX: Apply per-user rate limiting for authenticated users
   const userRateLimit = await withRateLimitByUser(
-    session.user.id,
+    session.user.clerkId,
     RATE_LIMIT_PRESETS.AI_GENERATION,
     "generate-text-quiz"
   );

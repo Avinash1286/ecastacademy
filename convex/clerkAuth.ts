@@ -1,6 +1,5 @@
 import { v } from "convex/values";
-import { mutation, query, internalQuery, internalAction } from "./_generated/server";
-import { internal } from "./_generated/api";
+import { mutation, query, internalQuery } from "./_generated/server";
 
 /**
  * Clerk-based authentication helpers for Convex
@@ -237,47 +236,5 @@ export const getUserByClerkId = internalQuery({
     
     // Return full user info for internal server-side use
     return user;
-  },
-});
-
-/**
- * Internal query to get minimal user info by Clerk ID.
- * Not exposed to clients - use the action wrapper below for server-side API routes.
- */
-export const getUserIdByClerkIdInternal = internalQuery({
-  args: { clerkId: v.string() },
-  handler: async (ctx, args) => {
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_clerk_id", (q) => q.eq("clerkId", args.clerkId))
-      .first();
-    
-    if (!user) {
-      return null;
-    }
-    
-    // Return only minimal info needed for ownership verification
-    return {
-      _id: user._id,
-      email: user.email,
-    };
-  },
-});
-
-/**
- * Internal action to get user ID by Clerk ID for server-side verification.
- * This is used by API routes that have already authenticated the user via Clerk session
- * and need to resolve the Convex user ID for ownership checks.
- * 
- * Internal actions can only be called with admin auth (deploy key) from server-side API routes.
- * The API route is responsible for validating that the clerkId belongs to the authenticated user.
- */
-export const getUserIdByClerkId = internalAction({
-  args: { clerkId: v.string() },
-  handler: async (ctx, args): Promise<{ _id: string; email: string } | null> => {
-    const result = await ctx.runQuery(internal.clerkAuth.getUserIdByClerkIdInternal, {
-      clerkId: args.clerkId,
-    });
-    return result;
   },
 });

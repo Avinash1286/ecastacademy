@@ -6,7 +6,8 @@ import { createConvexClient } from "@/lib/convexClient";
 import { withRateLimit, RATE_LIMIT_PRESETS } from "@/lib/security/rateLimit";
 import { logger } from "@/lib/logging/logger";
 
-const convex = createConvexClient();
+// Use admin auth since API route already validates admin access via Clerk
+const convex = createConvexClient({ useAdminAuth: true });
 
 // GET - List all users (admin only)
 export async function GET(request: NextRequest) {

@@ -2,22 +2,33 @@ import { NextRequest, NextResponse } from 'next/server';
 import { api } from '../../../../../convex/_generated/api';
 import { Id } from '../../../../../convex/_generated/dataModel';
 import { createConvexClient } from '@/lib/convexClient';
-import { auth } from '@/lib/auth/auth.config';
+import { requireAdmin } from '@/lib/auth/auth.config';
 import { withRateLimit, RATE_LIMIT_PRESETS } from '@/lib/security/rateLimit';
 import { logger } from '@/lib/logging/logger';
 
-const convex = createConvexClient();
+// Use admin auth for course creation
+const convex = createConvexClient({ useAdminAuth: true });
 
 export async function POST(request: NextRequest) {
   // Apply rate limiting for course creation
   const rateLimitResponse = await withRateLimit(request, RATE_LIMIT_PRESETS.COURSE_CREATE);
   if (rateLimitResponse) return rateLimitResponse;
 
-  // Require authentication for course creation
-  const session = await auth();
-  if (!session?.user?.id) {
+  // Require admin authentication for course creation
+  let session;
+  try {
+    session = await requireAdmin();
+  } catch {
     return NextResponse.json(
-      { error: 'Authentication required' },
+      { error: 'Admin authentication required' },
+      { status: 401 }
+    );
+  }
+
+  const currentUserId = session.user.id as Id<'users'> | undefined;
+  if (!currentUserId) {
+    return NextResponse.json(
+      { error: 'User account not properly synced. Please refresh and try again.' },
       { status: 401 }
     );
   }
@@ -41,8 +52,6 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-
-    const currentUserId = session.user.id as Id<'users'>;
 
     // Create the course
     const courseId = await convex.mutation(api.courses.createCourse, {

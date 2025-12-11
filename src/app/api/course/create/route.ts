@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createCourseWithProgress } from "@/lib/services/courseServiceConvex";
 import { CreateCourseSchema } from "@/lib/validators/courseValidator";
 import { ZodError } from "zod";
-import { auth } from "@/lib/auth/auth.config";
+import { requireAdmin } from "@/lib/auth/auth.config";
 import { withRateLimit, RATE_LIMIT_PRESETS } from "@/lib/security/rateLimit";
 import { logger } from "@/lib/logging/logger";
 
@@ -11,11 +11,13 @@ export async function POST(request: NextRequest) {
   const rateLimitResponse = await withRateLimit(request, RATE_LIMIT_PRESETS.COURSE_CREATE);
   if (rateLimitResponse) return rateLimitResponse;
 
-  // Require authentication for course creation
-  const session = await auth();
-  if (!session?.user?.id) {
+  // Require admin authentication for course creation
+  let session;
+  try {
+    session = await requireAdmin();
+  } catch {
     return NextResponse.json(
-      { error: "Authentication required" },
+      { error: "Admin authentication required" },
       { status: 401 }
     );
   }
