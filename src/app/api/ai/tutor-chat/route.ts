@@ -103,7 +103,7 @@ export async function POST(request: NextRequest) {
 
   // Require authentication - AI chat is expensive
   const session = await auth();
-  if (!session?.user?.id) {
+  if (!session?.user?.clerkId) {
     return NextResponse.json(
       { error: "Authentication required" },
       { status: 401 }
@@ -113,7 +113,7 @@ export async function POST(request: NextRequest) {
   // MEDIUM-5 FIX: Apply per-user rate limiting for authenticated users
   // This prevents a single user from exhausting shared rate limits
   const userRateLimit = await withRateLimitByUser(
-    session.user.id,
+    session.user.clerkId,
     RATE_LIMIT_PRESETS.AI_GENERATION,
     "tutor-chat"
   );

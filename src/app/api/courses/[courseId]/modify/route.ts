@@ -15,9 +15,9 @@ export async function PATCH(
   const rateLimitResponse = await withRateLimit(request, RATE_LIMIT_PRESETS.COURSE_CREATE);
   if (rateLimitResponse) return rateLimitResponse;
 
-  // Require authentication
+  // Require authentication - use clerkId which is always available
   const session = await auth();
-  if (!session?.user?.id) {
+  if (!session?.user?.clerkId) {
     return NextResponse.json({ error: "Authentication required" }, { status: 401 });
   }
 
@@ -38,8 +38,9 @@ export async function PATCH(
       return NextResponse.json({ error: "Course not found" }, { status: 404 });
     }
     
-    const isOwner = ownership.createdBy === session.user.id;
     const isAdmin = session.user.role === "admin";
+    // For ownership check, we need Convex user ID. Admins bypass this.
+    const isOwner = session.user.id ? ownership.createdBy === session.user.id : false;
     
     if (!isOwner && !isAdmin) {
       return NextResponse.json(
@@ -54,7 +55,7 @@ export async function PATCH(
 
     return NextResponse.json(updatedCourse, { status: 200 });
   } catch (error) {
-    logger.error('Failed to update course', { courseId, userId: session.user.id }, error as Error);
+    logger.error('Failed to update course', { courseId, userId: session.user.clerkId }, error as Error);
 
     if (error instanceof ZodError) {
       return NextResponse.json({ error: error.message }, { status: 400 });
@@ -78,9 +79,9 @@ export async function DELETE(
   const rateLimitResponse = await withRateLimit(request, RATE_LIMIT_PRESETS.COURSE_CREATE);
   if (rateLimitResponse) return rateLimitResponse;
 
-  // Require authentication
+  // Require authentication - use clerkId which is always available
   const session = await auth();
-  if (!session?.user?.id) {
+  if (!session?.user?.clerkId) {
     return NextResponse.json({ error: "Authentication required" }, { status: 401 });
   }
 
@@ -94,8 +95,9 @@ export async function DELETE(
       return NextResponse.json({ error: "Course not found" }, { status: 404 });
     }
     
-    const isOwner = ownership.createdBy === session.user.id;
     const isAdmin = session.user.role === "admin";
+    // For ownership check, we need Convex user ID. Admins bypass this.
+    const isOwner = session.user.id ? ownership.createdBy === session.user.id : false;
     
     if (!isOwner && !isAdmin) {
       return NextResponse.json(
@@ -111,7 +113,7 @@ export async function DELETE(
       { status: 200 }
     );
   } catch (error) {
-    logger.error('Failed to delete course', { userId: session.user.id }, error as Error);
+    logger.error('Failed to delete course', { userId: session.user.clerkId }, error as Error);
 
     if (error instanceof Error && error.message === "Course not found") {
       return NextResponse.json({ error: error.message }, { status: 404 });

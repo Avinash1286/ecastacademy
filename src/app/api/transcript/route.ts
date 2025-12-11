@@ -5,7 +5,7 @@ import {
   getTranscriptProviderStatus 
 } from '@/lib/services/transcriptServiceEnhanced';
 import { withRateLimit, RATE_LIMIT_PRESETS } from '@/lib/security/rateLimit';
-import { auth } from '@/lib/auth/auth.config';
+import { requireAdmin } from '@/lib/auth/auth.config';
 import { logger } from '@/lib/logging/logger';
 
 export async function GET(request: NextRequest) {
@@ -13,11 +13,12 @@ export async function GET(request: NextRequest) {
   const rateLimitResponse = await withRateLimit(request, RATE_LIMIT_PRESETS.TRANSCRIPT);
   if (rateLimitResponse) return rateLimitResponse;
 
-  // HIGH-3 FIX: Require authentication to prevent unauthorized API usage
-  const session = await auth();
-  if (!session?.user?.id) {
+  // Require admin authentication - transcripts are only fetched during admin video import
+  try {
+    await requireAdmin();
+  } catch {
     return NextResponse.json(
-      { error: 'Authentication required to fetch transcripts.' },
+      { error: 'Admin authentication required to fetch transcripts.' },
       { status: 401 }
     );
   }

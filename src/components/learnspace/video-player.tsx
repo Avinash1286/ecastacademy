@@ -1,5 +1,6 @@
 'use client';
 
+import { useMemo } from 'react';
 import type { ChapterWithVideo } from '@/lib/types';
 
 // Strict YouTube video ID regex: exactly 11 alphanumeric characters, hyphens, or underscores
@@ -7,10 +8,9 @@ const YOUTUBE_VIDEO_ID_REGEX = /^[A-Za-z0-9_-]{11}$/;
 
 type VideoPlayerProps = {
   video: ChapterWithVideo['video'] | null;
-  isPlayerVisible: boolean;
 };
 
-export function VideoPlayer({ video, isPlayerVisible }: VideoPlayerProps) {
+export function VideoPlayer({ video }: VideoPlayerProps) {
   // Handle null video or missing videoId
   if (!video || !video.videoId) {
     return (
@@ -29,7 +29,13 @@ export function VideoPlayer({ video, isPlayerVisible }: VideoPlayerProps) {
     );
   }
 
-  const src = `https://www.youtube-nocookie.com/embed/${encodeURIComponent(video.videoId)}?autoplay=${isPlayerVisible ? 1 : 0}&controls=1&rel=0&modestbranding=1&playsinline=1&iv_load_policy=3`;
+  // Memoize src to prevent unnecessary iframe reloads
+  // Don't include isPlayerVisible in src - use CSS to hide/show instead
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const src = useMemo(() => 
+    `https://www.youtube-nocookie.com/embed/${encodeURIComponent(video.videoId)}?autoplay=1&controls=1&rel=0&modestbranding=1&playsinline=1&iv_load_policy=3`,
+    [video.videoId]
+  );
 
   return (
     <div 

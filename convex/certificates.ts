@@ -90,6 +90,42 @@ export const getCertificate = query({
   },
 });
 
+/**
+ * Verify if a user (by Clerk ID) owns a specific certificate.
+ * Used by API routes for ownership verification before allowing PDF download.
+ * Returns the certificate with ownership status - safe because certificate data is already public.
+ */
+export const getCertificateWithOwnership = query({
+  args: {
+    certificateId: v.string(),
+    clerkId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const certificate = await ctx.db
+      .query("certificates")
+      .withIndex("by_certificateId", (q) => q.eq("certificateId", args.certificateId))
+      .first();
+
+    if (!certificate) {
+      throw new Error("Certificate not found");
+    }
+
+    // Look up the user by Clerk ID to verify ownership
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerk_id", (q) => q.eq("clerkId", args.clerkId))
+      .first();
+
+    const isOwner = user ? certificate.userId === user._id : false;
+
+    return {
+      certificate,
+      isOwner,
+      userEmail: user?.email,
+    };
+  },
+});
+
 type CertificateRequestResult = {
   eligible: boolean;
   issued: boolean;

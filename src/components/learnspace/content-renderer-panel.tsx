@@ -21,10 +21,10 @@ type ContentRendererProps = {
   } | null;
 };
 
-export function ContentRenderer({ contentItem, isPlayerVisible, fallbackVideo }: ContentRendererProps) {
+export function ContentRenderer({ contentItem, fallbackVideo }: ContentRendererProps) {
   // If no content item but fallback video exists (old system)
   if (!contentItem && fallbackVideo) {
-    return <VideoPlayer video={fallbackVideo} isPlayerVisible={isPlayerVisible} />;
+    return <VideoPlayer video={fallbackVideo} />;
   }
 
   if (!contentItem) {
@@ -57,7 +57,7 @@ export function ContentRenderer({ contentItem, isPlayerVisible, fallbackVideo }:
       transcript: contentItem.videoDetails.transcript,
     };
 
-    return <VideoPlayer video={videoData} isPlayerVisible={isPlayerVisible} />;
+    return <VideoPlayer video={videoData} />;
   }
 
   // Render text content

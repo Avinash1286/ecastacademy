@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
   if (rateLimitResponse) return rateLimitResponse;
 
   const session = await auth();
-  if (!session?.user?.id) {
+  if (!session?.user?.clerkId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
   

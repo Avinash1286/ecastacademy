@@ -35,12 +35,22 @@ export function VideoPlayerPanel({
   // Check if current content is text type
   const isTextContent = activeContentItem?.type === 'text';
 
+  // Get the current video ID to use as a stable key
+  const currentVideoId = activeContentItem?.type === 'video' 
+    ? activeContentItem.videoDetails?.youtubeVideoId 
+    : activeChapter?.video?.videoId;
+
   return (
     <div className="flex h-full flex-col gap-4 p-4 bg-background">
-      {/* Only show video player if not text content */}
+      {/* Only show video player if not text content - use CSS visibility to preserve playback state */}
       {!isTextContent && (
-        <div className={!isPlayerVisible ? 'hidden' : ''}>
+        <div 
+          className={!isPlayerVisible ? 'hidden' : ''}
+          // Use video ID as key to prevent unnecessary remounts when toggling visibility
+          // Only remount when the actual video changes
+        >
           <ContentRenderer 
+            key={currentVideoId || 'no-video'}
             contentItem={activeContentItem} 
             fallbackVideo={activeChapter?.video || null}
             isPlayerVisible={isPlayerVisible}
