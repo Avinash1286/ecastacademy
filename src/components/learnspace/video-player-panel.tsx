@@ -53,7 +53,6 @@ export function VideoPlayerPanel({
             key={currentVideoId || 'no-video'}
             contentItem={activeContentItem} 
             fallbackVideo={activeChapter?.video || null}
-            isPlayerVisible={isPlayerVisible}
           />
         </div>
       )}

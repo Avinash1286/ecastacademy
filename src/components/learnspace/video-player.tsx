@@ -11,6 +11,15 @@ type VideoPlayerProps = {
 };
 
 export function VideoPlayer({ video }: VideoPlayerProps) {
+  // Memoize src to prevent unnecessary iframe reloads
+  // Must be called before any early returns to follow React hooks rules
+  const src = useMemo(() => {
+    if (!video?.videoId || !YOUTUBE_VIDEO_ID_REGEX.test(video.videoId)) {
+      return null;
+    }
+    return `https://www.youtube-nocookie.com/embed/${encodeURIComponent(video.videoId)}?autoplay=1&controls=1&rel=0&modestbranding=1&playsinline=1&iv_load_policy=3`;
+  }, [video?.videoId]);
+
   // Handle null video or missing videoId
   if (!video || !video.videoId) {
     return (
@@ -21,21 +30,13 @@ export function VideoPlayer({ video }: VideoPlayerProps) {
   }
 
   // Validate videoId against strict YouTube format
-  if (!YOUTUBE_VIDEO_ID_REGEX.test(video.videoId)) {
+  if (!src) {
     return (
       <div className="flex aspect-video w-full items-center justify-center rounded-lg bg-muted text-center text-muted-foreground">
         Invalid video ID format
       </div>
     );
   }
-
-  // Memoize src to prevent unnecessary iframe reloads
-  // Don't include isPlayerVisible in src - use CSS to hide/show instead
-  // eslint-disable-next-line react-hooks/rules-of-hooks
-  const src = useMemo(() => 
-    `https://www.youtube-nocookie.com/embed/${encodeURIComponent(video.videoId)}?autoplay=1&controls=1&rel=0&modestbranding=1&playsinline=1&iv_load_policy=3`,
-    [video.videoId]
-  );
 
   return (
     <div 

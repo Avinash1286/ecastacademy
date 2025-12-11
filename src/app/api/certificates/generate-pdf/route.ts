@@ -251,9 +251,9 @@ async function handler(req: NextRequest): Promise<NextResponse> {
 
     // Verify certificate ownership - user can only generate their own certificates
     try {
-      // Use getCertificateWithOwnership to verify ownership in a single query
+      // Use verifyCertificateOwnership for lightweight ownership check
       const { isOwner, userEmail } = await convex.query(
-        api.certificates.getCertificateWithOwnership,
+        api.certificates.verifyCertificateOwnership,
         {
           certificateId,
           clerkId: session.user.clerkId,

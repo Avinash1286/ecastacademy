@@ -9,7 +9,6 @@ import DOMPurify from 'isomorphic-dompurify';
 
 type ContentRendererProps = {
   contentItem: ContentItem | null;
-  isPlayerVisible: boolean;
   fallbackVideo?: {
     videoId: string;
     title: string;

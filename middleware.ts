@@ -245,8 +245,22 @@ export default clerkMiddleware(async (auth, request) => {
           return NextResponse.redirect(new URL("/dashboard", request.url));
         }
       } catch (error) {
+        // Distinguish between operational errors and legitimate access denials
+        if (error && typeof error === "object" && "status" in error) {
+          // Clerk API error with status code
+          const status = (error as { status: number }).status;
+          if (status === 404) {
+            // User not found: treat as access denial
+            console.warn(`Admin check failed: user ${userId} not found.`);
+          } else {
+            // Operational error (e.g., network, Clerk API down)
+            console.error(`Operational error during admin verification for user ${userId}:`, error);
+          }
+        } else {
+          // Unknown error type
+          console.error(`Unknown error during admin verification for user ${userId}:`, error);
+        }
         // If we can't verify admin status, deny access to be safe
-        console.error("Failed to verify admin status:", error);
         return NextResponse.redirect(new URL("/dashboard", request.url));
       }
     }
