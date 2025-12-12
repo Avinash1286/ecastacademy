@@ -95,26 +95,26 @@ function buildCSP(): string {
     
     // Scripts - allow YouTube + Clerk loader; keep inline/eval in dev
     process.env.NODE_ENV === "production"
-      ? "script-src 'self' 'unsafe-inline' https://www.youtube.com https://www.youtube-nocookie.com https://s.ytimg.com https://*.clerk.com https://*.clerk.accounts.dev"
-      : "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.youtube.com https://www.youtube-nocookie.com https://s.ytimg.com https://*.clerk.com https://*.clerk.accounts.dev",
+      ? "script-src 'self' 'unsafe-inline' https://www.youtube.com https://www.youtube-nocookie.com https://s.ytimg.com https://*.clerk.com https://*.clerk.accounts.dev https://clerk.ecastacademy.tech"
+      : "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.youtube.com https://www.youtube-nocookie.com https://s.ytimg.com https://*.clerk.com https://*.clerk.accounts.dev https://clerk.ecastacademy.tech",
     
     // Styles - self and inline (needed for styled components/CSS-in-JS)
     "style-src 'self' 'unsafe-inline'",
     
     // Images - self, data URIs, YouTube thumbnails, Convex storage, Clerk assets
-    "img-src 'self' data: blob: https://i.ytimg.com https://*.convex.cloud https://lh3.googleusercontent.com https://avatars.githubusercontent.com https://*.clerk.com https://*.clerk.accounts.dev",
+    "img-src 'self' data: blob: https://i.ytimg.com https://*.convex.cloud https://lh3.googleusercontent.com https://avatars.githubusercontent.com https://*.clerk.com https://*.clerk.accounts.dev https://clerk.ecastacademy.tech",
     
     // Fonts - self only
     "font-src 'self' data:",
     
     // Connect - API calls to self, Convex, AI services, and Clerk
-      "connect-src 'self' https://*.convex.cloud wss://*.convex.cloud https://generativelanguage.googleapis.com https://api.openai.com https://www.youtube.com https://www.youtube-nocookie.com https://*.googlevideo.com https://*.clerk.com https://*.clerk.accounts.dev",
+      "connect-src 'self' https://*.convex.cloud wss://*.convex.cloud https://generativelanguage.googleapis.com https://api.openai.com https://www.youtube.com https://www.youtube-nocookie.com https://*.googlevideo.com https://*.clerk.com https://*.clerk.accounts.dev https://clerk.ecastacademy.tech",
     
     // Media - self and YouTube (regular + nocookie)
         "media-src 'self' https://www.youtube.com https://www.youtube-nocookie.com https://*.googlevideo.com",
     
     // Frames - YouTube embeds and Clerk
-    "frame-src https://www.youtube.com https://www.youtube-nocookie.com https://*.clerk.com https://*.clerk.accounts.dev",
+    "frame-src https://www.youtube.com https://www.youtube-nocookie.com https://*.clerk.com https://*.clerk.accounts.dev https://clerk.ecastacademy.tech",
     
     // Form actions - self only
     "form-action 'self'",
