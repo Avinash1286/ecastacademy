@@ -409,13 +409,18 @@ function VisualizationFrame({
       // Extract error message from Convex error structure
       let message = 'Failed to regenerate visualization';
       if (error instanceof Error) {
-        // Convex errors have the message in error.message, but may also have error.data
         message = error.message;
       } else if (typeof error === 'object' && error !== null) {
-        // Handle Convex error object structure
         const convexError = error as { message?: string; data?: { message?: string } };
         message = convexError.data?.message || convexError.message || message;
       }
+      
+      // Clean up Convex error wrapping (e.g., "Uncaught Error: Rate limit..." -> "Rate limit...")
+      // Also handle "Server Error" prefix
+      message = message
+        .replace(/^Uncaught Error:\s*/i, '')
+        .replace(/^Error:\s*/i, '')
+        .replace(/^Server Error:\s*/i, '');
       
       // Show user-friendly toast
       toast.error(message);
@@ -1740,6 +1745,13 @@ export function MixedLesson({
         const convexError = error as { message?: string; data?: { message?: string } };
         message = convexError.data?.message || convexError.message || message;
       }
+      
+      // Clean up Convex error wrapping
+      message = message
+        .replace(/^Uncaught Error:\s*/i, '')
+        .replace(/^Error:\s*/i, '')
+        .replace(/^Server Error:\s*/i, '');
+      
       toast.error(message);
     }
   }, [lessonId, userId, currentQuestionIndex, questionFeedback, regenerateQuestion]);
