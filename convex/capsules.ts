@@ -173,21 +173,24 @@ export const getCommunityCapsules = query({
   handler: async (ctx, args) => {
     const limit = Math.min(args.limit ?? 12, 50); // Cap at 50 for performance
     
-    // Query public, completed capsules ordered by publishedAt (newest first)
+    // Query public capsules ordered by publishedAt (newest published first)
+    // Using by_public_publishedAt index for proper ordering
     let query = ctx.db
       .query("capsules")
-      .withIndex("by_public_status", (q) => 
-        q.eq("isPublic", true).eq("status", "completed")
+      .withIndex("by_public_publishedAt", (q) => 
+        q.eq("isPublic", true)
       )
       .order("desc");
 
     // Apply cursor-based pagination
     const allCapsules = await query.collect();
     
-    // Filter out current user's capsules if excludeUserId provided
-    let filteredCapsules = args.excludeUserId 
-      ? allCapsules.filter(c => c.userId !== args.excludeUserId)
-      : allCapsules;
+    // Filter to only completed capsules and exclude current user's capsules if provided
+    let filteredCapsules = allCapsules.filter(c => {
+      if (c.status !== "completed") return false;
+      if (args.excludeUserId && c.userId === args.excludeUserId) return false;
+      return true;
+    });
 
     // Apply cursor pagination manually (after filtering)
     let startIndex = 0;
