@@ -666,11 +666,11 @@ function VisualizationFrame({
   return (
     <div ref={containerRef} className={cn(
       "overflow-hidden rounded-lg",
-      isFullscreen && "bg-background"
+      isFullscreen && "bg-background overflow-auto h-screen"
     )}>
       <Card className={cn(
         "overflow-hidden border",
-        isFullscreen && "border-0 rounded-none h-full"
+        isFullscreen && "border-0 rounded-none min-h-full"
       )}>
         <CardHeader className="py-3 border-b bg-muted/30">
           <div className="flex items-center justify-between flex-wrap gap-2">
@@ -789,7 +789,7 @@ function VisualizationFrame({
             srcDoc={srcDoc}
             className={cn(
               "w-full border-0",
-              isFullscreen ? "h-[calc(100vh-80px)]" : "min-h-[400px]"
+              isFullscreen ? "min-h-[calc(100vh-120px)]" : "min-h-[400px]"
             )}
             sandbox="allow-scripts"
             title={visualization.title || "Visualization"}

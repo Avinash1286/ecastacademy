@@ -1020,7 +1020,7 @@ export const regenerateVisualization = action({
     // Record the request for rate limiting
     await ctx.runMutation(api.rateLimit.recordRequest, {
       bucketKey,
-      maxRequests: 2, // Allow 20 visualization regenerations per hour
+      maxRequests: 20, // Allow 20 visualization regenerations per hour
       windowMs: 60 * 60 * 1000, // 1 hour
     });
 
