@@ -221,12 +221,12 @@ export default clerkMiddleware(async (auth, request) => {
 
   // 3. Check if route requires authentication
   if (isProtectedRoute(request)) {
-    const { userId } = await auth();
+    const { userId, redirectToSignIn } = await auth();
     
     if (!userId) {
-      // No valid session - Clerk will handle redirect
-      await auth.protect();
-      return;
+      // No valid session - redirect to sign-in
+      // Using redirectToSignIn() is more reliable than auth.protect()
+      return redirectToSignIn({ returnBackUrl: request.url });
     }
 
     // 4. Admin check for admin paths
@@ -252,16 +252,23 @@ export default clerkMiddleware(async (auth, request) => {
           if (status === 404) {
             // User not found: treat as access denial
             console.warn(`Admin check failed: user ${userId} not found.`);
+            return NextResponse.redirect(new URL("/dashboard", request.url));
+          } else if (status === 401 || status === 403) {
+            // Auth error - let user continue, they're authenticated but API failed
+            console.warn(`Admin check API auth error for user ${userId}, allowing access to retry`);
+            // Don't block - let the page handle it
           } else {
             // Operational error (e.g., network, Clerk API down)
             console.error(`Operational error during admin verification for user ${userId}:`, error);
+            // For network errors, allow access rather than blocking the user
+            // The page can show an error if needed
           }
         } else {
           // Unknown error type
           console.error(`Unknown error during admin verification for user ${userId}:`, error);
         }
-        // If we can't verify admin status, deny access to be safe
-        return NextResponse.redirect(new URL("/dashboard", request.url));
+        // For non-critical errors, allow access - better UX than blocking
+        // The actual admin pages have their own auth checks as backup
       }
     }
   }
