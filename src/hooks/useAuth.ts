@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useUser } from "@clerk/nextjs";
 import { useQuery, useConvexAuth } from "convex/react";
 import { api } from "../../convex/_generated/api";
@@ -12,9 +12,17 @@ import { api } from "../../convex/_generated/api";
 export function useAuth() {
   const clerk = useUser();
   const convex = useConvexAuth();
+  
+  // Track if we've ever been authenticated to avoid flashing sign-in during navigation
+  const wasAuthenticated = useRef(false);
 
   const isSignedIn = clerk.isSignedIn;
   const isAuthenticated = convex?.isAuthenticated;
+  
+  // Once authenticated, remember it to avoid false negatives during navigation
+  if (isSignedIn && isAuthenticated) {
+    wasAuthenticated.current = true;
+  }
 
   // Get the Convex user that matches this Clerk user
   // Only query if both Clerk and Convex are authenticated
@@ -36,8 +44,15 @@ export function useAuth() {
   } : null;
 
   // Map loading state to status
-  // Consider loading if either Clerk or Convex user is still loading
-  const status = (!clerk.isLoaded || (isSignedIn && !convexUser))
+  // Consider loading if:
+  // 1. Clerk hasn't loaded yet
+  // 2. User is signed in with Clerk but Convex user hasn't loaded
+  // 3. User was previously authenticated but Convex is temporarily disconnected (navigation)
+  const isLoading = !clerk.isLoaded || 
+    (isSignedIn && !convexUser) ||
+    (wasAuthenticated.current && isSignedIn && !isAuthenticated);
+  
+  const status = isLoading
     ? "loading"
     : isSignedIn && convexUser
       ? "authenticated"
@@ -52,6 +67,8 @@ export function useAuth() {
   return {
     data: session,
     status,
+    // Also expose isAuthenticated for backwards compatibility, but use the improved logic
+    isAuthenticated: status === "authenticated" || (wasAuthenticated.current && isSignedIn && status === "loading"),
     update: async () => {
       // Clerk handles session updates automatically
       // This is here for compatibility with NextAuth's API
