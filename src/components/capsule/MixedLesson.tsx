@@ -405,8 +405,19 @@ function VisualizationFrame({
       if (onRegenerated) {
         onRegenerated();
       }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to regenerate';
+    } catch (error: unknown) {
+      // Extract error message from Convex error structure
+      let message = 'Failed to regenerate visualization';
+      if (error instanceof Error) {
+        // Convex errors have the message in error.message, but may also have error.data
+        message = error.message;
+      } else if (typeof error === 'object' && error !== null) {
+        // Handle Convex error object structure
+        const convexError = error as { message?: string; data?: { message?: string } };
+        message = convexError.data?.message || convexError.message || message;
+      }
+      
+      // Show user-friendly toast
       toast.error(message);
     } finally {
       // Clear global regenerating state
@@ -1720,8 +1731,15 @@ export function MixedLesson({
       toast.success('Question regeneration started in background...');
       setShowQuestionFeedbackForm(false);
       setQuestionFeedback('');
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to start regeneration';
+    } catch (error: unknown) {
+      // Extract error message from Convex error structure
+      let message = 'Failed to start regeneration';
+      if (error instanceof Error) {
+        message = error.message;
+      } else if (typeof error === 'object' && error !== null) {
+        const convexError = error as { message?: string; data?: { message?: string } };
+        message = convexError.data?.message || convexError.message || message;
+      }
       toast.error(message);
     }
   }, [lessonId, userId, currentQuestionIndex, questionFeedback, regenerateQuestion]);
