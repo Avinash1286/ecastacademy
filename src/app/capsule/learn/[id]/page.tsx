@@ -248,7 +248,7 @@ export default function CapsuleLearnPage({ params }: PageProps) {
             <p className="text-muted-foreground">
               Please sign in to continue learning this capsule and track your progress.
             </p>
-            <Button onClick={() => router.push('/auth/signin')} className="w-full gap-2">
+            <Button onClick={() => router.push('/sign-in')} className="w-full gap-2">
               Go to sign in
             </Button>
           </CardContent>
@@ -465,7 +465,7 @@ export default function CapsuleLearnPage({ params }: PageProps) {
                   size="sm" 
                   variant="outline"
                   className="shrink-0 border-amber-500/50 hover:bg-amber-500/10"
-                  onClick={() => router.push('/auth/signin')}
+                  onClick={() => router.push('/sign-in')}
                 >
                   Sign in
                 </Button>

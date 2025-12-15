@@ -15,6 +15,16 @@ import { NextResponse } from "next/server";
 // Request ID header name
 const REQUEST_ID_HEADER = "X-Request-ID";
 
+function hasLikelyClerkSessionCookie(request: Request & { cookies: { get: (name: string) => { value?: string } | undefined } }): boolean {
+  // Clerk's primary session cookie is typically __session.
+  // We include a few fallbacks used in some environments.
+  return Boolean(
+    request.cookies.get("__session")?.value ||
+      request.cookies.get("__clerk_db_jwt")?.value ||
+      request.cookies.get("__client_uat")?.value
+  );
+}
+
 // CSRF Configuration
 const CSRF_COOKIE_NAME = "csrf-token";
 const CSRF_HEADER_NAME = "x-csrf-token";
@@ -221,16 +231,42 @@ export default clerkMiddleware(async (auth, request) => {
 
   // 3. Check if route requires authentication
   if (isProtectedRoute(request)) {
-    const { userId, redirectToSignIn } = await auth();
-    
-    if (!userId) {
-      // No valid session - redirect to sign-in
-      // Using redirectToSignIn() is more reliable than auth.protect()
-      return redirectToSignIn({ returnBackUrl: request.url });
+    const hasSessionCookie = hasLikelyClerkSessionCookie(request);
+    let userId: string | null | undefined;
+    let redirectToSignIn:
+      | ((options?: { returnBackUrl?: string; returnBackUrlRelativePath?: string }) => NextResponse)
+      | undefined;
+
+    try {
+      ({ userId, redirectToSignIn } = await auth());
+    } catch (error) {
+      // If Clerk auth verification fails transiently (network/key fetch),
+      // avoid redirecting signed-in users to sign-in mid-navigation.
+      if (!hasSessionCookie) {
+        const signInUrl = new URL("/sign-in", request.url);
+        signInUrl.searchParams.set("redirect_url", request.url);
+        return NextResponse.redirect(signInUrl);
+      }
+
+      // Soft-fail: let the request continue. Page-level auth can still block if needed.
+      userId = undefined;
     }
 
-    // 4. Admin check for admin paths
-    if (isAdminRoute(request)) {
+    if (!userId) {
+      // If there's no Clerk session cookie, this is a real unauthenticated request.
+      if (!hasSessionCookie) {
+        if (redirectToSignIn) {
+          return redirectToSignIn({ returnBackUrl: request.url });
+        }
+        const signInUrl = new URL("/sign-in", request.url);
+        signInUrl.searchParams.set("redirect_url", request.url);
+        return NextResponse.redirect(signInUrl);
+      }
+      // Otherwise: soft-fail and continue (prevents random sign-in redirects).
+    }
+
+    // 4. Admin check for admin paths (only when we have a verified userId)
+    if (userId && isAdminRoute(request)) {
       // Fetch fresh user data from Clerk API to get real-time role
       // This ensures demoted users are immediately blocked, not relying on cached session claims
       try {

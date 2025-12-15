@@ -45,7 +45,7 @@ export function EnrollButton({ courseId, variant = 'default', size = 'default', 
   const handleEnroll = async () => {
     if (!userId) {
       toast.error('Please sign in to enroll');
-      router.push('/auth/signin');
+      router.push('/sign-in');
       return;
     }
 

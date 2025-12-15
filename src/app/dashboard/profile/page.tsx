@@ -67,7 +67,7 @@ export default function ProfilePage() {
           <CardContent className="flex flex-col items-center justify-center py-16 text-center">
             <h2 className="text-2xl font-semibold mb-2">Please Sign In</h2>
             <p className="text-muted-foreground mb-6">You need to be signed in to view your profile.</p>
-            <Link href="/auth/signin">
+            <Link href="/sign-in">
               <Button>Sign In</Button>
             </Link>
           </CardContent>

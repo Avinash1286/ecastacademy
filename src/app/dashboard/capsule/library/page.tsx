@@ -158,8 +158,8 @@ export default function CapsuleLibraryPage() {
             Create and revisit your personalized learning capsules after signing in.
           </p>
           <Button asChild className="gap-2">
-            <Link href="/auth/signin">
-              <Sparkles className="h-4 w-4" />
+            <Link href="/sign-in">
+                <Sparkles className="h-4 w-4" />
               Go to sign in
             </Link>
           </Button>

@@ -9,6 +9,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { OfflineIndicator } from "@/components/pwa/OfflineIndicator";
 import { Toaster } from "@/components/ui/sonner";
 import { InstallPrompt } from "@/components/pwa/InstallPrompt";
+import { UnregisterServiceWorker } from "@/components/pwa/UnregisterServiceWorker";
 
 // Centralized app providers wrapped in ClerkLoaded to ensure auth context
 // is ready before any Convex/Clerk-dependent hooks run.
@@ -29,6 +30,7 @@ export function Providers({ children }: { children: ReactNode }) {
               enableSystem
               disableTransitionOnChange
             >
+              <UnregisterServiceWorker />
               <OfflineIndicator />
               {children}
               <Toaster />

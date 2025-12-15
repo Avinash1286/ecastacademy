@@ -482,7 +482,7 @@ export default function CapsulePage() {
         {!isAuthenticated && status !== 'loading' && (
           <div className="mb-10 rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-100 text-center">
             Please{' '}
-            <Link href="/auth/signin" className="underline font-semibold">
+            <Link href="/sign-in" className="underline font-semibold">
               sign in
             </Link>{' '}
             to generate personalized capsules.

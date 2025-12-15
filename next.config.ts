@@ -28,7 +28,24 @@ const withPWA = withPWAInit({
     },
     // Cache HTML pages
     {
-      urlPattern: ({ request }: { request: Request }) => request.mode === 'navigate',
+      urlPattern: ({ request, url }: { request: Request; url: URL }) => {
+        if (request.mode !== 'navigate') return false;
+
+        // Never cache auth-protected or auth-related navigations.
+        // Caching redirects (e.g. to /sign-in) can cause "random" sign-in navigations.
+        const pathname = url.pathname;
+        if (
+          pathname.startsWith('/dashboard') ||
+          pathname.startsWith('/learnspace') ||
+          pathname.startsWith('/admin') ||
+          pathname.startsWith('/sign-in') ||
+          pathname.startsWith('/sign-up')
+        ) {
+          return false;
+        }
+
+        return true;
+      },
       handler: 'NetworkFirst',
       options: {
         cacheName: 'pages',
@@ -156,6 +173,16 @@ const withPWA = withPWAInit({
         const pathname = url.pathname;
         // Exclude API routes from caching
         if (pathname.startsWith('/api/')) return false;
+        // Exclude auth-protected and auth-related routes from runtime caching.
+        if (
+          pathname.startsWith('/dashboard') ||
+          pathname.startsWith('/learnspace') ||
+          pathname.startsWith('/admin') ||
+          pathname.startsWith('/sign-in') ||
+          pathname.startsWith('/sign-up')
+        ) {
+          return false;
+        }
         return true;
       },
       handler: 'NetworkFirst',

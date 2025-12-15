@@ -89,7 +89,7 @@ export function LearnspaceNavbar({ courseTitle, courseId, isCertification }: Lea
 
     if (!userId) {
       toast.error("Please sign in to access your certificate");
-      router.push("/auth/signin");
+      router.push("/sign-in");
       return;
     }
 
